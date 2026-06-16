@@ -107,41 +107,41 @@
 
 ## Traceability
 
-ロードマップ作成時に各要件をフェーズへマッピングする。現状は未マッピング。
+ロードマップ（`.planning/ROADMAP.md`）の8フェーズに全v1要件をマッピング済み。ビルド順DAG（raw品質ゲート → normalized ETL → ラベル生成 → as-of特徴量・スナップショット → モデル → 予測 → EV・バックテスト → 評価 → 画面/CSV → 対抗的監査テスト）に従う。各リーククリティカル層の境界は検証ゲート。
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DATA-01 | (TBD) | Pending |
-| DATA-02 | (TBD) | Pending |
-| DATA-03 | (TBD) | Pending |
-| LABEL-01 | (TBD) | Pending |
-| LABEL-02 | (TBD) | Pending |
-| LABEL-03 | (TBD) | Pending |
-| LABEL-04 | (TBD) | Pending |
-| FEAT-01 | (TBD) | Pending |
-| FEAT-02 | (TBD) | Pending |
-| MODL-01 | (TBD) | Pending |
-| MODL-02 | (TBD) | Pending |
-| MODL-03 | (TBD) | Pending |
-| EV-01 | (TBD) | Pending |
-| EV-02 | (TBD) | Pending |
-| BACK-01 | (TBD) | Pending |
-| BACK-02 | (TBD) | Pending |
-| BACK-03 | (TBD) | Pending |
-| BACK-04 | (TBD) | Pending |
-| EVAL-01 | (TBD) | Pending |
-| EVAL-02 | (TBD) | Pending |
-| EVAL-03 | (TBD) | Pending |
-| UI-01 | (TBD) | Pending |
-| OUT-01 | (TBD) | Pending |
-| OUT-02 | (TBD) | Pending |
-| TEST-01 | (TBD) | Pending |
+| DATA-01 | Phase 1: Trust & Foundation | Pending |
+| DATA-02 | Phase 1: Trust & Foundation | Pending |
+| DATA-03 | Phase 1: Trust & Foundation | Pending |
+| LABEL-01 | Phase 2: Fukusho Labels | Pending |
+| LABEL-02 | Phase 2: Fukusho Labels | Pending |
+| LABEL-03 | Phase 2: Fukusho Labels | Pending |
+| LABEL-04 | Phase 2: Fukusho Labels | Pending |
+| FEAT-01 | Phase 3: As-of Features & Snapshots | Pending |
+| FEAT-02 | Phase 3: As-of Features & Snapshots | Pending |
+| MODL-01 | Phase 4: Model & Prediction | Pending |
+| MODL-02 | Phase 4: Model & Prediction | Pending |
+| MODL-03 | Phase 4: Model & Prediction | Pending |
+| EV-01 | Phase 5: EV & Backtest | Pending |
+| EV-02 | Phase 5: EV & Backtest | Pending |
+| BACK-01 | Phase 5: EV & Backtest | Pending |
+| BACK-02 | Phase 5: EV & Backtest | Pending |
+| BACK-03 | Phase 5: EV & Backtest | Pending |
+| BACK-04 | Phase 5: EV & Backtest | Pending |
+| EVAL-01 | Phase 6: Evaluation & Calibration Gates | Pending |
+| EVAL-02 | Phase 6: Evaluation & Calibration Gates | Pending |
+| EVAL-03 | Phase 6: Evaluation & Calibration Gates | Pending |
+| UI-01 | Phase 7: Presentation | Pending |
+| OUT-01 | Phase 7: Presentation | Pending |
+| OUT-02 | Phase 7: Presentation | Pending |
+| TEST-01 | Phase 8: Adversarial Audit Suite | Pending |
 
 **Coverage:**
 - v1 requirements: 25 total
-- Mapped to phases: 0（ロードマップ作成後に更新）
-- Unmapped: 25 ⚠️（直後のロードマップ作成で解消予定）
+- Mapped to phases: 25 (fully mapped)
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-06-16*
-*Last updated: 2026-06-16 after initial definition*
+*Last updated: 2026-06-16 after roadmap creation — traceability populated*
