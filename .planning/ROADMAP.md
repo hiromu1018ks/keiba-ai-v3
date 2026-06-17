@@ -45,7 +45,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 01-02-PLAN.md — Wave 2 品質ゲート（hybrid gate, reports/ Markdown+JSON）— DATA-01
-- [ ] 01-04-PLAN.md — Wave 2 リーク防止プリミティブ4種（pit_join/group_split/category_map/calibrator）— 成功基準#4
+- [x] 01-04-PLAN.md — Wave 2 リーク防止プリミティブ4種（pit_join/group_split/category_map/calibrator）— 成功基準#4
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -155,7 +155,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Trust & Foundation | 2/4 | In Progress|  |
+| 1. Trust & Foundation | 3/4 | In Progress|  |
 | 2. Fukusho Labels | 0/TBD | Not started | - |
 | 3. As-of Features & Snapshots | 0/TBD | Not started | - |
 | 4. Model & Prediction | 0/TBD | Not started | - |
