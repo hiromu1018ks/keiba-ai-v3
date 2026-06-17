@@ -335,3 +335,31 @@ None (single reviewer).
 - **Source grounding:** all 8 HIGHs verified against PLAN.md line numbers (see inline citations).
 - **Next step:** feed this REVIEWS.md into `/gsd-plan-phase 1 --reviews` to drive a replan, then
   re-run `/gsd-review` (Cycle 2) until `current_high=0`.
+
+---
+
+## Verification Coverage (orchestrator source-grounding pass)
+
+Authority: `grep` (config `plan_review.source_grounding_authority`). Pass run by the
+plan-review-convergence orchestrator after the Cycle-1 review.
+
+**Scope finding:** this is a greenfield project — the only project source file is `CLAUDE.md`
+(no `src/` code, git-tracked non-doc files = `CLAUDE.md` only). Every symbol the plans cite
+falls into one of three buckets, none of which are verifiable against existing project source:
+
+- **New artifacts (excluded by policy):** all `src/keiba_ai/...` modules, `pyproject.toml`,
+  `alembic.ini`, `class_normalization.yaml`, conftest fixtures, etc. — these are *created by*
+  this phase, not references to existing code. Not verified (correctly).
+- **External library APIs (UNCHECKABLE under grep):** `pandas.merge_asof`,
+  `mlxtend.evaluate.GroupTimeSeriesSplit`, `sklearn.calibration.CalibratedClassifierCV`,
+  `lightgbm`/`catboost` (`has_time=True`), `psycopg`/`duckdb` — resolved against PyPI packages,
+  not project source. Their signatures are UNCHECKABLE under the `grep` authority.
+- **PostgreSQL schema objects (UNCHECKABLE under grep):** `n_uma_race`, `n_umag`, `raw_everydb2`
+  views, `public.n_*` physical tables — these live in the DB, not the repo. Existence/typing is
+  a runtime DB concern (already flagged where under-specified, e.g. `n_uma_race` columns → MEDIUM).
+
+**Verdict:** no **MISSING** or **AMBIGUOUS** project-source symbols (none exist to verify).
+grep-verifiable existing project-source symbols: **0** (greenfield). This clean result is
+structural, not a coverage gap — there is no existing implementation code for the plans to
+hallucinate references into. The substantive grounding happened at the PLAN.md-line level inside
+the review (all 8 HIGHs cited to line numbers above).
