@@ -16,9 +16,9 @@ import pytest
 
 def test_raw_fingerprint_module_signature() -> None:
     """``compute_raw_fingerprint`` / ``assert_raw_unchanged`` が存在し read-only helper。"""
-    from src.etl import raw_fingerprint
-
     import inspect
+
+    from src.etl import raw_fingerprint
 
     assert callable(raw_fingerprint.compute_raw_fingerprint)
     assert callable(raw_fingerprint.assert_raw_unchanged)
