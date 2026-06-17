@@ -1,0 +1,130 @@
+# Keiba AI v3 — DATA-03 の正: クラス正規化完全対応表（実データ検証済み）
+#
+# 由来: PostgreSQL everydb2 に直接接続し、2015-01-01 以降の JRA データ
+# （jyocd BETWEEN '01' AND '10'）の jyokencd5 × gradecd × year を集計して導出
+# （01-RESEARCH.md §クラス正規化完全対応表）。CODE.md は不完全（D-10）のため
+# 実データ SELECT DISTINCT のみを正とする。本ファイルが DATA-03 の正。
+#
+# 後続 plan 01-03 の src/etl/class_normalize.py が本ファイルを読込、
+# jyokencd5 + gradecd + year から機械導出する。名称（hondai）の regex マッチは
+# 一切使用しない（Pitfall 7）。
+
+# D-11: 2019年新クラス体系移行日。実測で 2019-06-08（夏季競馬開催初日・
+# 2回東京/3回阪神 開催初日 = 新クラス体系適用開始）。
+# JRA-VAN 通知 2018-12-05 は発表日で適用日ではない。
+post_2019_class_system_reform_date: "2019-06-08"
+
+# ---------------------------------------------------------------------------
+# jyokencd5（最若年条件コード）→ class_level_numeric / class_name_normalized
+# 実測: JRA 限定（jyocd BETWEEN '01' AND '10'）では6値のみ出現
+# （jyokencd5='000' は地方競馬 jyocd>=30 のみで JRA には出現しない）
+# Pitfall 7 核心: 005/010/016 は制度改革を跨いで class_level_numeric が連続
+# ---------------------------------------------------------------------------
+jyokencd5_map:
+  "701":
+    class_level_numeric: 0
+    class_name_normalized: "新馬"
+    note: "§7.3 モデル対象外だが保存"
+  "703":
+    class_level_numeric: 0
+    class_name_normalized: "未勝利"
+    note: "§7.3 モデル対象外だが保存"
+  "005":
+    class_level_numeric: 1
+    class_name_normalized: "1勝クラス"
+    note: "2019年前: 500万下。制度改革を跨いで class_level_numeric=1 連続（Pitfall 7 核心）"
+  "010":
+    class_level_numeric: 2
+    class_name_normalized: "2勝クラス"
+    note: "2019年前: 1000万下"
+  "016":
+    class_level_numeric: 3
+    class_name_normalized: "3勝クラス"
+    note: "2019年前: 1600万下"
+  "999":
+    class_level_numeric: 4
+    class_name_normalized: "OP・重賞"
+    note: "gradecd で細分（A=G1, B=G2, C/D=G3, L=Listed, E=OP特別）"
+
+# ---------------------------------------------------------------------------
+# gradecd → grade_numeric / is_grade_race / is_listed / is_open_class
+# 実測: JRA 限定で A/B/C/D/L/E, ''（空）の7パターン＋ F/G/H（障害等・希少）
+# D-12: gradecd 単独から機械導出。名称マッチ不使用。
+# MEDIUM #2: F/G/H は silent skip ではなく class_normalization_status='unresolved'
+# として明示格納（01-RESEARCH.md で未検証・D-13 unresolved 扱い）
+# ---------------------------------------------------------------------------
+gradecd_map:
+  "A":
+    grade_numeric: 1
+    is_grade_race: true
+    is_listed: false
+    is_open_class: false
+  "B":
+    grade_numeric: 2
+    is_grade_race: true
+    is_listed: false
+    is_open_class: false
+  "C":
+    grade_numeric: 3
+    is_grade_race: true
+    is_listed: false
+    is_open_class: false
+  "D":
+    grade_numeric: 3
+    is_grade_race: true
+    is_listed: false
+    is_open_class: false
+    note: "A1: 障害G3可能性。ETLでsyubetucd交差確認推奨"
+  "L":
+    grade_numeric: null
+    is_grade_race: false
+    is_listed: true
+    is_open_class: false
+  "E":
+    grade_numeric: null
+    is_grade_race: false
+    is_listed: false
+    is_open_class: true
+    note: "jyokencd5='999' のみに出現（OP特別・2歳/3歳限定特別含む）"
+  "":
+    grade_numeric: null
+    is_grade_race: false
+    is_listed: false
+    is_open_class: false
+    note: "一般条件戦（記号なし）"
+  # --- REVIEWS MEDIUM #2: 未検証コードを unresolved で明示格納 ---
+  "F":
+    grade_numeric: null
+    is_grade_race: false
+    is_listed: false
+    is_open_class: false
+    class_normalization_status: "unresolved"
+    note: "障害等の希少コード・01-RESEARCH.md で未検証・D-13 unresolved で明示格納"
+  "G":
+    grade_numeric: null
+    is_grade_race: false
+    is_listed: false
+    is_open_class: false
+    class_normalization_status: "unresolved"
+    note: "障害等の希少コード・01-RESEARCH.md で未検証・D-13 unresolved で明示格納"
+  "H":
+    grade_numeric: null
+    is_grade_race: false
+    is_listed: false
+    is_open_class: false
+    class_normalization_status: "unresolved"
+    note: "障害等の希少コード・01-RESEARCH.md で未検証・D-13 unresolved で明示格納"
+
+# ---------------------------------------------------------------------------
+# JRA 10場限定フィルタ（Pitfall 2）。地方競馬（jyocd>=30）と海外は対象外
+# 全品質/ETL/クラス正規化クエリで共有する WHERE 句
+# ---------------------------------------------------------------------------
+jra_jyocd_range: ["01", "10"]
+jra_only_filter: "jyocd BETWEEN '01' AND '10'"
+
+# ---------------------------------------------------------------------------
+# D-13: 未知コード戦略。silent fallback 禁止。
+# jyokencd5 / gradecd が対応表に無い場合は class_normalization_status='unresolved'
+# として記録・隔離し、WARNING ログと件数レポートを出力する。
+# ---------------------------------------------------------------------------
+unresolved_strategy: "error_and_isolate"

@@ -1,0 +1,46 @@
+# Keiba AI v3 — feature_availability registry（§13.3・D-15）
+#
+# Phase 1 では「枠＋項目定義」のみ。実エントリと allowlist test は Phase 3 で追加。
+# feature_schema: に §13.3 の6項目スキーマを定義し、Phase 3 で各 feature 行が従う contract
+# を示す。features: [] は空（registry bootstrap）。
+
+schema_version: "0.1.0"
+
+# ---------------------------------------------------------------------------
+# §13.3 項目スキーマ。各 feature エントリは以下6キーを全て持つ。
+# ---------------------------------------------------------------------------
+feature_schema:
+  feature_name:
+    type: "string"
+    description: "feature 識別子（例: jockey_win_rate_1y）"
+  feature_group:
+    type: "string"
+    description: "feature 分類（jockey / horse / trainer / race_context 等）"
+  available_from_timing:
+    type: "string"
+    description: "1A（出馬表確定後）/ 1B（直前）/ post-race 等。feature_cutoff_rule と対応"
+  source_table:
+    type: "string"
+    description: "正規化済み source（例: normalized.n_uma_race）。raw は直接参照しない"
+  cutoff_rule:
+    type: "string"
+    description: "race_date - 1 day 等。feature_cutoff_datetime の導出規則（§13.2/§13.4）"
+  leakage_risk_level:
+    type: "string"
+    description: "low / medium / high。allowlist test（Phase 3）で高リスクは必ず検査"
+
+# ---------------------------------------------------------------------------
+# Phase 1 では空リスト。Phase 3 で各 feature 行を追加。
+# ---------------------------------------------------------------------------
+features: []
+
+# ---------------------------------------------------------------------------
+# 記入例（Phase 3 で features: に移行する際のテンプレート・6キー全てを埋める）
+# ---------------------------------------------------------------------------
+# feature_example_phase3:
+#   - feature_name: jockey_win_rate_1y
+#     feature_group: jockey
+#     available_from_timing: "1A"
+#     source_table: normalized.n_uma_race
+#     cutoff_rule: "race_date - 1 day"
+#     leakage_risk_level: low
