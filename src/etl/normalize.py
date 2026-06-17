@@ -472,7 +472,11 @@ def _row_to_tuple(row: pd.Series, columns: list[str], *, table: str) -> tuple:
     for c in columns:
         v = row.get(c)
         if c == "race_date":
-            if v is None or (isinstance(v, float) and pd.isna(v)):
+            # CR-01: ``pd.isna(v)`` で ``pd.NaT`` も欠損として弾く（race_start_datetime
+            # と対称）。従来は ``isinstance(v, float) and pd.isna(v)`` で float の NaN
+            # しか弾けず、``pd.NaT`` は ``hasattr(v, "isoformat")`` 分岐に入って非 None
+            # 値として date 列に混入し、INSERT 失敗/"NaT" 文字列化を引き起こしていた。
+            if v is None or pd.isna(v):
                 vals.append(None)
             elif hasattr(v, "isoformat"):
                 vals.append(v)

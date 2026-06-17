@@ -70,6 +70,11 @@ MOJIBAKE_COLUMNS_N_UMA_RACE = ("bamei", "kisyuryakusyo", "chokyosiryakusyo", "ba
 CAST_COLUMNS_N_RACE = ("kyori", "hassotime")
 CAST_COLUMNS_N_UMA_RACE = ("futan",)
 
+# real（小数）キャスト対象。``futan`` は負担重量 0.1kg 単位で小数値（例 "57.5"）をとる。
+# 整数専用 ``'^[0-9]+$'`` ではこれらを実キャスト失敗と誤判定して cast 成功率を破損する
+# ため、小数を許容する ``'^[0-9]+(\.[0-9]+)?$'`` で検査する（CR-02）。
+REAL_CAST_COLUMNS = {"futan"}
+
 # U+FFFD REPLACEMENT CHARACTER を PostgreSQL escape 文字列リテラルで表記したもの。
 # ``U&'\\+00FFFD'`` は PostgreSQL の Unicode escape 文字列定数。
 U_FFFD_PG = "U&'\\+00FFFD'"
@@ -370,15 +375,20 @@ def _check_cast_success(cur: Cursor) -> CheckResult:
             try:
                 # Pitfall 1: 全 varchar なので数値カラムは明示キャスト相当の検査が必要。
                 # ``CAST({c} AS integer)`` は非数値で例外を投げ transaction を abort する
-                # ため、事前正規表現 ``!~ '^[0-9]+$'`` でキャスト失敗行を安全に件数集計
-                # する（CAST(kyori AS integer) と同等の明示キャスト検査・例外安全版）。
+                # ため、事前正規表現でキャスト失敗行を安全に件数集計する（例外安全版）。
+                # CR-02: real 列（futan 等・小数）は小数を許容するパターンを使う。整数専用
+                # ``'^[0-9]+$'`` では "57.5" を誤って失敗扱いにし cast 成功率を破損していた。
+                pattern = (
+                    r"^[0-9]+(\.[0-9]+)?$" if c in REAL_CAST_COLUMNS else r"^[0-9]+$"
+                )
                 cur.execute(
                     f"""
                     SELECT count(*) FROM {table}
                     WHERE {JRA_ONLY_FILTER}
                       AND {c} IS NOT NULL
-                      AND {c} !~ '^[0-9]+$'
-                    """
+                      AND {c} !~ %s
+                    """,
+                    (pattern,),
                 )
                 non_numeric = int(cur.fetchone()[0])
                 success = total - non_numeric

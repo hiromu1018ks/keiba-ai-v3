@@ -15,6 +15,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from src.etl.quality_gate import (
+    REAL_CAST_COLUMNS,
+    _check_cast_success,
     _check_code_value_anomalies,
     _check_mojibake,
     _check_n_uma_race_natural_key_unique,
@@ -307,3 +309,39 @@ def test__check_n_uma_race_natural_key_unique_pass() -> None:
     )
     r = _check_n_uma_race_natural_key_unique(cur)
     assert r.passed is True
+
+
+def test_check_cast_success_uses_decimal_pattern_for_real_columns() -> None:
+    """CR-02: real 列（futan 等・小数）は小数許容パターン、整数列は整数パターンを使う。
+
+    従来は全列 ``'^[0-9]+$'`` を使い、futan="57.5"（負担重量 0.1kg 単位）を実キャスト
+    失敗と誤判定して cast 成功率レポートを破損していた。パターンは ``%s`` パラメータで
+    渡されるため、execute の call_args から検証する。
+    """
+    assert "futan" in REAL_CAST_COLUMNS, "futan は real 列として登録されているべき"
+
+    cur = _mock_cursor({})
+    _check_cast_success(cur)
+
+    futan_patterns: list[str] = []
+    integer_patterns: list[str] = []
+    for call in cur.execute.call_args_list:
+        sql = call.args[0] if call.args else ""
+        if "!~ %s" not in sql or len(call.args) < 2:
+            continue
+        params = call.args[1]
+        pat = params[0] if isinstance(params, tuple) and params else None
+        if pat is None:
+            continue
+        if "futan" in sql:
+            futan_patterns.append(pat)
+        else:
+            integer_patterns.append(pat)
+
+    assert futan_patterns, "futan のキャスト検査クエリが発行されていない"
+    assert all(r"\." in p for p in futan_patterns), (
+        f"futan は小数許容パターンを使うべき（CR-02）: {futan_patterns}"
+    )
+    assert all(r"\." not in p for p in integer_patterns), (
+        f"整数列は整数専用パターンを使うべき: {integer_patterns}"
+    )

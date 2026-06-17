@@ -38,6 +38,30 @@ def test_normalize_no_duckdb_no_raw_writes() -> None:
     assert "DELETE FROM public.n_" not in src, "raw に DELETE を発行してはならない（成功基準#2）"
 
 
+def test_row_to_tuple_race_date_nat_becomes_none() -> None:
+    """CR-01: ``race_date`` が ``pd.NaT`` の場合は None になる（``race_start_datetime`` と対称）。
+
+    従来は ``isinstance(v, float) and pd.isna(v)`` で float の NaN しか弾けず、
+    ``pd.NaT`` が ``hasattr(v, "isoformat")`` 分岐に入って非 None 値として date 列に
+    混入し、INSERT 失敗または "NaT" 文字列化によるデータ破損を引き起こしていた。
+    """
+    import datetime as _dt
+
+    from src.etl.normalize import _row_to_tuple
+
+    # race_date / race_start_datetime 共に pd.NaT → 共に None
+    row = pd.Series({"race_date": pd.NaT, "race_start_datetime": pd.NaT})
+    tup = _row_to_tuple(row, ["race_date", "race_start_datetime"], table="n_race")
+    assert tup == (None, None), "pd.NaT は None に変換されるべき（CR-01）"
+
+    # 正常値（date / datetime）はそのまま通る
+    d = _dt.date(2020, 1, 5)
+    ts = _dt.datetime(2020, 1, 5, 15, 30)
+    row2 = pd.Series({"race_date": d, "race_start_datetime": ts})
+    tup2 = _row_to_tuple(row2, ["race_date", "race_start_datetime"], table="n_race")
+    assert tup2 == (d, ts), "正常な date/datetime はそのまま格納されるべき"
+
+
 def test_normalize_has_staging_swap_and_jra_filter() -> None:
     """HIGH #5: staging-swap パターン（_staging / RENAME TO / DROP TABLE IF EXISTS）を含む。
     Pitfall 2: 全 SELECT で JRA フィルタを含む。
