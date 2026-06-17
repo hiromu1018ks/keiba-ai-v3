@@ -14,16 +14,13 @@ JRA競馬データを用いて、各出走馬の**複勝払戻対象確率 `p_fu
 
 ### Validated
 
-<!-- まだ確定要件はない。実装して検証で価値を確認する。 -->
-
-(None yet — ship to validate)
+- [x] EveryDB2由来PostgreSQLデータの品質確認（主要テーブル・件数・日付範囲・NULL・重複・文字化け・コード異常）— Validated in Phase 1: Trust & Foundation（hybrid quality gate D-01、verdict=pass・BLOCK/INFO 分離）
+- [x] normalized層の初期ETL（型変換・コード変換・クラス正規化）— Validated in Phase 1: Trust & Foundation（全 varchar 明示キャスト + class_normalization.yaml 機械導出・raw 不変性 D-06 を REVOKE + fingerprint で実証）
 
 ### Active
 
 <!-- 現在のスコープ。要件定義書の Phase 1 を中心とする。すべて出荷検証まで仮説。 -->
 
-- [ ] EveryDB2由来PostgreSQLデータの品質確認（主要テーブル・件数・日付範囲・NULL・重複・文字化け・コード異常）
-- [ ] normalized層の初期ETL（型変換・コード変換・クラス正規化）
 - [ ] 複勝ラベル `fukusho_hit` の生成と払戻テーブル突合（発売開始時点ベース、`sales_start_entry_count` 取得・復元含む）
 - [ ] as-of特徴量管理（`as_of_datetime` / `feature_cutoff_datetime` / `feature_availability` によるリーク防止）
 - [ ] 出馬表・馬番・枠番確定後モデル（Phase 1-A）による `p_fukusho_hit` 算出
@@ -96,5 +93,9 @@ This document evolves at phase transitions and milestone boundaries.
 3. Audit Out of Scope — reasons still valid?
 4. Update Context with current state
 
+**Milestone v1 — Phase progress:**
+
+- **Phase 1: Trust & Foundation — Complete (2026-06-17).** Raw hybrid quality gate (verdict=pass) + normalized ETL（全 varchar 明示キャスト・staging-swap idempotent）+ class normalization（jyokencd5×gradecd×race_date 機械導出・コード連続性実証）+ リーク防止プリミティブ4種（pit_join / group_split / category_map / calibrator）を5層スキーマ上に bootstrap。raw read-only を REVOKE + raw_fingerprint md5 の二重保護で実証。76 テスト green・ruff clean。確定した基盤決定: psycopg3 pool + pydantic-settings 2ロール DSN、sklearn 1.9.0 は `cv='prefit'` 削除で `FrozenEstimator` prefit idiom 必須、`n_odds_tanpuku` が単複共用テーブル名（`n_odds_fukusho` は非存在）。Deferred debt: code review の Warning 9件（WR-02 トランザクション分離・WR-08 readonly_cur rollback 等・operational/infra・core value 非影響）。
+
 ---
-*Last updated: 2026-06-16 after initialization*
+*Last updated: 2026-06-17 after Phase 1 complete*
