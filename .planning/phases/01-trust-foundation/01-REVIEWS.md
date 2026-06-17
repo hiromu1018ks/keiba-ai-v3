@@ -1,14 +1,17 @@
 ---
 phase: 1
 reviewers: [codex]
-reviewed_at: 2026-06-17T13:45:00+09:00
+cycle_1_reviewed_at: 2026-06-17T13:45:00+09:00
+cycle_2_reviewed_at: 2026-06-17T15:05:00+09:00
 plans_reviewed:
   - 01-01-PLAN.md
   - 01-02-PLAN.md
   - 01-04-PLAN.md
   - 01-03-PLAN.md
-reviewer_model: gpt-5.5 (Codex CLI v0.139.0)
+reviewer_model_cycle_1: gpt-5.5 (Codex CLI v0.139.0)
+reviewer_model_cycle_2: gpt-5.5 (Codex CLI v0.139.0, default model)
 source_grounding: true
+current_high: 0
 ---
 
 # Cross-AI Plan Review — Phase 1 (Trust & Foundation)
@@ -363,3 +366,156 @@ grep-verifiable existing project-source symbols: **0** (greenfield). This clean 
 structural, not a coverage gap — there is no existing implementation code for the plans to
 hallucinate references into. The substantive grounding happened at the PLAN.md-line level inside
 the review (all 8 HIGHs cited to line numbers above).
+
+---
+
+# Cycle 2 — Re-review after replan (commit 3406a3d)
+
+> **Cycle status: CONVERGED — current_high=0.**
+>
+> Cycle 2 verifies whether the 8 Cycle-1 HIGHs are genuinely fixed in the revised PLAN.md
+> text (read directly, not from the planner's claims) and hunts for NEW HIGHs the replan may
+> have introduced. Two independent verifications agree: (a) an orchestrator grep-based pass
+> against the concrete tokens the planner claimed, and (b) a fresh Codex CLI review (gpt-5.5).
+>
+> Per-HIGH verdicts and the two cleanup items are below. The cycle is converged: all 8
+> Cycle-1 HIGHs are RESOLVED in the actual plan text, and no NEW HIGH was found by either
+> reviewer.
+
+## Orchestrator verification pass (grep, source-grounded against revised plan text)
+
+Each Cycle-1 HIGH was verified by grepping for the concrete fix token the planner claimed.
+Verdict = RESOLVED only when the token is present and correct in the revised PLAN.md.
+
+| # | Cycle-1 HIGH | Fix token verified in revised plan | Verdict |
+|---|--------------|------------------------------------|---------|
+| 1 | 01-04 PIT sortedness raise reachable | `is_monotonic_increasing` checked on caller's original frame BEFORE any sort; "絶対に sort 後にチェックしない"; `test_no_silent_resort_implementation_guard` inspects source order; monkeypatches `merge_asof` to assert it isn't called on unsorted input (01-04 L113-118, L135-140, L153, L155, L173). `grep -n` confirms `is_monotonic_increasing` lines (L114, L115, L136, L137) precede all `sort_values` references for the caller inputs. | **RESOLVED** |
+| 2 | 01-04 strict chronological split | `if not (train_time_max < test_time_min): raise ValueError(...)` — strict `<`, equality rejected (01-04 L124). `test_equal_timestamp_races_do_not_cross` raises `ValueError` when two races share the same `race_start_datetime` across the fold boundary (01-04 L162). grep confirms `train_time_max <= test_time_min` appears **0** times. | **RESOLVED** |
+| 3 | 01-04 `raise ValueError` not `assert` | All 4 primitives specify `if ...: raise ValueError(...)`; regression guards `test_no_silent_resort_implementation_guard` / `test_assert_is_replaced_by_raise` / `test_calib_raises_is_valueerror_not_assertion` inspect `inspect.getsource()` and FAIL if `assert ` token appears (01-04 L26, L155, L163, L235). `test_calib_before_train_raises_valueerror` adds a `subprocess.run([sys.executable, "-O", ...])` check (01-04 L234) — the actual `-O` runtime proof. | **RESOLVED** |
+| 4 | raw immutability covers BOTH `public.n_*` AND `raw_everydb2` | `REVOKE UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA public FROM <KEIBA_DB_USER>` AND `... SCHEMA raw_everydb2 FROM <KEIBA_DB_USER>` both present (01-01 L259-262); same for `KEIBA_ETL_DB_USER` (01-01 L271-272). Authoritative test `test_raw_role_has_no_update_grant_public` queries `table_schema IN ('public','raw_everydb2')` connected as `KEIBA_DB_USER` (01-03 L306-311). grep `IN ('public','raw_everydb2')` = 1 hit. | **RESOLVED** (with one non-HIGH cleanup — see Cleanup #2) |
+| 5 | 01-03 ETL idempotent | `_idempotent_load` implements staging-swap: `CREATE _staging` → `TRUNCATE _staging` → `INSERT INTO _staging` → atomic `DROP TABLE IF EXISTS normalized.<table>` + `ALTER TABLE _staging RENAME TO <table>` inside one transaction (01-03 L202-208, L224-231). `test_etl_idempotent_rerun` runs ETL twice and asserts identical count + md5 (01-03 L244). grep `_staging|RENAME TO|DROP TABLE IF EXISTS normalized` ≥ 2. | **RESOLVED** |
+| 6 | `KEIBA_ETL_*` role defined in 01-01, used in 01-03 | `KEIBA_ETL_DB_USER` / `KEIBA_ETL_DB_PASSWORD` env vars + `Settings.etl_dsn` + `make_pool(role="etl")` + `write_pool`/`write_cur` fixtures defined in 01-01 Task 2/3 (01-01 L43-45, L195, L199, L208). 01-03 uses `write_pool`/ETL role for normalized writes (01-03 L26, L35, L71, L201, L260). `.env.example` includes both ETL env vars (01-01 L163, L175). | **RESOLVED** |
+| 7 | 01-02 concrete mojibake + code-value checks | `_check_mojibake` reports `U+FFFD` / `U&'\+00FFFD'` / `convert_from(...::bytea, 'UTF8')` rows + Python `'�'` count (01-02 L51, L96, L115). `_check_code_value_anomalies` uses `NOT IN (...)` with `_load_allowed_codes()` built from `class_normalization.yaml` + `code_tables.yaml` (01-02 L52, L97, L106, L116). Tests `test_mojibake_detection` + `test_code_value_anomaly_detection` (01-02 L127-128). grep `FFFD|REPLACEMENT` ≥ 1, `NOT IN` ≥ 1, `_load_allowed_codes` ≥ 1. | **RESOLVED** |
+| 8 | DB-test skip policy unified fail-by-default | All three plans state `fail-by-default unless KEIBA_SKIP_DB_TESTS=1` and explicitly abolish the old "`.env` 未設定時 skip 可" policy (01-01 L113, L210-217, L235; 01-02 L21, L53, L129, L145-146; 01-03 L72, L156, L237, L305-311). The only `'.env' 未設定時 skip` string hits are the *abolishment statements* (`.env 未設定時 skip 可 という記述は廃止`), not the old behavior. | **RESOLVED** |
+
+**All 8 Cycle-1 HIGHs: RESOLVED.**
+
+## Codex Review (Cycle 2, gpt-5.5)
+
+Codex was given the 4 revised PLAN.md files, the Cycle-1 01-REVIEWS.md, CLAUDE.md, and the
+8 Cycle-1 HIGHs, and asked to (a) independently verify each HIGH as RESOLVED/PARTIALLY/
+UNRESOLVED, (b) hunt for NEW HIGHs, and (c) give a final `current_high=<N>`. Codex's full
+output:
+
+> 1. **RESOLVED** — 01-04 now requires PIT sortedness checks on the caller's original frames
+> before any sort, and forbids internal resorting (01-04 L113, L135). Tests monkeypatch
+> `merge_asof` and inspect source order (01-04 L153, L155).
+>
+> 2. **RESOLVED** — 01-04 enforces both race_id disjointness and strict chronological order
+> `train_time_max < test_time_min`, with equality rejected (01-04 L122, L124). Direct tests
+> include strict-fold and equal-timestamp-crossing cases (01-04 L161, L162).
+>
+> 3. **RESOLVED** — The primitive plans specify `raise ValueError`, with source guards against
+> `assert` for PIT/split/calibrator and a `python -O` subprocess check for calibrator (01-04
+> L26, L232, L235). The verification command `uv run pytest ... -O` is wrong because pytest
+> does not accept `-O` (01-04 L281), but the actual acceptance/test plan still proves the
+> leak-critical runtime case via subprocess; this is a non-HIGH verification typo.
+>
+> 4. **RESOLVED** — 01-01 now requires REVOKE on both physical `public` and `raw_everydb2`
+> (01-01 L258, L259). The 01-01 verify block using `current_setting('role')` under
+> `KEIBA_ADMIN_DSN` is still a false-pass risk (01-01 L281), but the authoritative 01-03 test
+> connects as `KEIBA_DB_USER` and checks `grantee = current_user` across both schemas (01-03
+> L306, L309).
+>
+> 5. **RESOLVED** — 01-03 now mandates idempotent staging-swap and a rerun test comparing
+> count/hash after two ETL runs (01-03 L202, L244). On concern C: the plan does not discuss FK
+> dependency failure on `DROP TABLE`, but it also defines only PKs for Phase 1 normalized
+> tables, not FKs, so I do not count this as a current HIGH; it should be revisited before
+> downstream tables depend on normalized tables.
+>
+> 6. **RESOLVED** — 01-01 defines `KEIBA_ETL_DB_USER` / `KEIBA_ETL_DB_PASSWORD`,
+> `Settings.etl_dsn`, and `write_pool` (01-01 L43, L195, L208). 01-03 uses
+> `write_pool`/ETL role for normalized writes (01-03 L201, L260).
+>
+> 7. **RESOLVED** — 01-02 now specifies mojibake checks for U+FFFD/byte-level or Python
+> replacement detection and allowed-code-set anomaly checks from YAML (01-02 L50, L51, L52).
+> Tests explicitly cover both (01-02 L127, L128).
+>
+> 8. **RESOLVED** — Skip policy is consistently fail-by-default unless `KEIBA_SKIP_DB_TESTS=1`
+> in 01-01, 01-02, and 01-03 (01-01 L210, L214; 01-02 L21; 01-03 L72).
+>
+> **NEW HIGHs**
+>
+> None. I found non-HIGH cleanup items: fix the invalid `pytest -O` verification line in
+> 01-04, and fix or remove the misleading 01-01 admin-role catalog probe so it cannot be
+> mistaken for the authoritative raw-role privilege test.
+>
+> CYCLE_SUMMARY: current_high=0
+
+## Per-Cycle-1-HIGH final verdict
+
+| Cycle-1 HIGH | Orchestrator | Codex | Final | Status |
+|--------------|--------------|-------|-------|--------|
+| #1 01-04 PIT sortedness reachable | RESOLVED | RESOLVED | **RESOLVED** | not regressed |
+| #2 01-04 strict chronological split | RESOLVED | RESOLVED | **RESOLVED** | not regressed |
+| #3 01-04 `raise ValueError` not `assert` | RESOLVED | RESOLVED | **RESOLVED** | not regressed |
+| #4 raw immutability both schemas | RESOLVED | RESOLVED | **RESOLVED** | not regressed (residual cleanup — see #2) |
+| #5 01-03 ETL idempotent | RESOLVED | RESOLVED | **RESOLVED** | not regressed |
+| #6 `KEIBA_ETL_*` role | RESOLVED | RESOLVED | **RESOLVED** | not regressed |
+| #7 01-02 mojibake + code-value | RESOLVED | RESOLVED | **RESOLVED** | not regressed |
+| #8 DB skip policy unified | RESOLVED | RESOLVED | **RESOLVED** | not regressed |
+
+**8/8 RESOLVED. 0 regressed. 0 NEW HIGHs.**
+
+## NEW HIGHs found this cycle
+
+None.
+
+## Non-HIGH cleanup items (LOW — do not block execution, fix opportunistically)
+
+Both reviewers flagged these as non-HIGH. They are recorded for the executor's awareness but
+do NOT gate Phase 1 execution and do NOT count toward `current_high`.
+
+1. **(01-04 L281, LOW — verify-step typo)** The `<verification>` line
+   `uv run pytest tests/utils/ -v -O` is invalid: pytest does not accept the `-O` flag (it is
+   a Python interpreter flag). This would fail at pytest's argument parser. The actual HIGH #3
+   runtime proof is correctly implemented elsewhere via `test_calib_before_train_raises_valueerror`
+   which uses `subprocess.run([sys.executable, "-O", ...])` (01-04 L234). Fix: replace the L281
+   line with the subprocess-based check, or drop the `-O` and rely on the subprocess test.
+
+2. **(01-01 L281, LOW — residual privilege-probe inconsistency)** The 01-01 Task 3 `<verify>`
+   block probes `grantee = current_setting('role')` connected via `KEIBA_ADMIN_DSN`, which
+   inspects the ADMIN role's grants, not `KEIBA_DB_USER`'s — a likely false-pass on that one
+   verify step (this is the residual fragment of Cycle-1's 01-01 privilege-probe concern). The
+   *authoritative* raw-immutability privilege test is `test_raw_role_has_no_update_grant_public`
+   in 01-03 (L306-311), which correctly connects as `KEIBA_DB_USER` and uses
+   `grantee = current_user` over both schemas — so HIGH #4 is genuinely RESOLVED. Fix:
+   rewrite the 01-01 verify probe to connect as `KEIBA_DB_USER` (or remove it and rely solely
+   on the 01-03 test) so the two plans don't contradict.
+
+3. **(01-03 staging-swap + FK, LOW — future-proofing, not a Phase-1 defect)** The
+   `_idempotent_load` staging-swap uses `DROP TABLE IF EXISTS normalized.<table>` inside the
+   transaction. If a future phase adds a FOREIGN KEY from `normalized.n_uma_race` to
+   `normalized.n_race`, the DROP would fail. Phase 1 defines only PRIMARY KEYs on the
+   normalized tables (no FKs), so this is not a current defect. Revisit when downstream
+   tables gain FK dependencies on normalized tables.
+
+## Total findings this cycle (by severity)
+
+- **HIGH: 0** (all 8 Cycle-1 HIGHs RESOLVED; 0 NEW HIGHs)
+- **MEDIUM: 0**
+- **LOW: 3** (the cleanup items above)
+
+## Cycle 2 consensus
+
+Both independent verifications (orchestrator grep pass + Codex gpt-5.5) agree:
+**all 8 Cycle-1 HIGHs are genuinely fixed in the revised plan text, and the replan
+introduced no NEW HIGHs.** The plan-review-convergence loop has converged at
+`current_high=0`.
+
+Phase 1 is cleared to proceed to execution. The 3 LOW cleanup items can be folded into the
+executor's first pass or deferred — they do not gate leakage prevention or reproducibility.
+
+---
+
+CYCLE_SUMMARY: current_high=0
