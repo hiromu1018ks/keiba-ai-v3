@@ -1,0 +1,7 @@
+# このディレクトリは Hybrid Quality Gate（D-01）のレポート成果物を保持する。
+# plan 01-02 で作成。reports/ は .gitignore 対象外（成果物・01-RESEARCH.md
+# Recommended Project Structure）。空でも git tracking されるよう .gitkeep を置く。
+#
+# 生成物:
+#   - quality_report.json : 機械判定用・最上位 verdict フィールド含む・allowlist filter 済み
+#   - quality_report.md   : 人間用 Markdown・mojibake/code-anomaly 件数を INFO 欄に表示

@@ -1,0 +1,253 @@
+{
+  "verdict": "pass",
+  "checks": [
+    {
+      "name": "table_exists:n_race",
+      "passed": true,
+      "severity": "block",
+      "detail": {
+        "table": "n_race",
+        "exists": true,
+        "matches": 1
+      }
+    },
+    {
+      "name": "table_exists:n_uma_race",
+      "passed": true,
+      "severity": "block",
+      "detail": {
+        "table": "n_uma_race",
+        "exists": true,
+        "matches": 1
+      }
+    },
+    {
+      "name": "table_exists:n_harai",
+      "passed": true,
+      "severity": "block",
+      "detail": {
+        "table": "n_harai",
+        "exists": true,
+        "matches": 1
+      }
+    },
+    {
+      "name": "table_exists:n_hyosu",
+      "passed": true,
+      "severity": "block",
+      "detail": {
+        "table": "n_hyosu",
+        "exists": true,
+        "matches": 1
+      }
+    },
+    {
+      "name": "table_exists:n_odds_tanpuku",
+      "passed": true,
+      "severity": "block",
+      "detail": {
+        "table": "n_odds_tanpuku",
+        "exists": true,
+        "matches": 1
+      }
+    },
+    {
+      "name": "jra_since_2015",
+      "passed": true,
+      "severity": "block",
+      "detail": {
+        "count": 39593,
+        "since": "2015-01-01",
+        "filter": "jyocd BETWEEN '01' AND '10'"
+      }
+    },
+    {
+      "name": "n_race_pk_unique",
+      "passed": true,
+      "severity": "block",
+      "detail": {
+        "total": 40035,
+        "distinct": 40035,
+        "duplicates": 0,
+        "pk_cols": "year, jyocd, kaiji, nichiji, racenum"
+      }
+    },
+    {
+      "name": "n_uma_race_natural_key_unique",
+      "passed": true,
+      "severity": "block",
+      "detail": {
+        "total": 554610,
+        "distinct": 554610,
+        "duplicates": 0,
+        "nk_cols": "year, jyocd, kaiji, nichiji, racenum, umaban, kettonum"
+      }
+    },
+    {
+      "name": "table_counts",
+      "passed": true,
+      "severity": "info",
+      "detail": {
+        "columns": {
+          "n_race": {
+            "total": 71972,
+            "jra": 40035,
+            "non_jra": 31937
+          },
+          "n_uma_race": {
+            "total": 881202,
+            "jra": 554610,
+            "non_jra": 326592
+          },
+          "n_harai": {
+            "total": 39580,
+            "jra": 39580,
+            "non_jra": 0
+          },
+          "n_hyosu": {
+            "total": 0,
+            "jra": 0,
+            "non_jra": 0
+          },
+          "n_odds_tanpuku": {
+            "total": 554217,
+            "jra": 554217,
+            "non_jra": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "date_range",
+      "passed": true,
+      "severity": "info",
+      "detail": {
+        "columns": {
+          "overall_min": "19890401",
+          "overall_max": "20260614",
+          "jra_min": "19890401",
+          "jra_max": "20260614"
+        }
+      }
+    },
+    {
+      "name": "null_rates",
+      "passed": true,
+      "severity": "info",
+      "detail": {
+        "columns": {
+          "n_race": {
+            "kyori_null_pct": 0.0,
+            "kyori_zero_or_blank_pct": 0.0,
+            "hassotime_null_pct": 0.0,
+            "hassotime_zero_or_blank_pct": 0.0,
+            "jyokencd5_null_pct": 0.0,
+            "jyokencd5_zero_or_blank_pct": 0.0,
+            "gradecd_null_pct": 0.0,
+            "gradecd_zero_or_blank_pct": 73.0461,
+            "syubetucd_null_pct": 0.0,
+            "syubetucd_zero_or_blank_pct": 0.0
+          },
+          "n_uma_race": {
+            "umaban_null_pct": 0.0,
+            "umaban_zero_or_blank_pct": 0.0,
+            "kettonum_null_pct": 0.0,
+            "kettonum_zero_or_blank_pct": 0.0,
+            "kakuteijyuni_null_pct": 0.0,
+            "kakuteijyuni_zero_or_blank_pct": 0.0,
+            "bamei_null_pct": 0.0,
+            "bamei_zero_or_blank_pct": 0.0,
+            "futan_null_pct": 0.0,
+            "futan_zero_or_blank_pct": 0.0
+          }
+        }
+      }
+    },
+    {
+      "name": "cast_success",
+      "passed": true,
+      "severity": "info",
+      "detail": {
+        "columns": {
+          "n_race.kyori": {
+            "total": 40035,
+            "cast_success": 40035,
+            "cast_fail": 0,
+            "cast_success_pct": 100.0
+          },
+          "n_race.hassotime": {
+            "total": 40035,
+            "cast_success": 40035,
+            "cast_fail": 0,
+            "cast_success_pct": 100.0
+          },
+          "n_uma_race.futan": {
+            "total": 554610,
+            "cast_success": 554610,
+            "cast_fail": 0,
+            "cast_success_pct": 100.0
+          }
+        }
+      }
+    },
+    {
+      "name": "mojibake",
+      "passed": true,
+      "severity": "info",
+      "detail": {
+        "columns": {
+          "n_race.hondai": {
+            "count": 0
+          },
+          "n_race.jyokenname": {
+            "count": 0
+          },
+          "n_uma_race.bamei": {
+            "count": 0
+          },
+          "n_uma_race.kisyuryakusyo": {
+            "count": 0
+          },
+          "n_uma_race.chokyosiryakusyo": {
+            "count": 0
+          },
+          "n_uma_race.banusiname": {
+            "count": 0
+          }
+        },
+        "total_mojibake_rows": 0,
+        "marker": "U+FFFD (REPLACEMENT CHARACTER)"
+      }
+    },
+    {
+      "name": "code_value_anomalies",
+      "passed": true,
+      "severity": "info",
+      "detail": {
+        "columns": {
+          "jyokencd5": {
+            "count": 256,
+            "pct": 0.6394,
+            "allowed_count": 6
+          },
+          "gradecd": {
+            "count": 0,
+            "pct": 0.0,
+            "allowed_count": 10
+          },
+          "syubetucd": {
+            "count": 10,
+            "pct": 0.025,
+            "allowed_count": 10
+          },
+          "jyocd_non_jra": {
+            "count": 31937,
+            "note": "jyocd outside 01-10 (NAR/海外含む)",
+            "allowed_count": 10
+          }
+        },
+        "total_jra_rows": 40035
+      }
+    }
+  ]
+}
