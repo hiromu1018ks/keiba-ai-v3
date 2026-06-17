@@ -1,347 +1,415 @@
 ---
 phase: 01-trust-foundation
 reviewed: 2026-06-17T00:00:00Z
-depth: standard
-files_reviewed: 25
+depth: deep
+files_reviewed: 36
 files_reviewed_list:
+  - reports/.gitkeep
   - scripts/apply_schema.sql
   - scripts/run_apply_schema.py
   - scripts/run_normalized_etl.py
   - scripts/run_quality_report.py
+  - src/__init__.py
+  - src/config/__init__.py
+  - src/config/class_normalization.yaml
+  - src/config/code_tables.yaml
+  - src/config/feature_availability.yaml
   - src/config/settings.py
+  - src/db/__init__.py
   - src/db/connection.py
   - src/db/schema.py
+  - src/etl/__init__.py
   - src/etl/class_normalize.py
   - src/etl/normalize.py
   - src/etl/quality_gate.py
   - src/etl/raw_fingerprint.py
+  - src/utils/__init__.py
   - src/utils/calibrator.py
   - src/utils/category_map.py
   - src/utils/group_split.py
   - src/utils/pit_join.py
+  - tests/__init__.py
   - tests/conftest.py
   - tests/test_bootstrap.py
   - tests/test_class_normalization.py
   - tests/test_normalized_etl.py
   - tests/test_quality_gate.py
   - tests/test_raw_immutability.py
+  - tests/utils/__init__.py
   - tests/utils/test_calibrator.py
   - tests/utils/test_category_map.py
   - tests/utils/test_group_split.py
   - tests/utils/test_pit_join.py
 findings:
-  critical: 2
+  critical: 5
   warning: 9
   info: 6
-  total: 17
+  total: 20
 status: issues_found
 ---
 
-# Phase 01: Code Review Report
+# Phase 01: Code Review Report (deep)
 
 **Reviewed:** 2026-06-17
-**Depth:** standard
-**Files Reviewed:** 25
+**Depth:** deep (cross-file analysis)
+**Files Reviewed:** 36
 **Status:** issues_found
 
 ## Summary
 
-The Trust Foundation phase implements the five-layer schema, raw immutability (REVOKE + fingerprint), normalized ETL (staging-swap), quality gate, and the four leak-prevention primitives (PIT join, group-aware splitter, frozen category map, prefit calibrator). The leak-prevention primitives are implemented correctly: `pit_join_backward` rejects unsorted input before calling `merge_asof`, `race_id_time_series_split` enforces strict `<` between train and test boundaries, `fit_category_map`/`apply_category_map` map unknown/missing to sentinels and return non-negative int32, and `fit_prefit_calibrator` uses `FrozenEstimator` + `raise ValueError` for the look-ahead guard.
+This phase implements the trust foundation: raw-immutability fingerprinting, normalized ETL, class normalization, quality gates, and four leak-safe utility primitives (PIT join, prefit calibrator, group-aware time-series split, frozen category map). The leak-prevention primitives themselves (`pit_join_backward`, `fit_prefit_calibrator`, `race_id_time_series_split`, `apply_category_map`) are implemented carefully — guards use `raise ValueError` (not `assert`), sortedness is checked before any sort, and disjoint/strict-chronological invariants are enforced. The prior CR-01/CR-02 fixes for `pd.NaT` and `futan` decimal pattern are correctly applied.
 
-However, the review surfaced two BLOCKER defects and nine WARNINGs. The most severe are (1) `normalize.py:_row_to_tuple` mishandles `pd.NaT` on the `race_date` column — `pd.NaT` has an `isoformat` attribute, so the current guard lets it leak through as a non-None value into the `date` column; (2) `quality_gate._check_cast_success` uses `!~ '^[0-9]+$'` for a `real` column (`futan`), so every decimal weight like `57.5` is miscounted as a cast failure. Additional defects include: `apply_category_map` re-stringifies `NaN` to `'nan'` for the `astype(str)` call (worked around by a later `.where(notna, MISSING)`, but fragile); staging-swap lacks cross-table atomicity between `n_race` and `n_uma_race`; `GRANT SELECT TO PUBLIC` over-grants; `_safe_parse_hassotime` references non-existent `pd._TSNA` in its annotation; and `_transform_race_df` imports `datetime` inside a per-row loop.
+However, deep cross-file review surfaced **5 BLOCKER-class defects** that materially weaken the trust guarantees this phase is supposed to provide:
+
+1. **CR-03 — Raw fingerprint is defeatable**: hash uses `t::text` (column-order sensitive) and only covers JRA rows; non-JRA tampering that preserves row count is invisible.
+2. **CR-04 — `_idempotent_load` silently swaps to empty `normalized.*` when input rows = 0** and has no advisory lock guarding the staging-swap critical section against concurrent ETL runs.
+3. **CR-05 — `_check_cast_success` never executes an actual CAST**: the "cast_success_pct" is a regex match that cannot detect out-of-range integers or sign issues, is INFO-only (never gates), and the silent `pd.to_numeric(errors='coerce')` path in normalize means corrupted raw values reach `normalized.*` as NULL with no gate failure.
+4. **CR-06 — `_JRA_FILTER` is defined three different ways** in three modules (raw_fingerprint, quality_gate, normalize) — divergent scopes, no shared constant, CLAUDE.md calls out this exact risk.
+5. **CR-07 — `_validate_by_group_sorted` is redundant given the global check, but the misleading docstring + redundancy will cause a future maintainer to drop the global check and introduce silent leakage** — a trust-foundation primitive must not rely on "happens to be correct today".
+
+Plus 9 warnings (logic edge cases, test correctness gaps, error swallowing, schema-drift) and 6 info items.
+
+---
 
 ## Critical Issues
 
-### CR-01: `_row_to_tuple` mishandles `pd.NaT` on `race_date` — corrupted `date` column or INSERT failure
+### CR-03: Raw fingerprint is defeatable — `t::text` is column-order sensitive and only JRA rows are hashed
 
-**File:** `src/etl/normalize.py:474-480`
+**File:** `src/etl/raw_fingerprint.py:55-73`
 **Issue:**
-The `race_date` branch only guards `v is None or isinstance(v, float)`. But `pd.to_datetime(..., errors="coerce").dt.date` yields `pd.NaT` (not `None`, not `float`) when `(year, monthday)` produces an invalid date such as `"20200000"` (empty `monthday`).
 
-`pd.NaT` has an `isoformat` attribute (`hasattr(pd.NaT, "isoformat") == True`; `pd.NaT.isoformat()` returns the literal string `"NaT"`). The current code therefore takes the `elif hasattr(v, "isoformat")` branch and appends `pd.NaT` to the tuple. psycopg3 has no registered adapter for `pd.NaT` on a `date` column, so this either errors mid-swap (the staging-swap transaction then rolls back, leaving `normalized.n_race` in the pre-swap state — silent ETL failure) or, if any string fallback is hit, writes the literal `"NaT"` into a `date` column (silent data corruption).
+The "primary proof" hash is built per-year via `md5(string_agg(t::text, ',' ORDER BY t::text))` with `WHERE jyocd BETWEEN '01' AND '10'`. Several defeatability problems:
 
-This bug differs structurally from the `race_start_datetime` branch (line 482-485), which correctly uses `pd.isna(v)`. The asymmetry is the smoking gun.
+**(a) `t::text` is not column-order stable.** Postgres's row-to-text cast emits columns in their **physical attribute order** (attnum). If anyone `ALTER TABLE n_race ADD COLUMN ...` (DBA, migration, EveryDB2 sync), `t::text` changes for *every* row even when data is byte-identical, **silently invalidating the fingerprint across runs** (false positive — flags an unchanged table as mutated). Conversely the cast can change format after `VACUUM FULL` + attribute rewrite. The fingerprint's claim to be a *reproducible* raw-immutability proof is undermined because it depends on physical layout, not logical content.
+
+**(b) The hash intentionally excludes NAR rows (`jyocd >= '30'`)**, but `row_count[table]["total"]` at line 69 (`SELECT count(*) FROM public.{table}` with no filter) counts *everything*. A tampering actor who deletes one NAR row and inserts a different NAR row keeps both `row_hash` (JRA scope — unchanged) and `row_count["total"]` (constant) identical — the tampering is invisible. The "raw immutability" guarantee is therefore only **JRA-immutability** plus a coarse total-row count — not what the docstring promises.
+
+**(c) `n_tup_upd` / `n_tup_del` / `n_tup_ins` are reset by `VACUUM`/`TRUNCATE`** (acknowledged in docstring). In a real DB under autovacuum, the supplementary signal between two fingerprint snapshots is essentially noise — a real UPDATE followed by VACUUM between snapshots produces a false-negative (auxiliary check passes).
+
+**Net effect:** the assertion can be defeated by balanced delete/insert on NAR rows, masked by column-order changes, or noise-washed by autovacuum. For a *trust foundation*, the fingerprint must hash a deterministic, column-name-keyed representation.
 
 **Fix:**
 ```python
-if c == "race_date":
-    if v is None or pd.isna(v):
-        vals.append(None)
-    elif hasattr(v, "isoformat"):
-        vals.append(v)
-    else:
-        vals.append(None)
-```
-
-Use `pd.isna(v)` (as the `race_start_datetime` branch already does) instead of the `isinstance(v, float)` check, because `pd.isna` correctly returns True for `pd.NaT`, `None`, `NaN`, and `pd.NA`.
-
-### CR-02: `_check_cast_success` miscounts decimal `real` values as cast failures (futan = 57.5 flagged)
-
-**File:** `src/etl/quality_gate.py:369-383`
-**Issue:**
-The check uses the regex `!~ '^[0-9]+$'` to flag rows that would fail an explicit cast. The comment says this is "CAST(kyori AS integer) と同等" (integer-only equivalent). The problem: `CAST_COLUMNS_N_UMA_RACE = ("futan",)`, and per `normalize.py` the schema is `"futan real"` (負担重量, 0.1kg unit). Every decimal weight value like `'57.5'`, `'54.0'`, `'58.5'` matches the `!~ '^[0-9]+$'` predicate because `.` is not in `[0-9]`.
-
-As a result, the INFO report will declare ~100% of `futan` rows as cast failures on real data even though `CAST('57.5' AS real)` succeeds. This is not a verdict-failing BLOCK check (severity is `info`), but it makes the gate output misleading and undermines trust in the gate as a leak/correctness signal — exactly the kind of false-positive that erodes the gate's value as a Phase-1 acceptance signal. Worse, it could mask a *real* future regression: if all values look "broken", no one notices when one truly is.
-
-**Fix:**
-Use a numeric regex that accepts decimals (and optionally a leading sign) for `real` columns, or split the targets by type:
-```python
-# At module scope
-CAST_REGEX_BY_TYPE = {
-    "integer": r'^[0-9]+$',
-    "real":    r'^[0-9]+(\.[0-9]+)?$',
-}
-
-# In _check_cast_success, look up the regex per (table, col)
-col_type = "real" if (table, c) in {("n_uma_race", "futan")} else "integer"
-pattern = CAST_REGEX_BY_TYPE[col_type]
-cur.execute(
-    f"""
-    SELECT count(*) FROM {table}
-    WHERE {JRA_ONLY_FILTER}
-      AND {c} IS NOT NULL
-      AND {c} !~ %s
-    """,
-    (pattern,),
+# Stable column list per table — don't depend on t::text
+_RACE_HASH_COLS = "year, monthday, jyocd, kaiji, nichiji, racenum, kyori, hassotime, ..."
+sql = (
+    f"SELECT year, md5(string_agg("
+    f"concat_ws('|', {_RACE_HASH_COLS}), ',' "
+    f"ORDER BY year, monthday, jyocd, kaiji, nichiji, racenum"
+    f")) FROM public.{table} WHERE {_JRA_FILTER} GROUP BY year ORDER BY year"
 )
+# Also hash the non-JRA partition so NAR-only tampering is detectable,
+# OR drop the total count and document JRA-only coverage honestly.
 ```
-Note also that the regex literal should ideally be passed via `%s` rather than f-string interpolation to keep the parameterization story consistent with the rest of the file.
+
+---
+
+### CR-04: `_idempotent_load` silently swaps `normalized.*` to empty when input rows = 0; no advisory lock against concurrent ETL
+
+**File:** `src/etl/normalize.py:333-382, 519-556`
+**Issue:**
+
+**(a) Empty-input data loss.** At line 365 `if rows:` — when `rows` is empty (caused by a read-pool timeout returning `[]`, a transform bug returning 0 rows, or a misconfigured filter), the code `TRUNCATE`s staging, **skips INSERT**, then `DROP`s `normalized.n_race` and `RENAME`s the empty staging to `n_race`. `normalized.n_race` is now **completely empty**, `_idempotent_load` returns `len(rows)` = 0, `_load_race` returns `(0, 0)`, and `run_normalized_etl` returns successfully with `rows_inserted={"n_race": 0}`. For a trust foundation this is silent data loss.
+
+**(b) No concurrency guard.** The "atomic swap" is two separate statements (`DROP` then `RENAME`) inside a transaction — fine for single-writer, but two concurrent ETL runs (CI + manual, or re-trigger) both `CREATE TABLE IF NOT EXISTS normalized.n_race_staging`, both `TRUNCATE` it, both `DROP` the target — the final state is whichever swap lands last, with rows from either run. There is no `pg_advisory_xact_lock` guarding this critical section.
+
+**(c) Return-value trust.** `_idempotent_load` returns `len(rows)` unconditionally — it does not verify `cursor.rowcount == len(rows)` after `executemany`. If psycopg3's `executemany` ever returns without raising but inserts fewer rows (e.g. trigger-suppressed), the caller logs an inflated count.
+
+**Fix:**
+```python
+def _idempotent_load(write_cur, table, rows, columns):
+    # (1) Serialize concurrent ETL runs on the same table
+    write_cur.execute(
+        "SELECT pg_advisory_xact_lock(hashtext(%s))",
+        (f"normalized.{table}",),
+    )
+    # (2) Refuse to swap-empty — never silently wipe normalized.*
+    if not rows:
+        raise RuntimeError(
+            f"_idempotent_load('{table}'): refusing to swap to empty (0 rows). "
+            "Investigate read pool / transform — silent data loss prevented."
+        )
+    # ... rest as before
+    # (3) Verify rowcount
+    actual = write_cur.rowcount
+    if actual != len(rows):
+        raise RuntimeError(
+            f"_idempotent_load('{table}'): executemany inserted {actual}, expected {len(rows)}"
+        )
+```
+
+---
+
+### CR-05: `_check_cast_success` does not actually CAST — Pitfall-1 corruption is undetectable and never gates
+
+**File:** `src/etl/quality_gate.py:357-410`
+**Issue:**
+
+The function name is `_check_cast_success` and the returned field is `cast_success_pct`, but the SQL is a regex match (`{c} !~ %s`), not a CAST. This is more than naming — the regex cannot detect the corruption scenarios Pitfall 1 exists to prevent:
+
+| Value | Regex `^[0-9]+$` | Actual `CAST(x AS integer)` |
+|-------|------------------|------------------------------|
+| `'99999999999999999999999'` | matches → "success" | `ERROR: integer out of range` |
+| `'+57'` | no match → "fail" | would parse to 57 |
+| `'57.0'` (real pattern matches) | → "success" | integer column: `ERROR: invalid input syntax` |
+
+Compounding defects:
+1. The check is `severity="info"` and `passed=True` always (line 407) — it never gates `verdict`.
+2. The normalize ETL uses `pd.to_numeric(errors='coerce')` which **silently converts garbage to NaN/NULL** — so corrupted raw flows into `normalized.*` as NULLs with no quality gate ever failing.
+3. No test asserts `cast_fail > 0` for bad data — `test_check_cast_success_uses_decimal_pattern_for_real_columns` only verifies the *pattern string*, not the semantics.
+
+**Net: a `kyori='ZZZZZ'` row in raw passes the quality gate (verdict=pass) and reaches `normalized.n_race` with `kyori=NULL`, and no test catches this.** This is the exact silent data corruption the trust foundation must prevent.
+
+**Fix:**
+1. Either run a real CAST inside a `SAVEPOINT` per-row, or rename to `_check_numeric_pattern` and stop calling the field "cast_success".
+2. Add a BLOCK-level gate that fails when `cast_success_pct < 99%` for `kyori`/`kakuteijyuni`/`futan`/`bataijyu`.
+3. Add a test feeding `'ZZZZZ'` and asserting `cast_fail > 0`.
+4. Make normalize's `pd.to_numeric(errors='coerce')` count coercions and emit a BLOCK-level warning when coercion rate exceeds a threshold.
+
+---
+
+### CR-06: `_JRA_FILTER` defined three different ways across modules — divergent scopes, no shared constant
+
+**File:** `src/etl/raw_fingerprint.py:26`, `src/etl/quality_gate.py:44`, `src/etl/normalize.py:46`
+**Issue:**
+
+Three different "JRA filter" definitions coexist:
+
+| Module | Filter |
+|--------|--------|
+| `raw_fingerprint.py:26` (`_JRA_FILTER`) | `jyocd BETWEEN '01' AND '10'` (no year filter) |
+| `quality_gate.py:44` (`JRA_ONLY_FILTER`) | `jyocd BETWEEN '01' AND '10'` (no year filter) |
+| `normalize.py:46` (`_JRA_FILTER`) | `jyocd BETWEEN '01' AND '10' AND year::int >= 2015` |
+
+Requirements (§6.1) state the project data window is 2015-01-01 onwards. Normalize correctly applies `year::int >= 2015`. But:
+
+1. `raw_fingerprint.compute_raw_fingerprint` hashes **all years** of JRA data (including 2014, 2010…). If EveryDB2 amends a pre-2015 row, the raw-hash changes and `assert_raw_unchanged` raises — but the change has **no effect on training data** (normalize excludes pre-2015). Conversely, the hash doesn't cover NAR inserts at all. The trust guarantee is both too-strict (flags irrelevant pre-2015 changes) and too-lax (ignores NAR).
+2. `quality_gate._check_jra_since_2015` uses `(year||monthday) >= '20150101'`, but `_check_n_race_pk_unique` and `_check_null_rates` use `JRA_ONLY_FILTER` (no year filter) — so they audit pre-2015 rows too. Inconsistent.
+3. The same logical filter is implemented three times in three files. A future edit to one will not propagate. CLAUDE.md calls out this exact risk.
+
+**Fix:** Single source of truth:
+```python
+# src/etl/filters.py (new) or src/config/constants.py
+JRA_FILTER = "jyocd BETWEEN '01' AND '10'"
+PROJECT_WINDOW_FILTER = "jyocd BETWEEN '01' AND '10' AND year::int >= 2015"
+```
+Have `raw_fingerprint`, `quality_gate`, and `normalize` all import from it. Decide explicitly: should raw-immutability cover pre-2015? Document and align all three.
+
+---
+
+### CR-07: `_validate_by_group_sorted` is redundant given the global check; misleading docstring will cause future regression
+
+**File:** `src/utils/pit_join.py:84-116`
+**Issue:**
+
+The docstring claims "merge_asof の by= はグループ内ソートを要求". This is **partially wrong**. Per pandas docs/source, `merge_asof(by=...)` requires the **`on=` column to be globally sorted (monotonic increasing) across the whole frame** — per-group sortedness is implied by global but is **not sufficient** alone.
+
+The implementation enforces both:
+1. Global `is_monotonic_increasing` of `on_cutoff`/`on_asof` (lines 73-82) — **this is the real contract**.
+2. `_validate_by_group_sorted` — checks per-group monotonic (redundant given #1).
+
+The danger: a future maintainer reading the misleading docstring and seeing two checks "simplifies" by dropping the global check (lines 73-82), thinking the per-group check covers it. They would introduce **silent leakage** — a globally-unsorted-but-per-group-sorted frame would pass `merge_asof`'s own sortedness check on some pandas versions (it only raises for global non-monotonic) and silently produce wrong joins. For a primitive whose entire purpose is preventing silent leakage, "happens to be correct today" is insufficient.
+
+There is also no regression test constructing a per-group-sorted-but-globally-unsorted input to assert the global check is the load-bearing one.
+
+**Fix:**
+1. Remove `_validate_by_group_sorted` (redundant given the global check) OR document clearly that it is belt-and-suspenders, not primary.
+2. Fix the docstring: "merge_asof(by=...) requires **global** sortedness of the `on=` column; per-group sortedness is implied but not sufficient."
+3. Add a regression test:
+```python
+def test_globally_unsorted_but_per_group_sorted_raises():
+    obs = pd.DataFrame({
+        "feature_cutoff_datetime": pd.to_datetime(["2024-01-02", "2024-01-01", "2024-01-03"]),
+        "horse_id": ["h1", "h2", "h1"],
+    })
+    # h1=[Jan2,Jan3] OK; h2=[Jan1] OK; global=[Jan2,Jan1,Jan3] NOT monotonic
+    hist = pd.DataFrame({
+        "as_of_datetime": pd.to_datetime(["2024-01-01"]),
+        "horse_id": ["h1"], "value": ["A"],
+    })
+    with pytest.raises(ValueError, match="observations must be sorted"):
+        pit_join_backward(obs, hist)
+```
+
+---
 
 ## Warnings
 
-### WR-01: `apply_category_map` relies on `astype(str)` to convert `NaN` → `'nan'`, then a later `.where(notna, MISSING)` masks it — fragile, and breaks if a category literally named `"nan"` ever appears
+### WR-01: `normalize_race_classes` uses `out.at[i, col]` with `enumerate` index — breaks if upstream frame has non-default index
 
-**File:** `src/utils/category_map.py:73-76`
+**File:** `src/etl/class_normalize.py:159-222` (called from `src/etl/normalize.py:299`)
+**Issue:** `out.at[i, col]` uses the `enumerate` index `i` as a label. If the upstream frame passed in has a non-RangeIndex (after a filter, concat, or reset_index(drop=False) anywhere in the call chain), `out.at[i, col]` silently mis-aligns — assigning to wrong rows or raising `KeyError`. Current call path uses RangeIndex, so it works today; the contract is unenforced.
+
+**Fix:** `out = df.reset_index(drop=True).copy()` at the top, and document.
+
+---
+
+### WR-02: `_safe_parse_hassotime` annotation references `pd._TSNA` (private API) and lies about return type
+
+**File:** `src/etl/normalize.py:248-259`
+**Issue:** Annotation says `pd.Timestamp | pd._TSNA` but actually returns `datetime.time` (from `.time()`) or `pd.NaT`. `pd._TSNA` is a private symbol (leading underscore) that may move in pandas 3.0 (CLAUDE.md stack). Runtime behavior is fine; the annotation is misleading and fragile.
+
+**Fix:** Annotate as `Any` or `datetime.time | None`; return `None` for invalid instead of `pd.NaT`; drop `pd._TSNA`.
+
+---
+
+### WR-03: `_row_to_tuple` empty-string→None coercion is per-column undocumented
+
+**File:** `src/etl/normalize.py:513`
+**Issue:** `vals.append(v if v != "" else None if c in {"hondai", "bamei", "banusiname"} else v)` — parses as `v if v != "" else (None if c in {...} else v)`. Only 3 specific columns get empty→None; other text columns (`kisyuryakusyo`, `chokyosiryakusyo`) keep `""` and become Postgres `""`. The inconsistency is undocumented and will surprise downstream feature engineering.
+
+**Fix:** Either consistently convert `""` to `None` for all text columns, or lift the per-column allowlist to a named constant with a comment.
+
+---
+
+### WR-04: `race_id_time_series_split` is expanding-window only — cannot express BT-1..BT-5 rolling/fixed-window backtests despite docstring claim
+
+**File:** `src/utils/group_split.py:88-92`
+**Issue:** The split `test_start = (k/(n_splits+1))*n` always has train starting at index 0 (expanding window). CLAUDE.md §15.5 specifies BT-1..BT-5 with concrete year ranges (e.g. BT-1: train 2019-06→2022, test 2023) — these are not all expanding-window. The docstring claims §15.4/§15.5 coverage which it does not provide. The `mlxtend.GroupTimeSeriesSplit` "副 API" is exposed but no BT-specific helper ships in this phase. Fine for Phase 1 if Phase 4 adds it, but the docstring overpromises.
+
+Off-by-one risk: with `n_splits == n-1` and `n=2`, fold k=1 → `test_start=0`, train=[] — caught by the empty-train guard. OK.
+
+**Fix:** Update docstring to honestly state expanding-window semantics; defer BT-1..BT-5 helper to Phase 4.
+
+---
+
+### WR-05: Quality-gate INFO checks swallow all exceptions and never escalate — a broken query is masked as benign
+
+**File:** `src/etl/quality_gate.py:271, 298-299, 345-346, 402-403, 435-436, 501-502, 522-523`
+**Issue:** Seven separate `except Exception as exc: columns[t] = {"error": str(exc)}` patterns record the error as a string and continue; none re-raise or escalate severity. If a column is renamed in raw, the report shows `kyori_error: "column ... does not exist"` and `verdict` is still `pass`. For a trust-foundation quality gate, silent degradation is dangerous — a malicious or buggy upstream change becomes invisible.
+
+**Fix:** Either escalate the first INFO-check error to BLOCK severity, or emit `degraded_checks_count` and fail when it exceeds a threshold.
+
+---
+
+### WR-06: `_load_allowed_codes` only excludes `"note"` from `syubetucd` — brittle; jyokencd5/gradecd/jyocd have no exclusion at all
+
+**File:** `src/etl/quality_gate.py:138-141`
+**Issue:** `set(str(k) for k in syubetucd_map.keys() if k != "note")`. The exclusion works today because `note` is the only metadata key under `syubetucd`. If anyone adds another metadata key (description, _comment, source), it would be silently treated as a "valid code". The jyokencd5/gradecd/jyocd maps (lines 138-140) have no exclusion at all. There is no test guarding this.
+
+**Fix:** Whitelist by regex (`re.fullmatch(r"\d+", k)` or `r"[A-Z]"` for gradecd) instead of blacklisting `note`.
+
+---
+
+### WR-07: `test_etl_role_cannot_write_public` skips rollback on failure — leaves polluted row in `public.n_race` if test ever fails
+
+**File:** `tests/test_raw_immutability.py:86-102`
 **Issue:**
-The implementation does:
 ```python
-s = series.astype(str).where(series.notna(), MISSING)
+with pytest.raises(psycopg.errors.InsufficientPrivilege):
+    write_cur.execute("INSERT INTO public.n_race ...")
+write_cur.connection.rollback()  # outside the with-block
 ```
-Order matters: `astype(str)` runs first, converting `NaN` → the string `'nan'`. The subsequent `.where(notna, MISSING)` then replaces those positions with `MISSING` because their `notna` mask is False. This works *only* because `where`'s condition is checked on the **original** `series.notna()`, not on the post-`astype` string.
-
-There are two fragility concerns:
-1. If a future maintainer refactors to `s = series.where(series.notna(), MISSING).astype(str)` (a natural-looking reorder), `MISSING` would survive, but a real value `'nan'` in the source data would be indistinguishable from a converted NaN — they would both map to `code['__MISSING__']` because the second `astype(str)` happens after the substitution and there is no `MISSING` key in `code` until applied via `.map(code)`. Wait, `MISSING` IS a key in `code` so that's fine. But the inverse — calling `.fillna(MISSING)` before `astype(str)` — would still work. The real fragility is: **a legitimate category value of literally `"nan"` in training data would be encoded as a regular category by `fit_category_map`, but on the apply side, any actual NaN (whose `astype(str)` happens to produce `"nan"`) would collide with that legitimate category.** The current code's `.where(notna, MISSING)` happens to mask this because it replaces before `.map`, so NaNs become MISSING before the map lookup — but a maintainer who removes the `.where` line (since it looks redundant: "we already have a `__MISSING__` sentinel, why do we need a substitution?") would silently introduce NaN→`'nan'`→legitimate-category leakage.
-
-2. The defensive intent is hidden behind an obscure two-step. The clearer pattern is `series.fillna(MISSING).astype(str).map(code).fillna(code[UNSEEN])`.
+If the INSERT ever *succeeds* (e.g. role misconfiguration grants write), `pytest.raises` raises `Failed`, the `rollback()` line is **skipped**, and the inserted row remains in `public.n_race`. This is exactly the scenario the test exists to catch, and the failure mode would then break `test_raw_unchanged_after_etl` (row-hash mismatch). Cascading test pollution.
 
 **Fix:**
 ```python
-# Replace NaN with MISSING FIRST, then stringify, then map. No post-hoc .where needed.
-s = series.fillna(MISSING).astype(str)
-return s.map(code).fillna(code[UNSEEN]).astype("int32")
-```
-This removes the ordering dependency and makes the sentinel substitution explicit at the start of the pipeline. Add a unit test `test_apply_nan_string_not_confused_with_real_nan_category` that fits on a series containing a literal `"nan"` string and verifies that real NaNs still map to `MISSING` (not to the `"nan"` category).
-
-### WR-02: `_idempotent_load` is atomic per-table but `n_race` + `n_uma_race` are not atomic together — partial-failure leaves inconsistent normalized state
-
-**File:** `src/etl/normalize.py:515-552` (and `run_normalized_etl:579-588`)
-**Issue:**
-`_load_race` opens its own write connection and commits; `_load_uma_race` then opens another and commits. If `_load_uma_race` fails partway (e.g. PK violation on staging INSERT, OOM on the pandas side, connection drop), the normalized schema is left with a fresh `n_race` but a stale `n_uma_race` from a previous run (or no `n_uma_race` at all if it's the first run). The `§19.1` reproducibility requirement implies `(feature_snapshot_id, train_period, test_period)` triples, and a torn normalized state breaks the assumption that `n_race.row_count == n_uma_race.row_count_at_corresponding_races`.
-
-**Fix:**
-Either (a) document explicitly in the module docstring that `run_normalized_etl` is per-table-atomic and downstream consumers must treat the two tables as eventually-consistent, or (b) wrap both loads in a single write transaction:
-```python
-def run_normalized_etl(read_pool, write_pool, *, tables=None):
-    ...
-    with write_pool.connection() as wconn:
-        with wconn.cursor() as wcur:
-            if "n_race" in tables:
-                # read+transform outside, but do all writes on wconn
-                ...
-                _create_normalized_tables(wcur)
-                cnt_race = _idempotent_load(wcur, "n_race", rows_race, cols_race)
-            if "n_uma_race" in tables:
-                _create_normalized_tables(wcur)
-                cnt_uma = _idempotent_load(wcur, "n_uma_race", rows_uma, cols_uma)
-        wconn.commit()
-```
-Refactor `_idempotent_load` to accept a cursor and not manage its own connection.
-
-### WR-03: `_idempotent_load` issues `GRANT SELECT ON normalized.{table} TO PUBLIC` — overbroad grant
-
-**File:** `src/etl/normalize.py:380`
-**Issue:**
-`TO PUBLIC` grants SELECT to every role in the database, including the admin role, any future untrusted role, and the `PUBLIC` meta-role. The intent is to give the **reader** role access (because `ALTER DEFAULT PRIVILEGES` in `apply_schema.sql` does not cover tables created by the ETL role). The comment explains the workaround is needed because staging-swap creates a new OID each time.
-
-For a local-only Streamlit single-user deployment this is low-impact, but it weakens the privilege story: any role that can connect to the DB now reads normalized data, including any role created for future label/prediction phases. This also doesn't extend the `REVOKE UPDATE/DELETE/TRUNCATE` from `apply_schema.sql` (which only applied to admin-created tables in `public`/`raw_everydb2`, not ETL-created `normalized.*` tables — so a misconfigured future role could in principle write to normalized, though that's not a raw-immutability concern).
-
-**Fix:**
-Pass the reader role name (from `Settings.db_user` or an explicit env var) into `_idempotent_load` and grant to that role specifically:
-```python
-write_cur.execute(
-    sql.SQL("GRANT SELECT ON normalized.{} TO {}").format(
-        sql.Identifier(table), sql.Identifier(reader_role)
-    )
-)
-```
-If that's too invasive for Phase 1, at minimum document that `TO PUBLIC` is intentional for the local-only deployment and add a TODO for Phase 2 (multi-user) hardening.
-
-### WR-04: `_safe_parse_hassotime` annotation references non-existent `pd._TSNA`
-
-**File:** `src/etl/normalize.py:248`
-**Issue:**
-```python
-def _parse(v: Any) -> pd.Timestamp | pd._TSNA:  # noqa: SLF001
-```
-`pandas._TSNA` is not a public attribute and `hasattr(pd, "_TSNA")` returns `False`. The annotation is referenced at function definition time; under `from __future__ import annotations` (which this module uses) annotations are lazy-evaluated strings, so it doesn't crash at import. But it's misleading, unreachable as a real type, and breaks any runtime annotation introspection (e.g. `typing.get_type_hints` raises `AttributeError`).
-
-**Fix:**
-```python
-def _parse(v: Any) -> pd.Timestamp | type(pd.NaT):
-```
-or simpler: `-> pd.Timestamp | None` since the function semantically returns either a valid `time` object or `pd.NaT` (which the caller treats as null).
-
-### WR-05: `_transform_race_df` performs `import datetime as _dt` inside a per-row for-loop
-
-**File:** `src/etl/normalize.py:289-291`
-**Issue:**
-```python
-for d, t in zip(out["race_date"], time_parts, strict=False):
-    ...
-    else:
-        import datetime as _dt
-        race_dt.append(_dt.datetime.combine(d, t))
-```
-Python caches the import after the first iteration, so this is not a correctness bug, but it's a code smell that signals missing module-level hygiene. It also puts the slowest possible `import` lookup on the hot path of a per-row loop over potentially millions of JRA rows.
-
-**Fix:**
-Move `import datetime as _dt` to the top of the module (or use `from datetime import datetime`), then call `_dt.datetime.combine(d, t)` directly in the loop.
-
-### WR-06: `_check_table_counts` and other INFO checks swallow exceptions and emit `{"error": str(exc)}` — error strings may leak SQL fragments into the report
-
-**File:** `src/etl/quality_gate.py:261-268, 293-295, 340-341, 392-393, 425-426, 491-492, 512-513`
-**Issue:**
-Several INFO checks wrap their SQL execution in `try/except Exception` and store `str(exc)` into the check detail. The `_filter_check` allowlist in `scripts/run_quality_report.py` only filters top-level keys (`name/passed/severity/detail`), so raw exception strings still pass through to the JSON/Markdown report. PostgreSQL exception messages can contain schema-qualified table names, partial queries, and (if a future maintainer accidentally interpolates) other identifiers. The "T-02-02 二重防御" claim that the report "絶対に認証情報は含めない" is technically about credentials, but the same trust assumption (sanitized output) extends to any internal SQL structure that would aid an attacker.
-
-This is a WARNING rather than a BLOCKER because the current SQL is parameterized for the high-risk checks (`_check_table_exists`, `_check_code_value_anomalies`), and the only thing in the error string is the user-controlled table name from `TARGET_TABLES` (a code constant). But the pattern is fragile.
-
-**Fix:**
-Replace `str(exc)` with a sanitized error code or a generic message:
-```python
-except Exception:  # noqa: BLE001
-    columns[t] = {"error": "query_failed"}
-    continue
-```
-If debug detail is needed for ops, route it through `logger.exception(...)` to stderr, not to the report.
-
-### WR-07: `audit_gradecd_d_by_syubetucd` is exposed as a public API and runs raw SQL with f-string interpolation of `('C','D')` — works, but establishes a precedent that downstream query helpers can f-string SQL
-
-**File:** `src/etl/class_normalize.py:242-248`
-**Issue:**
-The function builds and executes:
-```python
-sql = (
-    "SELECT gradecd, syubetucd, count(*) AS count "
-    "FROM public.n_race "
-    "WHERE jyocd BETWEEN '01' AND '10' AND gradecd IN ('C','D') "
-    "GROUP BY 1, 2 ORDER BY 1, 2"
-)
-read_cur.execute(sql)
-```
-There are no user-supplied parameters here, so there's no immediate injection vector. But this is the only public function in the ETL/utils layer that bypasses psycopg3 parameterization entirely. Future maintainers who copy this pattern with a parameter (e.g. `gradecd IN ({user_input})`) would introduce an injection sink. The project's MEDIUM #3 / T-02-02 mitigation story depends on **all** SQL going through `%s`/`Identifier` formatting.
-
-**Fix:**
-```python
-read_cur.execute(
-    "SELECT gradecd, syubetucd, count(*) AS count "
-    "FROM public.n_race "
-    "WHERE jyocd BETWEEN '01' AND '10' AND gradecd = ANY(%s) "
-    "GROUP BY 1, 2 ORDER BY 1, 2",
-    (["C", "D"],),
-)
+try:
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        write_cur.execute("INSERT INTO public.n_race ...")
+finally:
+    write_cur.connection.rollback()
 ```
 
-### WR-08: `conftest.readonly_cur` is function-scope and never explicitly commits/rolls back — long-running read transactions across tests
+---
 
-**File:** `tests/conftest.py:39-44`
-**Issue:**
-The `readonly_cur` fixture yields a cursor inside `pool.connection()` / `cursor()` context managers. psycopg3 starts a transaction on first execute and does not commit/rollback automatically when the cursor context exits (only the connection context commits/rolls back). The fixture exits the cursor context but not the connection context until the function-scope teardown, so each test using `readonly_cur` holds an open read transaction for the entire test body.
+### WR-08: `conftest.pg_pool` session-scoped + function-scoped `readonly_cur` risk pool exhaustion / deadlocks under parallel tests
 
-This is exactly why `test_etl_idempotent_rerun` (lines 221, 234) and `test_raw_unchanged_after_etl` (lines 57, 63) call `readonly_cur.connection.rollback()` manually — they need to release the snapshot before the ETL can `DROP TABLE normalized.n_race` without lock waits. The pattern is documented in those tests' comments, but it's a per-test landmine: any new test that runs ETL after a `readonly_cur.execute(...)` without explicit `rollback()` will hang on `DROP TABLE`.
+**File:** `tests/conftest.py:28-44`
+**Issue:** `pg_pool` (session, max_size=8). `readonly_cur` borrows per test function. ETL tests hold connections across multiple queries and call `readonly_cur.connection.rollback()` to release locks (see `test_normalized_etl.py:228-229` comment about DROP TABLE deadlock). Risk of pool exhaustion or deadlocks if tests run in parallel. The comment in `test_etl_idempotent_rerun` is evidence this has already bitten.
 
-**Fix:**
-Add a finalizer to the `readonly_cur` fixture that rolls back the connection on teardown:
-```python
-@pytest.fixture
-def readonly_cur(pg_pool):
-    with pg_pool.connection() as conn:
-        with conn.cursor() as cur:
-            yield cur
-        conn.rollback()  # release snapshot regardless of test outcome
-```
-Or, alternatively, configure the readonly pool's connections with `AUTOCOMMIT` since they're read-only.
+**Fix:** Document that pytest-xdist is unsupported, or set `min_size=2, max_size=4` with fixture-finalization ensuring connections are returned.
 
-### WR-09: `_check_cast_success` mixes `f-string` interpolated identifiers (`{table}`, `{c}`) without `sql.Identifier` quoting — relies on constants only, but inconsistent with project's parameterization story
+---
 
-**File:** `src/etl/quality_gate.py:328, 332, 367, 376-382, 416-421, 462, 476-483, 498-503`
-**Issue:**
-Every INFO check interpolates `{table}` and `{c}` (column names) via f-strings into the SQL. The values come from the constants `TARGET_TABLES`, `MOJIBAKE_COLUMNS_*`, `CAST_COLUMNS_*`, `table_cols`, and `code_columns`, all of which are code constants — so there is no immediate injection. But the same module also uses proper `%s` parameterization for `ANY(%s::text[])` and for `information_schema.tables WHERE table_name = %s`, creating an inconsistent style. A future maintainer who adds a parameterized column name from a YAML config or user input would have to remember which SQL template to follow.
+### WR-09: `_create_normalized_tables` + `_idempotent_load` silently ignore schema drift — code change to `_RACE_COLUMNS` does not propagate to DB until manual DROP
 
-**Fix:**
-Either standardize on `psycopg.sql.SQL(...).format(sql.Identifier(table), sql.Identifier(c))` for all dynamic identifiers in this module, or add a `_assert_safe_identifier(name)` helper that rejects anything outside `[A-Za-z_][A-Za-z0-9_]*` and call it at every f-string site. The latter is cheaper for INFO queries.
+**File:** `src/etl/normalize.py:144-151, 352-360`
+**Issue:** First ETL run creates `normalized.n_race` from `_RACE_COLUMNS`. Subsequent runs `CREATE TABLE staging (LIKE normalized.n_race INCLUDING ALL)`. If someone later adds a column to `_RACE_COLUMNS`, the existing `normalized.n_race` retains the *old* schema; staging inherits old schema; the pandas rows' extra column is dropped at INSERT (column-list explicit). **Schema migration is silent.** For §19.1 reproducibility, a code change to `_RACE_COLUMNS` doesn't propagate without manual `DROP`.
+
+**Fix:** Compare expected schema (from `_RACE_COLUMNS`) to actual via `information_schema.columns` at ETL start; raise if drift detected. Or schema-version + `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
+
+---
 
 ## Info
 
-### IN-01: `_mask_dsn` and `Settings.dsn_masked` mask the password but log the username + host + db in plaintext
+### IN-01: `apply_schema.sql` is not directly executable — `{reader}` placeholders make it a template, not runnable SQL
 
-**File:** `scripts/run_apply_schema.py:91-103`, `src/config/settings.py:73-87`
-**Issue:**
-The mask replaces only the password with `***`. The username, host, port, and database name are still logged. For the local-only single-user deployment this is intentional (the docstrings document this), but ASVS V8 typically treats the DB username as semi-sensitive. Worth noting for Phase 2 multi-user hardening.
+**File:** `scripts/apply_schema.sql:22-31`
+**Issue:** The `.sql` extension and presence in `scripts/` is misleading — `psql -f` will fail on the `DO $$` block with `{reader_literal}` literal. Header notes "実行は run_apply_schema.py 経由" but discoverability is poor.
 
-**Fix:** Document this trade-off explicitly in `Settings.dsn_masked` docstring (it's already implicit) or add an `even_more_masked` property for verbose logs.
+**Fix:** Rename to `apply_schema.sql.template`, or add a build step producing a runnable `.sql`.
 
-### IN-02: `run_apply_schema.py` uses bare `except Exception` and returns exit 1 with only `LOG.error` — stack trace is lost
+---
 
-**File:** `scripts/run_apply_schema.py:176-181`
-**Issue:**
-The top-level `try/except Exception` swallows the traceback. Operational debugging of DDL failures (e.g. role creation conflicts, permission errors) becomes harder.
+### IN-02: `run_quality_report.py` JSON output uses `default=str` — fallback serializer, not a security boundary
 
-**Fix:**
-```python
-except Exception:
-    LOG.exception("apply failed")
-    return 1
-```
-`LOG.exception` includes the traceback in the log output.
+**File:** `scripts/run_quality_report.py:107, 204`
+**Issue:** The allowlist filter at line 53 is the real defense; `default=str` is fallback. Currently `CheckResult.detail` contains only primitives. Low risk but worth a comment so future maintainers don't rely on `default=str` for safety.
 
-### IN-03: `_check_jra_since_2015` uses `(year||monthday) >= '20150101'` — works for the all-numeric varchar case, but is fragile to any non-digit padding in `monthday`
+**Fix:** Add a comment noting `default=str` is serialization fallback, not security boundary.
 
-**File:** `src/etl/quality_gate.py:177-184`
-**Issue:**
-The string-concat-then-compare idiom assumes `year` is 4 digits and `monthday` is 4 digits (zero-padded). EveryDB2's `monthday` is varchar(4); if any value is unpadded (`'101'` for January 1st) the comparison silently misbehaves (`'2015101' >= '20150101'` is True but `'20150001'` would also be True due to lex order). The ETL side correctly uses `.str.zfill(4)` (`normalize.py:276`); the quality gate does not.
+---
 
-**Fix:**
-Either `WHERE lpad(year, 4, '0') || lpad(monthday, 4, '0') >= '20150101'`, or filter on `year::int >= 2015 AND (year::int > 2015 OR monthday::int >= 101)` — but the cleanest is to use the ETL's `race_date` column from `normalized.n_race` once it exists.
+### IN-03: `class_normalize.py:34` uses relative path — breaks when invoked from non-repo-root CWD
 
-### IN-04: `test_class_normalization.test_code_005_spans_reform` calls `normalize_class("005", "", date(2018, 6, 1))` — but the empty `gradecd` requires the `""` key to exist in `gradecd_map`
+**File:** `src/etl/class_normalize.py:34`
+**Issue:** `_DEFAULT_CONFIG_PATH = Path("src/config/class_normalization.yaml")` is relative. `quality_gate.py:83` correctly uses `Path(__file__).resolve().parent.parent / "config"` — absolute. Inconsistency means `load_class_config()` from a Streamlit app launched elsewhere fails.
 
-**File:** `tests/test_class_normalization.py:60-67`
-**Issue:**
-The test relies on `gradecd_map` containing an `""` (empty string) key. `class_normalization.yaml:89` does have it. This is an implicit contract between test and YAML; if a future maintainer removes the `""` entry (thinking it's a YAML oddity), the test breaks without an obvious cause.
+**Fix:** `Path(__file__).resolve().parent.parent.parent / "src" / "config" / "class_normalization.yaml"` (or compute from module file).
 
-**Fix:** Add an assertion in `load_class_config` that the empty-string gradecd entry exists, or add a test that explicitly asserts `"" in gradecd_map`.
+---
 
-### IN-05: `scripts/run_normalized_etl.py` swallows the AssertionError from `assert_raw_unchanged` and returns exit 2 — but the assertion message itself is logged with `%s`, losing traceback
+### IN-04: `_check_jra_since_2015` string comparison assumes zero-padded `monthday`
 
-**File:** `scripts/run_normalized_etl.py:75-80`
-**Issue:**
-The control flow is correct (return 2 on immutability failure), but `logger.error("raw 不変性確認: FAIL — %s", e)` discards the traceback. For a security-critical check (raw immutability is the inviolable core value per CLAUDE.md), losing the traceback makes incident response slower.
+**File:** `src/etl/quality_gate.py:182-188`
+**Issue:** `(year||monthday) >= '20150101'` works only because monthday is varchar(4) and zero-padded. `'2015'||'101' = '2015101'` (7 chars) would compare wrong. Assumption is undocumented.
 
-**Fix:** Use `logger.exception(...)` instead of `logger.error(..., e)` to capture the full stack.
+**Fix:** `(year || lpad(monthday, 4, '0')) >= '20150101'` or split into year/monthday numeric comparison.
 
-### IN-06: `apply_schema.sql` declares `GRANT USAGE, CREATE ON SCHEMA normalized TO {etl}` in both the file (line 65) and `GRANT_ETL_SQL` constant — duplication between SQL file and Python module
+---
 
-**File:** `scripts/apply_schema.sql:65`, `src/db/schema.py:91`
-**Issue:**
-The same DDL is maintained in two places: `scripts/apply_schema.sql` (the human-edited source of truth) and `src/db/schema.py` (the programmatic constants used by `run_apply_schema.py`). `run_apply_schema.py` actually uses the Python constants, NOT the SQL file, even though it accepts `--sql-file` as a CLI argument and reads its contents (`sql_text = args.sql_file.read_text(...)`) — and then **ignores** `sql_text` entirely (look at line 174: it reads it; line 177: `apply(admin_dsn, reader, etl, sql_text, args.dry_run)` passes it; but `apply` only uses `sql_text` for `--dry-run` printing, the live execution uses `schema_module.CREATE_*_SQL` constants).
+### IN-05: `audit_gradecd_d_by_syubetucd` has unused `config` parameter (suppressed with `noqa: ARG001`)
 
-This means the `apply_schema.sql` file is decorative — editing it has no effect on what's applied unless `--dry-run` is passed. A maintainer who fixes a privilege issue in `apply_schema.sql` thinking it'll take effect will be surprised.
+**File:** `src/etl/class_normalize.py:225-229`
+**Issue:** Signature accepts `config` but never uses it. Either remove or wire through (e.g. to filter allowed syubetucd codes).
 
-**Fix:**
-Either (a) make `apply()` actually execute the parsed SQL from the file (split by `;` and apply each statement, with placeholder substitution), or (b) delete `scripts/apply_schema.sql` and document that `src/db/schema.py` is the single source of truth, or (c) generate `apply_schema.sql` from the constants in `schema.py` so they can't drift.
+**Fix:** Remove unused parameter, or use it.
+
+---
+
+### IN-06: `tests/utils/test_calibrator.py` imports pandas inside helper — minor cosmetic inconsistency
+
+**File:** `tests/utils/test_calibrator.py:185-188`
+**Issue:** `pd_date_range_starting` imports pandas locally. Works, but unusual. No fix needed unless tests grow.
+
+**Fix:** Optional `import pandas as pd` at module top for clarity.
+
+---
+
+## Cross-File Call-Chain Notes
+
+- **Import graph is acyclic**: `src.etl.normalize` → `src.etl.class_normalize` → `src/config/class_normalization.yaml`. No circular deps.
+- **`scripts/run_apply_schema.py:32-42`** inserts only `src/` into sys.path and imports `from db import schema` — inconsistent with `run_normalized_etl.py` and `run_quality_report.py` which insert repo root and import `from src.config.settings`. Maintenance footgun.
+- **`raw_fingerprint`** imported only by `tests/test_raw_immutability.py` and `scripts/run_normalized_etl.py`. `run_normalized_etl.py:75-80` swallows `AssertionError` and returns exit code 2 — fail-closed. Good.
+- **`pit_join_backward` is NOT called anywhere in the current codebase** — utility for Phase 4. CR-07 defects will not surface until Phase 4. Right time to catch them.
+
+---
+
+## Test Quality Assessment
+
+The test suite is strong on *literal* leak-prevention invariants (HIGH #1/#2/#3 directly verified, including a subprocess test for `python -O` survival — excellent). However, the following critical gaps allow CR-03 through CR-07 to evade CI:
+
+- **`test_raw_unchanged_after_etl`** does not test that *non-JRA* tampering is detectable — CR-03 untested.
+- **`test_etl_idempotent_rerun`** tests 2 sequential runs, not concurrent or empty-input — CR-04 untested.
+- **`_check_cast_success` has no test asserting `cast_fail > 0` for bad data** — CR-05 untested.
+- **No test asserts that `_JRA_FILTER` is consistent across modules** — CR-06 untested.
+- **No test constructs a per-group-sorted-but-globally-unsorted frame** — CR-07 regression risk unguarded.
+
+These gaps are why the CR findings were not caught despite the test suite passing.
 
 ---
 
 _Reviewed: 2026-06-17_
 _Reviewer: Claude (gsd-code-reviewer)_
-_Depth: standard_
+_Depth: deep_
