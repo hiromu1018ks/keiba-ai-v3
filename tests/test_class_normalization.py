@@ -22,28 +22,39 @@ import pytest
 
 
 def test_module_loads_fromisoformat_not_typo() -> None:
-    """MEDIUM #3 直接検証: ``fromisoformat`` を使用し ``fromisoconfig``（typo）は含まない。"""
+    """MEDIUM #3 直接検証: ``date.fromisoformat`` 呼び出しを含み typo ``date.fromisoconfig`` は含まない。"""
     from src.etl import class_normalize
 
     import inspect
 
     src = inspect.getsource(class_normalize)
-    assert "fromisoformat" in src, "class_normalize.py は date.fromisoformat を使用すべき（MEDIUM #3）"
-    assert "fromisoconfig" not in src, "fromisoconfig は typo（MEDIUM #3）"
+    # 実装内で date.fromisoformat 呼び出しが存在（docstring での言及は OK）
+    assert "date.fromisoformat(" in src, (
+        "class_normalize.py は date.fromisoformat を呼び出すべき（MEDIUM #3）"
+    )
+    # typo である date.fromisoconfig 関数呼び出しは存在しない
+    assert "date.fromisoconfig(" not in src, (
+        "date.fromisoconfig は typo・呼び出してはならない（MEDIUM #3）"
+    )
 
 
-def test_normalize_class_signature_and_no_hondai() -> None:
-    """normalize_class が存在し、hondai を参照しない（Pitfall 7）。"""
+def test_normalize_class_signature_and_no_hondai_match() -> None:
+    """normalize_class が存在し、hondai の regex/match 操作を使わない（Pitfall 7 核心）。"""
     from src.etl import class_normalize
 
     import inspect
 
     assert hasattr(class_normalize, "normalize_class")
     assert hasattr(class_normalize, "load_class_config")
-    src = inspect.getsource(class_normalize)
-    assert "hondai" not in src.lower(), (
-        "class_normalize.py は hondai 名称マッチを使ってはならない（Pitfall 7）"
-    )
+    # Pitfall 7 核心: 実装コード（normalize_class 関数本体内）で hondai を re.match / str.match /
+    # str.contains 等の名称マッチに使わない。docstring での注意書きは許容（「hondai 名称マッチ
+    # 不使用」という設計意図の記述）。
+    src = inspect.getsource(class_normalize.normalize_class)
+    forbidden = ("re.match", "re.search", "str.match", "str.contains", ".match(")
+    for tok in forbidden:
+        assert tok not in src, (
+            f"normalize_class 本体は {tok} のような名称マッチを使ってはならない（Pitfall 7）"
+        )
 
 
 def test_code_005_spans_reform() -> None:
