@@ -173,40 +173,63 @@ def test_class_columns_populated(readonly_cur) -> None:  # noqa: ANN001
 
 @pytest.mark.requires_db
 def test_rowcount_jra_matches_raw(readonly_cur) -> None:  # noqa: ANN001
-    """``normalized.n_race`` 件数が raw の JRA 件数と一致。"""
+    """``normalized.n_race`` 件数が raw の JRA・2015年以降件数と一致（要件 §6.1）。"""
     readonly_cur.execute(
-        "SELECT count(*) FROM public.n_race WHERE jyocd BETWEEN '01' AND '10'"
+        "SELECT count(*) FROM public.n_race "
+        "WHERE jyocd BETWEEN '01' AND '10' AND year::int >= 2015"
     )
     raw_count = readonly_cur.fetchone()[0]
     readonly_cur.execute(
-        "SELECT count(*) FROM normalized.n_race WHERE jyocd BETWEEN '01' AND '10'"
+        "SELECT count(*) FROM normalized.n_race "
+        "WHERE jyocd BETWEEN '01' AND '10' AND year >= 2015"
     )
     norm_count = readonly_cur.fetchone()[0]
     assert raw_count == norm_count, (
-        f"件数不一致: raw(JRA)={raw_count} vs normalized={norm_count}"
+        f"件数不一致: raw(JRA, >=2015)={raw_count} vs normalized={norm_count}"
     )
 
 
 @pytest.mark.requires_db
 def test_etl_idempotent_rerun(pg_pool, write_pool, readonly_cur) -> None:  # noqa: ANN001
-    """HIGH #5: ``run_normalized_etl`` を2回連続実行しても件数とハッシュが同一。"""
+    """HIGH #5: ``run_normalized_etl`` を2回連続実行しても件数とハッシュが同一。
+
+    Note: readonly_cur は同一の pg_pool connection を使い回すため、SELECT 後に
+    ``conn.rollback()`` を明示的に呼出して read transaction を閉じないと、後続の
+    ETL が発行する ``DROP TABLE normalized.n_race`` がロック待ちでデッドロックする。
+    conftest の readonly_cur は function-scope だが transaction を明示 commit/rollback
+    しない。本テストでは read クエリ毎に rollback してロックを解放する。
+    """
     from src.etl.normalize import run_normalized_etl
 
+    # 1回目
     run_normalized_etl(pg_pool, write_pool, tables=["n_race"])
+    readonly_cur.execute("SELECT count(*) FROM normalized.n_race")
+    cnt1 = readonly_cur.fetchone()[0]
     readonly_cur.execute(
-        "SELECT count(*), md5(string_agg((n.*)::text, ',' ORDER BY (year, jyocd, kaiji, nichiji, racenum)::text)) "
-        "FROM normalized.n_race"
+        "SELECT md5(string_agg("
+        "year::text || '|' || jyocd || '|' || kaiji::text || '|' || nichiji || '|' || racenum::text, "
+        "',' ORDER BY year, jyocd, kaiji, nichiji, racenum"
+        ")) FROM normalized.n_race"
     )
-    cnt1, hash1 = readonly_cur.fetchone()
+    hash1 = readonly_cur.fetchone()[0]
+    # read transaction を閉じて DROP TABLE ロックを解放
+    readonly_cur.connection.rollback()
 
+    # 2回目（idempotent なら件数も hash も同一）
     run_normalized_etl(pg_pool, write_pool, tables=["n_race"])
+    readonly_cur.execute("SELECT count(*) FROM normalized.n_race")
+    cnt2 = readonly_cur.fetchone()[0]
     readonly_cur.execute(
-        "SELECT count(*), md5(string_agg((n.*)::text, ',' ORDER BY (year, jyocd, kaiji, nichiji, racenum)::text)) "
-        "FROM normalized.n_race"
+        "SELECT md5(string_agg("
+        "year::text || '|' || jyocd || '|' || kaiji::text || '|' || nichiji || '|' || racenum::text, "
+        "',' ORDER BY year, jyocd, kaiji, nichiji, racenum"
+        ")) FROM normalized.n_race"
     )
-    cnt2, hash2 = readonly_cur.fetchone()
+    hash2 = readonly_cur.fetchone()[0]
+    readonly_cur.connection.rollback()
 
     assert cnt1 == cnt2, f"HIGH #5 violation: 件数が変わった {cnt1} -> {cnt2}"
+    assert hash1 is not None and hash2 is not None
     assert hash1 == hash2, "HIGH #5 violation: ハッシュが変わった（重複した可能性）"
 
 

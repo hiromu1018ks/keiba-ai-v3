@@ -47,17 +47,22 @@ CREATE OR REPLACE VIEW raw_everydb2.n_odds_tanpuku AS SELECT * FROM public.n_odd
 -- =========================================================================
 GRANT USAGE ON SCHEMA public TO {reader};
 GRANT USAGE ON SCHEMA raw_everydb2 TO {reader};
+GRANT USAGE ON SCHEMA normalized TO {reader};
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO {reader};
 GRANT SELECT ON ALL TABLES IN SCHEMA raw_everydb2 TO {reader};
+GRANT SELECT ON ALL TABLES IN SCHEMA normalized TO {reader};
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO {reader};
 ALTER DEFAULT PRIVILEGES IN SCHEMA raw_everydb2 GRANT SELECT ON TABLES TO {reader};
+ALTER DEFAULT PRIVILEGES IN SCHEMA normalized GRANT SELECT ON TABLES TO {reader};
 
 -- =========================================================================
 -- 5. GRANT — ETL 書込ロール（{etl}）: normalized に INSERT/UPDATE/DELETE、raw は SELECT-only（HIGH #6）
 -- =========================================================================
 GRANT USAGE ON SCHEMA public TO {etl};
 GRANT USAGE ON SCHEMA raw_everydb2 TO {etl};
-GRANT USAGE ON SCHEMA normalized TO {etl};
+-- ETL は staging-table-swap で normalized に CREATE するため CREATE 権限も付与
+-- (plan 01-03 HIGH #5 staging-swap が新規 _staging テーブル作成に必要)
+GRANT USAGE, CREATE ON SCHEMA normalized TO {etl};
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO {etl};
 GRANT SELECT ON ALL TABLES IN SCHEMA raw_everydb2 TO {etl};
 GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA normalized TO {etl};
