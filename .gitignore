@@ -1,0 +1,32 @@
+# Secrets / env（機密値は .env のみ。.env.example は commit 対象）
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# venv
+.venv/
+.python-version
+
+# Test / lint cache
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Data / models（成果物以外は Git 管理外。§19.1 再現性は code + uv.lock + snapshot metadata）
+data/
+models/
+*.parquet
+*.duckdb
+
+# Notebooks（探索用。成果物は src/ へ）
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+
+# 品質レポートは成果物なので reports/ は除外しない（01-RESEARCH.md 明示）

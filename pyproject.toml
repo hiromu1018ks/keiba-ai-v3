@@ -1,0 +1,49 @@
+[project]
+name = "keiba-ai-v3"
+version = "0.1.0"
+description = "Keiba AI v3 — leak-free reproducible JRA複勝予測基盤"
+readme = "README.md"
+authors = [
+    { name = "hart", email = "hiromu1018ks@gmail.com" }
+]
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "psycopg[binary]==3.3.4",
+    "psycopg-pool==3.3.1",
+    "pandas==3.0.3",
+    "pyarrow==24.0.0",
+    "duckdb==1.5.3",
+    "scikit-learn==1.9.0",
+    "mlxtend==0.25.0",
+    "pydantic",
+    "pydantic-settings==2.14.1",
+    "python-dotenv==1.1.0",
+    "pyyaml",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/config", "src/db"]
+
+[dependency-groups]
+dev = [
+    "ruff==0.15.17",
+    "pytest==9.1.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "requires_db: marks tests that need a live PostgreSQL everydb2 connection",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
