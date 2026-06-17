@@ -13,7 +13,7 @@ Phase 1 (v1 milestone) is a single milestone — a leakage-critical, reproducibi
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Trust & Foundation** - Raw quality gate + normalized ETL + leakage-prevention stack bootstrap
+- [x] **Phase 1: Trust & Foundation** - Raw quality gate + normalized ETL + leakage-prevention stack bootstrap (completed 2026-06-17)
 - [ ] **Phase 2: Fukusho Labels** - Sales-start-time labels with payout-table reconciliation (highest-risk, long pole)
 - [ ] **Phase 3: As-of Features & Snapshots** - PIT-correct feature builder + immutable versioned Parquet snapshots
 - [ ] **Phase 4: Model & Prediction** - Baselines BL-1..BL-5 + Phase 1-A LightGBM/CatBoost + calibrated p_fukusho_hit
@@ -49,7 +49,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 01-03-PLAN.md — Wave 3 normalized ETL + クラス正規化 + raw 不変性 pytest（成功基準#2/#3）— DATA-02/DATA-03
+- [x] 01-03-PLAN.md — Wave 3 normalized ETL + クラス正規化 + raw 不変性 pytest（成功基準#2/#3）— DATA-02/DATA-03
 
 ### Phase 2: Fukusho Labels
 
@@ -155,7 +155,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Trust & Foundation | 3/4 | In Progress|  |
+| 1. Trust & Foundation | 4/4 | Complete   | 2026-06-17 |
 | 2. Fukusho Labels | 0/TBD | Not started | - |
 | 3. As-of Features & Snapshots | 0/TBD | Not started | - |
 | 4. Model & Prediction | 0/TBD | Not started | - |

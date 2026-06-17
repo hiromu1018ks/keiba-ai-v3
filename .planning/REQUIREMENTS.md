@@ -12,7 +12,7 @@
 ### データ基盤 (DATA)
 
 - [x] **DATA-01**: EveryDB2由来PostgreSQLデータに対する品質チェックを実行し、主要テーブルの存在・件数・日付範囲・2015年以降の存在・主要項目のNULL・主キー/自然キーの重複・文字化け・コード値異常をレポートできる
-- [ ] **DATA-02**: normalized層のETLが型変換・コード変換を行い、原本テーブル（raw）を直接加工せずに別テーブルとして正規化データを生成できる
+- [x] **DATA-02**: normalized層のETLが型変換・コード変換を行い、原本テーブル（raw）を直接加工せずに別テーブルとして正規化データを生成できる
 - [x] **DATA-03**: クラス正規化が文字列ではなく競走条件コード基準で行われ、`class_code_normalized`/`class_name_normalized`/`class_level_numeric`/`post_2019_class_system_flag` 等を保持できる
 
 ### 複勝ラベル (LABEL)
@@ -112,7 +112,7 @@
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | DATA-01 | Phase 1: Trust & Foundation | Complete |
-| DATA-02 | Phase 1: Trust & Foundation | Pending |
+| DATA-02 | Phase 1: Trust & Foundation | Complete |
 | DATA-03 | Phase 1: Trust & Foundation | Complete |
 | LABEL-01 | Phase 2: Fukusho Labels | Pending |
 | LABEL-02 | Phase 2: Fukusho Labels | Pending |
