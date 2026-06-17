@@ -16,15 +16,12 @@ import pytest
 
 from src.etl.quality_gate import (
     _check_code_value_anomalies,
-    _check_jra_since_2015,
     _check_mojibake,
-    _check_n_race_pk_unique,
     _check_n_uma_race_natural_key_unique,
     _check_table_exists,
     _load_allowed_codes,
     run_quality_gate,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers: モック cursor を構築するファクトリ
@@ -52,6 +49,10 @@ def _mock_cursor(fetch_map: dict[str, object]) -> MagicMock:
         for key, val in cur._fetch_map.items():  # noqa: SLF001
             if key in sql:
                 return val
+        # フォールバック: 未知の SELECT には安全なゼロ値を返す（INFO チェックの
+        # 件数参照が unit test で落ちないようにする）
+        if sql.strip().upper().startswith("SELECT"):
+            return (0,)
         return None
 
     cur.fetchone.side_effect = _fetchone
@@ -199,14 +200,18 @@ def test_code_value_anomaly_detection() -> None:
     例: jyokencd5='ZZZ', gradecd='Z', jyocd='99' を含むデータで件数 > 0。
     """
 
+    # 実装の SQL は `NOT ({col} = ANY(%s::text[]))` 形式。
+    # モック fetch_map は部分文字列マッチなので、各 col 名でヒットさせる。
     cur = _mock_cursor(
         {
-            # jyokencd5 NOT IN (...) の件数
-            "jyokencd5 NOT IN": (5,),
-            "gradecd NOT IN": (2,),
-            "jyocd NOT IN": (0,),
-            "syubetucd NOT IN": (0,),
-            # 全体件数（割合計算用） — どの count(*) か区別するため大きめの値
+            # code_columns の3つは JRA フィルタ内で異常件数を返す
+            # （3つとも同じ (5,) を返すと全部同じ戻り値になるが、anomaly>0 を確認できればよい）
+            "jyokencd5": (5,),
+            "gradecd": (2,),
+            "syubetucd": (0,),
+            # jyocd_non_jra（全体・BETWEEN 無し）
+            "jyocd IS NOT NULL": (7,),
+            # 全体件数（JRA 限定）
             "FROM n_race WHERE jyocd BETWEEN": (40035,),
         }
     )
