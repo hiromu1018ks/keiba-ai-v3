@@ -49,7 +49,9 @@ def test_normalize_has_staging_swap_and_jra_filter() -> None:
     src = inspect.getsource(normalize)
     assert "_staging" in src, "HIGH #5: staging-table-swap パターンを含むべき"
     assert "RENAME TO" in src, "HIGH #5: RENAME TO で atomic swap すべき"
-    assert "DROP TABLE IF EXISTS normalized" in src, "HIGH #5: DROP TABLE IF EXISTS normalized を含むべき"
+    assert "DROP TABLE IF EXISTS normalized" in src, (  # noqa: E501
+        "HIGH #5: DROP TABLE IF EXISTS normalized を含むべき"
+    )
     assert "jyocd BETWEEN '01' AND '10'" in src, "Pitfall 2: JRA フィルタ必須"
 
 
@@ -163,6 +165,9 @@ def test_class_columns_populated(readonly_cur) -> None:  # noqa: ANN001
     readonly_cur.execute("SELECT count(*) FROM normalized.n_race")
     total = readonly_cur.fetchone()[0]
     assert total > 0
+    assert null_cnt == 0, (  # noqa: E501
+        "class_normalization_status は全行 not NULL であるべき（resolved/unresolved）"
+    )
     # post_2019_flag は race_date から常に計算されるので NULL は 0 であるべき（MEDIUM #4）
     readonly_cur.execute(
         "SELECT count(*) FROM normalized.n_race WHERE post_2019_class_system_flag IS NULL"
@@ -207,7 +212,7 @@ def test_etl_idempotent_rerun(pg_pool, write_pool, readonly_cur) -> None:  # noq
     cnt1 = readonly_cur.fetchone()[0]
     readonly_cur.execute(
         "SELECT md5(string_agg("
-        "year::text || '|' || jyocd || '|' || kaiji::text || '|' || nichiji || '|' || racenum::text, "
+        "year::text || '|' || jyocd || '|' || kaiji::text || '|' || nichiji || '|' || racenum::text, "  # noqa: E501
         "',' ORDER BY year, jyocd, kaiji, nichiji, racenum"
         ")) FROM normalized.n_race"
     )
@@ -221,7 +226,7 @@ def test_etl_idempotent_rerun(pg_pool, write_pool, readonly_cur) -> None:  # noq
     cnt2 = readonly_cur.fetchone()[0]
     readonly_cur.execute(
         "SELECT md5(string_agg("
-        "year::text || '|' || jyocd || '|' || kaiji::text || '|' || nichiji || '|' || racenum::text, "
+        "year::text || '|' || jyocd || '|' || kaiji::text || '|' || nichiji || '|' || racenum::text, "  # noqa: E501
         "',' ORDER BY year, jyocd, kaiji, nichiji, racenum"
         ")) FROM normalized.n_race"
     )

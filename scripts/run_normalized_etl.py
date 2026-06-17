@@ -22,12 +22,15 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from psycopg.errors import Error as PsycopgError
+from psycopg.errors import Error as PsycopgError  # noqa: E402
 
-from src.config.settings import Settings
-from src.db.connection import make_pool
-from src.etl.normalize import run_normalized_etl
-from src.etl.raw_fingerprint import assert_raw_unchanged, compute_raw_fingerprint
+from src.config.settings import Settings  # noqa: E402
+from src.db.connection import make_pool  # noqa: E402
+from src.etl.normalize import run_normalized_etl  # noqa: E402
+from src.etl.raw_fingerprint import (  # noqa: E402
+    assert_raw_unchanged,
+    compute_raw_fingerprint,
+)
 
 logging.basicConfig(
     level=logging.INFO,

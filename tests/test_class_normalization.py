@@ -7,7 +7,7 @@
   - D-11: post_2019_class_system_flag は 2019-06-08 基準日（実測・夏季競馬開催初日）。
   - D-13: 未知コードは class_normalization_status='unresolved' で隔離（silent fallback 禁止）。
   - MEDIUM #3: ``date.fromisoformat`` を使用（``fromisoconfig`` typo ではない）。
-  - MEDIUM #4: unresolved 時も ``post_2019_class_system_flag`` は race_date から計算（null 化しない）。
+  - MEDIUM #4: unresolved 時も ``post_2019_class_system_flag`` は race_date から計算。
 
 `@pytest.mark.requires_db` 付きテストは ``KEIBA_SKIP_DB_TESTS=1`` 設定時のみ skip される
 （plan 01-01 conftest の fail-by-default policy と同一・HIGH #8）。
@@ -22,10 +22,10 @@ import pytest
 
 
 def test_module_loads_fromisoformat_not_typo() -> None:
-    """MEDIUM #3 直接検証: ``date.fromisoformat`` 呼び出しを含み typo ``date.fromisoconfig`` は含まない。"""
-    from src.etl import class_normalize
-
+    """MEDIUM #3: ``date.fromisoformat`` を含み typo ``date.fromisoconfig`` は含まない。"""
     import inspect
+
+    from src.etl import class_normalize
 
     src = inspect.getsource(class_normalize)
     # 実装内で date.fromisoformat 呼び出しが存在（docstring での言及は OK）
@@ -40,9 +40,9 @@ def test_module_loads_fromisoformat_not_typo() -> None:
 
 def test_normalize_class_signature_and_no_hondai_match() -> None:
     """normalize_class が存在し、hondai の regex/match 操作を使わない（Pitfall 7 核心）。"""
-    from src.etl import class_normalize
-
     import inspect
+
+    from src.etl import class_normalize
 
     assert hasattr(class_normalize, "normalize_class")
     assert hasattr(class_normalize, "load_class_config")
@@ -105,7 +105,7 @@ def test_grade_derivation_general_empty() -> None:
 
 
 def test_unresolved_unknown_jyokencd5_still_returns_post_2019_flag() -> None:
-    """D-13 + MEDIUM #4: 未知 jyokencd5 は unresolved・ただし post_2019_flag は race_date から計算。"""
+    """D-13 + MEDIUM #4: 未知 jyokencd5 は unresolved・post_2019_flag は race_date から計算。"""
     from src.etl.class_normalize import normalize_class
 
     r = normalize_class("ZZZ", "", date(2020, 1, 1))
@@ -177,14 +177,12 @@ def test_audit_gradecd_d_by_syubetucd() -> None:
     """RESEARCH Open Question #1: gradecd='D' が平地G3 か障害 かを交差確認（実DB）。
 
     syubetucd='18'/'19' は障害（§7.3 モデル除外）。件数分布を INFO として検証する。
+    実際の実DB呼出は下の ``test_audit_gradecd_d_by_syubetucd_on_db`` で行う。本テストは
+    関数シグネチャの存在のみ検証（fixture を使わず呼べる対象の check）。
     """
     from src.etl.class_normalize import audit_gradecd_d_by_syubetucd
 
-    result = audit_gradecd_d_by_syubetucd.__doc__  # doc 存在確認用（dumy）
-    # conftest の readonly_cur fixture を使うため、関数は cursor を取る
-    # ここでは pytest fixture 経由で渡す
-    # ※ このテストは下の parametrized 版で実DB呼出を行う
-    # （マーク重複を避けるため、ここでは関数の存在だけ検証）
+    # 関数が定義されていることの検証（実DB呼出は on_db テストで実施）
     assert callable(audit_gradecd_d_by_syubetucd)
 
 

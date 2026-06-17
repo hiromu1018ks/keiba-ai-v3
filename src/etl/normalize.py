@@ -1,3 +1,4 @@
+# ruff: noqa: E501  (SQL リテラル・長い docstring を保持するため行長は緩和)
 """DATA-02: raw(``public.n_*``) → normalized への型/コード変換 ETL（psycopg3 + pandas 明示実装）。
 
 仕様（01-CONTEXT.md D-06/D-08 / Pitfall 1/2/4 / HIGH #5/#6 / MEDIUM #1 / Warning #5）:
