@@ -347,6 +347,55 @@ def test_check_cast_success_uses_decimal_pattern_for_real_columns() -> None:
     )
 
 
+def test_check_cast_success_reports_fail_count_for_non_numeric_data() -> None:
+    """CR-05 regression: ``_check_cast_success`` は非数値 ``kyori`` を cast_fail として報告。
+
+    REVIEW 指摘: 従来のテストは pattern 文字列しか検証しておらず、悪いデータを与えた
+    時に ``cast_fail > 0`` になることを検証していなかった。これにより ``kyori='ZZZZZ'``
+    のような Pitfall-1 corruption が quality gate を通過し ``normalized.n_race`` に
+    NULL として流入する silent-corruption 経路が untested だった。
+
+    本テストは mock cursor が ``kyori !~ '^[0-9]+$'`` な行を N 件返す状況を模擬し、
+    返り値の ``cast_fail`` / ``cast_success`` / ``cast_success_pct`` が整合することを検証。
+    """
+    # 検査対象 SQL の判別用に、カラム名を fetch_map のキーに使う
+    # （mock cursor は SQL 部分文字列マッチで戻り値を返す）
+    cur = _mock_cursor(
+        {
+            # n_race の JRA 全体件数: 10 行
+            "FROM n_race WHERE jyocd BETWEEN": (10,),
+            # kyori 検査: 非数値 3 件（例: kyori='ZZZZZ' / 'abc' / '' 等）
+            # SQL 本文に "kyori !~ %s" が含まれるので部分文字列 "kyori" でヒットさせる
+            "kyori": (3,),
+            "hassotime": (0,),
+            # futan は n_uma_race 側。本テストでは n_race 系に集中。
+            "FROM n_uma_race WHERE jyocd BETWEEN": (0,),
+            "futan": (0,),
+        }
+    )
+
+    result = _check_cast_success(cur)
+    assert result.severity == "info"
+    cols = result.detail["columns"]
+
+    # n_race.kyori の結果が存在し、cast_fail > 0 が報告される
+    kyori_key = "n_race.kyori"
+    assert kyori_key in cols, f"n_race.kyori の結果が含まれるべき: {list(cols.keys())}"
+    kyori_stat = cols[kyori_key]
+    assert kyori_stat.get("cast_fail", 0) > 0, (
+        f"非数値 kyori 行は cast_fail > 0 として報告されるべき（CR-05）: {kyori_stat}"
+    )
+    # 整合性: total == cast_success + cast_fail
+    total = kyori_stat["total"]
+    assert kyori_stat["cast_success"] + kyori_stat["cast_fail"] == total, (
+        f"cast_success + cast_fail == total であるべき（CR-05 整合性）: {kyori_stat}"
+    )
+    # cast_success_pct は 100% 未満（fail が存在するため）
+    assert 0.0 <= kyori_stat["cast_success_pct"] < 100.0, (
+        f"cast_fail > 0 の場合 cast_success_pct < 100 であるべき: {kyori_stat}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # CR-06: cross-module JRA filter consistency — single source of truth
 # ---------------------------------------------------------------------------
