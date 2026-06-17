@@ -45,9 +45,7 @@ def load_class_config(path: str | Path = _DEFAULT_CONFIG_PATH) -> dict[str, Any]
 
     reform_str = cfg.get("post_2019_class_system_reform_date")
     if reform_str is None:
-        raise ValueError(
-            "class_normalization.yaml に post_2019_class_system_reform_date が未設定"
-        )
+        raise ValueError("class_normalization.yaml に post_2019_class_system_reform_date が未設定")
     # MEDIUM #3: date.fromisoformat（fromisoconfig ではない）
     cfg["_post_2019_reform_date_parsed"] = date.fromisoformat(str(reform_str))
     return cfg
@@ -170,7 +168,11 @@ def normalize_race_classes(
     if config is None:
         config = load_class_config()
 
-    out = df.copy()
+    # WR-01: 入力 DataFrame が RangeIndex でない場合（upstream で filter / concat /
+    # reset_index(drop=False) された場合）、``out.at[i, col]`` が ``enumerate`` の
+    # ``i`` をラベルとして誤った行に書込む silent-misalignment が起きる。
+    # RangeIndex に正規化してから処理する。既存の呼出経路は RangeIndex なので挙動不変。
+    out = df.reset_index(drop=True).copy()
     # race_date 構築（行毎）
     race_dates: list[date | None] = []
     for _, row in out.iterrows():
@@ -246,10 +248,7 @@ def audit_gradecd_d_by_syubetucd(
         "GROUP BY 1, 2 ORDER BY 1, 2"
     )
     read_cur.execute(sql)
-    rows = [
-        {"gradecd": r[0], "syubetucd": r[1], "count": int(r[2])}
-        for r in read_cur.fetchall()
-    ]
+    rows = [{"gradecd": r[0], "syubetucd": r[1], "count": int(r[2])} for r in read_cur.fetchall()]
     return {"rows": rows}
 
 
