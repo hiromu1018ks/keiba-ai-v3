@@ -78,9 +78,7 @@ def test_raw_role_has_no_update_grant_public(readonly_cur) -> None:  # noqa: ANN
         "AND privilege_type IN ('UPDATE','DELETE','TRUNCATE')"
     )
     rows = readonly_cur.fetchall()
-    assert rows == [], (
-        f"HIGH #4 violation: keiba_readonly に raw 書込権限が残っている: {rows}"
-    )
+    assert rows == [], f"HIGH #4 violation: keiba_readonly に raw 書込権限が残っている: {rows}"
 
 
 @pytest.mark.requires_db
@@ -88,18 +86,27 @@ def test_etl_role_cannot_write_public(write_cur) -> None:  # noqa: ANN001
     """HIGH #6 補完: ETL ロール（keiba_etl）が ``public.n_race`` に INSERT を試みると権限エラー。
 
     write_cur fixture は ETL ロールで接続されている（conftest・HIGH #6）。
+
+    WR-07: rollback は try/finally で必ず実行する。従来は ``with pytest.raises`` の
+    外側に ``rollback()`` を置いていたため、INSERT が万が一 *成功* した場合
+    （例: role 権限の誤設定）に ``pytest.raises`` が ``Failed`` を送出して
+    ``rollback()`` がスキップされ、汚染行が ``public.n_race`` に残って後続の
+    ``test_raw_unchanged_after_etl`` を巻き込んで連鎖失敗するリスクがあった。
     """
     import psycopg
 
-    with pytest.raises(psycopg.errors.InsufficientPrivilege):
-        # PK 違反や NOT NULL 違反ではなく権限エラーで raise することを検証。
-        # VALUES 句は最小限（実データ投入ではなく権限テストなので）。
-        write_cur.execute(
-            "INSERT INTO public.n_race (year, monthday, jyocd, kaiji, nichiji, racenum) "
-            "VALUES ('2099', '0101', '99', '99', '99', '99')"
-        )
-    # テスト他に影響を与えないよう必ず rollback
-    write_cur.connection.rollback()
+    try:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            # PK 違反や NOT NULL 違反ではなく権限エラーで raise することを検証。
+            # VALUES 句は最小限（実データ投入ではなく権限テストなので）。
+            write_cur.execute(
+                "INSERT INTO public.n_race (year, monthday, jyocd, kaiji, nichiji, racenum) "
+                "VALUES ('2099', '0101', '99', '99', '99', '99')"
+            )
+    finally:
+        # テストが成功しても失敗しても（INSERT が成功して pytest.raises が Failed に
+        # なっても）、汚染行を残さないよう必ず rollback する（WR-07）。
+        write_cur.connection.rollback()
 
 
 @pytest.mark.requires_db
