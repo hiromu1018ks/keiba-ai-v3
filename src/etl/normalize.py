@@ -249,9 +249,15 @@ def _safe_parse_hassotime(series: pd.Series) -> pd.Series:
     EveryDB2 の ``HassoTime varchar(4) 初期値 0`` により、未確定レースでは '0' が入る。
     ``datetime.strptime('0', '%H%M')`` は ValueError で ETL 全体が停止するのを防ぐため、
     事前に長さ4・数値妥当性をチェックし不正値を NaT にフォールバックする。
-    """
 
-    def _parse(v: Any) -> pd.Timestamp | pd._TSNA:  # noqa: SLF001
+    WR-02: 従来 ``_parse`` の戻り値型を ``pd.Timestamp | pd._TSNA`` と注釈していたが、
+    実際には ``datetime.time`` または ``pd.NaT`` を返す。``pd._TSNA`` は private API
+    （先頭 underscore）で pandas 3.x で移動する可能性があり、注釈も実動作と不一致
+    だった。``datetime.time | type[pd.NaT]`` 相当に修正し、private API への依存を除去。
+    """
+    import datetime as _dt
+
+    def _parse(v: Any) -> _dt.time | type[pd.NaT]:
         if v is None:
             return pd.NaT
         s = str(v).strip()
@@ -260,7 +266,7 @@ def _safe_parse_hassotime(series: pd.Series) -> pd.Series:
         hh, mm = int(s[:2]), int(s[2:])
         if hh > 23 or mm > 59:
             return pd.NaT
-        return pd.Timestamp(f"{s[:2]}:{s[2:]}").time()
+        return _dt.time(hh, mm)
 
     return series.map(_parse)
 
