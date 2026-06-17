@@ -47,7 +47,8 @@ def pit_join_backward(
         history 側の結合キー（as-of タイムスタンプ）。
     by : str | list[str]
         エンティティ単位（``horse_id`` 等）。``merge_asof`` の ``by=`` に渡す。
-        指定時は ``by`` グループ内でも ``on_cutoff`` / ``on_asof`` がソート済みか検証する。
+        グループ内ソート済みかの追加検査は行わない（``on_cutoff`` / ``on_asof`` の
+        **global sortedness** を検査すればグループ内も従属するため・CR-07）。
     tolerance : pd.Timedelta | None
         許容する履歴の古さ（これより古い履歴は付与しない）。
 
@@ -59,8 +60,17 @@ def pit_join_backward(
     Raises
     ------
     ValueError
-        observations / history が ``on_cutoff`` / ``on_asof`` でソートされていない場合。
-        ``by`` 指定時に ``by`` グループ内でソートされていない場合。
+        observations / history の ``on_cutoff`` / ``on_asof`` 列が **global に**
+        （``is_monotonic_increasing`` で）ソートされていない場合。
+
+    Notes
+    -----
+    ``pandas.merge_asof(by=...)`` は ``on=`` 列の **global sortedness**
+    （``is_monotonic_increasing``）を要求する。per-group sortedness は global
+    sortedness から従属するが、逆は成り立たない（per-group sorted ≠ global
+    sorted）。従って本関数は global check のみを行い、per-group check は行わない
+    （CR-07: 従来の per-group check は redundant であり、誤解を招く docstring が
+    未来の maintainer に global check 削除を誘発する silent-leak リスクを回避する）。
     """
     # --- sortedness pre-check（呼出元入力・sort 前に検証・HIGH #1） ---
     # 注意: ここで入力を再ソートしてから is_monotonic_increasing を調べてはならない。
@@ -70,6 +80,8 @@ def pit_join_backward(
     if on_asof not in history.columns:
         raise ValueError(f"history must have column '{on_asof}' (PIT join, §13/D-17)")
 
+    # CR-07: global sortedness が merge_asof の負担契約。per-group チェックは
+    # redundant であり、誤 docstring が将来 global check 削除に繋がるのを防ぐため削除。
     if not observations[on_cutoff].is_monotonic_increasing:
         raise ValueError(
             f"observations must be sorted by {on_cutoff}; caller passed an unsorted "
@@ -81,12 +93,6 @@ def pit_join_backward(
             f"frame (PIT leak-prevention, §13/D-17)"
         )
 
-    # by= 指定時はグループ内ソートも検証（merge_asof の by= はグループ内ソートを要求）
-    if by is not None:
-        by_cols = [by] if isinstance(by, str) else list(by)
-        _validate_by_group_sorted(observations, by_cols, on_cutoff)
-        _validate_by_group_sorted(history, by_cols, on_asof)
-
     return pd.merge_asof(
         observations,
         history,
@@ -96,21 +102,3 @@ def pit_join_backward(
         direction="backward",  # 過去の特徴量値のみ付与
         tolerance=tolerance,
     )
-
-
-def _validate_by_group_sorted(df: pd.DataFrame, by_cols: list[str], time_col: str) -> None:
-    """``by`` グループ内で ``time_col`` が昇順ソートされているか検証。
-
-    ``merge_asof(by=...)`` は各グループ内でソート済みであることを要求する。
-    グループ内が未ソートだと結合結果が黙って間違う可能性があるため raise する。
-    """
-    missing = [c for c in by_cols if c not in df.columns]
-    if missing:
-        raise ValueError(f"by columns {missing} not found in frame (PIT join, §13/D-17)")
-    grouped = df.groupby(by_cols, sort=False)[time_col]
-    all_monotonic = grouped.apply(lambda s: s.is_monotonic_increasing).all()
-    if not all_monotonic:
-        raise ValueError(
-            f"frame must be sorted by {time_col} within each {by_cols} group "
-            f"(merge_asof by= requires intra-group sortedness, §13/D-17)"
-        )

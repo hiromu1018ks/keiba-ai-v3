@@ -101,7 +101,7 @@ def test_no_silent_resort_implementation_guard():
 
 
 def test_backward_join_no_future_leak():
-    """ observations=[t=10] に history=[{t=5,A},{t=15,B}] を backward join → v=A が付与される。"""
+    """observations=[t=10] に history=[{t=5,A},{t=15,B}] を backward join → v=A が付与される。"""
     obs = pd.DataFrame(
         {"feature_cutoff_datetime": pd.to_datetime(["2024-01-10"]), "horse_id": ["h1"]}
     )
@@ -170,3 +170,55 @@ def test_pit_join_no_assert_statement():
     # 行頭の assert 文を検出
     lines = [ln for ln in src.splitlines() if ln.lstrip().startswith("assert ")]
     assert lines == [], f"pit_join_backward に assert 文が含まれる（HIGH #3 違反）: {lines}"
+
+
+# --- CR-07: global sortedness is load-bearing; per-group sorted ≠ global sorted ---
+
+
+def test_globally_unsorted_but_per_group_sorted_raises():
+    """CR-07 regression: per-group-sorted-but-globally-unsorted observations は拒否。
+
+    従来は ``_validate_by_group_sorted`` が redundant に per-group sortedness を検査していたが、
+    docstring が "merge_asof の by= はグループ内ソートを要求" と誤説明しており、未来の
+    maintainer が global check を削除して silent leak を導入するリスクがあった。
+
+    このテストは h1=[Jan2, Jan3] と h2=[Jan1] は各グループ内でソート済みだが、
+    global には [Jan2, Jan1, Jan3] で non-monotonic な frame を構築し、global check
+    （``is_monotonic_increasing``）が raise することを検証する。global check が削除
+    されるとこのテストが FAIL する。
+    """
+    obs = pd.DataFrame(
+        {
+            # global: [Jan2, Jan1, Jan3] → non-monotonic
+            # per-group(h1): [Jan2, Jan3] → monotonic
+            # per-group(h2): [Jan1] → monotonic (singleton)
+            "feature_cutoff_datetime": pd.to_datetime(["2024-01-02", "2024-01-01", "2024-01-03"]),
+            "horse_id": ["h1", "h2", "h1"],
+        }
+    )
+    hist = pd.DataFrame(
+        {
+            "as_of_datetime": pd.to_datetime(["2024-01-01"]),
+            "horse_id": ["h1"],
+            "value": ["A"],
+        }
+    )
+
+    with pytest.raises(ValueError, match="observations must be sorted"):
+        pit_join_backward(obs, hist, by="horse_id")
+
+
+def test_pit_join_no_redundant_per_group_check():
+    """CR-07: ``_validate_by_group_sorted`` は削除され、global check のみが残る。
+
+    リグレッションガード: 誤った docstring「merge_asof の by= はグループ内ソートを要求」
+    を将来再導入しないよう、ソースに per-group 検査関数が存在しないことを検証。
+    """
+    src = inspect.getsource(pit_join)
+    assert "_validate_by_group_sorted" not in src, (
+        "CR-07: redundant な per-group check は削除されるべき（global check が負担契約）"
+    )
+    # global sortedness が負担契約である旨が docstring に明記されている
+    assert "global" in src.lower(), (
+        "CR-07: global sortedness が merge_asof の負担契約である旨を docstring に明記すべき"
+    )
