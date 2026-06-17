@@ -1,7 +1,7 @@
 """Prefit chronological calibrator（成功基準#4 / §15.2 / §15.3）。
 
 時系列データでは確率校正で KFold shuffle による look-ahead leak を防ぐため、
-訓練済み推定器を **再 fit せず** calibration slice のみで校正する（"prefit" セマンティクス・§15.2）。
+訓練済み推定器を **再 fit せず** calibration slice のみで校正する（"prefit"・§15.2）。
 
 **sklearn 1.9.0 API 変更への適合（plan 01-04 / 01-RESEARCH Example 5 からの deviation）:**
 CLAUDE.md / 01-RESEARCH.md / 01-04-PLAN.md は ``CalibratedClassifierCV(cv='prefit')``

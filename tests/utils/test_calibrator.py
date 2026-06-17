@@ -153,7 +153,7 @@ def test_calib_raises_is_valueerror_not_assertion():
     src = inspect.getsource(cal_mod.fit_prefit_calibrator)
     assert_lines = [ln for ln in src.splitlines() if ln.lstrip().startswith("assert ")]
     assert assert_lines == [], (
-        f"fit_prefit_calibrator に assert 文が含まれる（HIGH #3 違反・python -O で削除される）: {assert_lines}"
+        "fit_prefit_calibrator に assert 文がある (HIGH #3 / python -O で削除)"
     )
     assert "raise ValueError" in src, "raise ValueError が含まれない（HIGH #3 違反）"
 

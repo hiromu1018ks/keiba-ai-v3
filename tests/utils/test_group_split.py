@@ -20,10 +20,12 @@ from src.utils.group_split import race_id_time_series_split
 def _make_races(n: int = 100, start: str = "2023-01-01") -> pd.DataFrame:
     """n 件のユニーク race_id を1日間隔で生成。"""
     dates = pd.date_range(start, periods=n, freq="D")
-    return pd.DataFrame({
-        "race_id": [f"R{i:04d}" for i in range(n)],
-        "race_start_datetime": dates,
-    })
+    return pd.DataFrame(
+        {
+            "race_id": [f"R{i:04d}" for i in range(n)],
+            "race_start_datetime": dates,
+        }
+    )
 
 
 # --- HIGH #2 通常系: race_id disjoint + 厳格時系列順序 ---
@@ -61,18 +63,20 @@ def test_equal_timestamp_races_do_not_cross():
     （R1/R2 は同時刻・競馬場違いを想定）。
     n_splits=2 のとき fold 境界が (R1,R2) の等値ペアに掛かると strict < が成立しなくなる。
     """
-    races = pd.DataFrame({
-        "race_id": ["R0", "R1", "R2", "R3"],
-        "race_start_datetime": pd.to_datetime([
-            "2023-01-01", "2023-01-02", "2023-01-02", "2023-01-03"
-        ]),
-    })
+    races = pd.DataFrame(
+        {
+            "race_id": ["R0", "R1", "R2", "R3"],
+            "race_start_datetime": pd.to_datetime(
+                ["2023-01-01", "2023-01-02", "2023-01-02", "2023-01-03"]
+            ),
+        }
+    )
 
     # R1 と R2 が同時刻なので、両者が別 fold に分かれる境界では train_max == test_min になる。
-    # race_id_time_series_split は sort を [race_start_datetime, race_id] で安定化するため
-    # unique_races = [R0, R1, R2, R3]。n_splits=2 では fold1: train=[R0], test=[R1]
-    # → train_max=2023-01-01 < test_min=2023-01-02 OK
-    # fold2: train=[R0,R1], test=[R2] → train_max=2023-01-02, test_min=2023-01-02 → strict < 違反 → raise
+    # race_id_time_series_split は [race_start_datetime, race_id] で安定ソートするため
+    # unique_races = [R0, R1, R2, R3]。n_splits=2 では:
+    #   fold1: train=[R0], test=[R1] → train_max < test_min OK
+    #   fold2: train=[R0,R1], test=[R2] → train_max == test_min → strict < 違反 → raise
     with pytest.raises(ValueError, match="chronological boundary violated"):
         list(race_id_time_series_split(races, n_splits=2))
 

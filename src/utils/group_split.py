@@ -17,7 +17,7 @@ race_id 単位で分割しこれを構造的に防ぐ。
 
 from __future__ import annotations
 
-from typing import Iterator
+from collections.abc import Iterator
 
 import pandas as pd
 
@@ -80,9 +80,7 @@ def race_id_time_series_split(
     )
     n = len(unique_races)
     if n_splits >= n:
-        raise ValueError(
-            f"n_splits ({n_splits}) must be < n unique races ({n}) (§15.4/D-17)"
-        )
+        raise ValueError(f"n_splits ({n_splits}) must be < n unique races ({n}) (§15.4/D-17)")
 
     # race_id -> race_start_datetime の lookup（guard 評価用）
     rid_to_time = races.drop_duplicates("race_id").set_index("race_id")["race_start_datetime"]
@@ -107,7 +105,8 @@ def race_id_time_series_split(
             raise ValueError(
                 f"chronological boundary violated in fold {k}: "
                 f"train_max={train_time_max} >= test_min={test_time_min} "
-                f"(strict < required; equal-timestamp races must not cross, §8.4/§15.4/D-17 HIGH #2)"
+                f"(strict < required; equal-timestamp races must not cross, "
+                f"§8.4/§15.4/D-17 HIGH #2)"
             )
 
         # --- ガード3: non-empty ---

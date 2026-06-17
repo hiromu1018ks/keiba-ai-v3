@@ -13,11 +13,9 @@ import inspect
 
 import pandas as pd
 import pytest
-from pandas import testing as pdt
 
 from src.utils import pit_join
 from src.utils.pit_join import pit_join_backward
-
 
 # --- HIGH #1: 呼出元入力（sort 前）の sortedness pre-check raise ---
 
@@ -25,12 +23,13 @@ from src.utils.pit_join import pit_join_backward
 def test_sortedness_raises_on_unsorted_observations(monkeypatch):
     """未ソート observations で ValueError が raise され、merge_asof は呼ばれない（HIGH #1）。"""
     obs = pd.DataFrame(
-        {"feature_cutoff_datetime": pd.to_datetime(["2024-01-03", "2024-01-01", "2024-01-02"]),
-         "horse_id": ["h1", "h1", "h1"]}
+        {
+            "feature_cutoff_datetime": pd.to_datetime(["2024-01-03", "2024-01-01", "2024-01-02"]),
+            "horse_id": ["h1", "h1", "h1"],
+        }
     )
     hist = pd.DataFrame(
-        {"as_of_datetime": pd.to_datetime(["2023-12-31"]),
-         "horse_id": ["h1"], "value": [10]}
+        {"as_of_datetime": pd.to_datetime(["2023-12-31"]), "horse_id": ["h1"], "value": [10]}
     )
 
     called = {"merge_asof": False}
@@ -52,12 +51,17 @@ def test_sortedness_raises_on_unsorted_observations(monkeypatch):
 def test_sortedness_raises_on_unsorted_history(monkeypatch):
     """未ソート history で ValueError が raise され、merge_asof は呼ばれない（HIGH #1）。"""
     obs = pd.DataFrame(
-        {"feature_cutoff_datetime": pd.to_datetime(["2024-01-01", "2024-01-02"]),
-         "horse_id": ["h1", "h1"]}
+        {
+            "feature_cutoff_datetime": pd.to_datetime(["2024-01-01", "2024-01-02"]),
+            "horse_id": ["h1", "h1"],
+        }
     )
     hist = pd.DataFrame(
-        {"as_of_datetime": pd.to_datetime(["2024-01-05", "2024-01-01"]),
-         "horse_id": ["h1", "h1"], "value": [99, 10]}
+        {
+            "as_of_datetime": pd.to_datetime(["2024-01-05", "2024-01-01"]),
+            "horse_id": ["h1", "h1"],
+            "value": [99, 10],
+        }
     )
 
     called = {"merge_asof": False}
@@ -75,7 +79,7 @@ def test_sortedness_raises_on_unsorted_history(monkeypatch):
 
 
 def test_no_silent_resort_implementation_guard():
-    """リグレッションガード: ソース上で is_monotonic_increasing のチェックが sort_values より前（HIGH #1）。
+    """リグレッションガード: is_monotonic_increasing チェックが sort_values より前（HIGH #1）。
 
     pit_join_backward のソースを取得し、最初の `is_monotonic_increasing` の出現オフセットが
     最初の `sort_values(` の出現オフセットより前であることを検証する。
@@ -97,14 +101,16 @@ def test_no_silent_resort_implementation_guard():
 
 
 def test_backward_join_no_future_leak():
-    """observations=[t=10] に対し history=[{t=5,v=A}, {t=15,v=B}] を join → v=A（過去値）が付与される。"""
+    """ observations=[t=10] に history=[{t=5,A},{t=15,B}] を backward join → v=A が付与される。"""
     obs = pd.DataFrame(
-        {"feature_cutoff_datetime": pd.to_datetime(["2024-01-10"]),
-         "horse_id": ["h1"]}
+        {"feature_cutoff_datetime": pd.to_datetime(["2024-01-10"]), "horse_id": ["h1"]}
     )
     hist = pd.DataFrame(
-        {"as_of_datetime": pd.to_datetime(["2024-01-05", "2024-01-15"]),
-         "horse_id": ["h1", "h1"], "value": ["A", "B"]}
+        {
+            "as_of_datetime": pd.to_datetime(["2024-01-05", "2024-01-15"]),
+            "horse_id": ["h1", "h1"],
+            "value": ["A", "B"],
+        }
     )
 
     out = pit_join_backward(obs, hist)
@@ -118,12 +124,17 @@ def test_backward_join_no_future_leak():
 def test_by_group():
     """by=['horse_id'] で馬ごとに独立に過去値が join される。"""
     obs = pd.DataFrame(
-        {"feature_cutoff_datetime": pd.to_datetime(["2024-01-10", "2024-01-10"]),
-         "horse_id": ["h1", "h2"]}
+        {
+            "feature_cutoff_datetime": pd.to_datetime(["2024-01-10", "2024-01-10"]),
+            "horse_id": ["h1", "h2"],
+        }
     ).sort_values(["horse_id", "feature_cutoff_datetime"])
     hist = pd.DataFrame(
-        {"as_of_datetime": pd.to_datetime(["2024-01-05", "2024-01-05"]),
-         "horse_id": ["h1", "h2"], "value": ["A1", "A2"]}
+        {
+            "as_of_datetime": pd.to_datetime(["2024-01-05", "2024-01-05"]),
+            "horse_id": ["h1", "h2"],
+            "value": ["A1", "A2"],
+        }
     ).sort_values(["horse_id", "as_of_datetime"])
 
     out = pit_join_backward(obs, hist, by="horse_id")
@@ -136,12 +147,14 @@ def test_by_group():
 def test_tolerance_applied():
     """tolerance を超える履歴は付与されない（NaT/NaN 相当）。"""
     obs = pd.DataFrame(
-        {"feature_cutoff_datetime": pd.to_datetime(["2024-01-10"]),
-         "horse_id": ["h1"]}
+        {"feature_cutoff_datetime": pd.to_datetime(["2024-01-10"]), "horse_id": ["h1"]}
     )
     hist = pd.DataFrame(
-        {"as_of_datetime": pd.to_datetime(["2023-12-01"]),  # 40日前
-         "horse_id": ["h1"], "value": ["OLD"]}
+        {
+            "as_of_datetime": pd.to_datetime(["2023-12-01"]),  # 40日前
+            "horse_id": ["h1"],
+            "value": ["OLD"],
+        }
     )
 
     out = pit_join_backward(obs, hist, tolerance=pd.Timedelta(days=7))

@@ -7,7 +7,6 @@ frozen category map の fit/apply が以下を満たすことを検証する:
 
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 
 from src.utils.category_map import MISSING, UNSEEN, apply_category_map, fit_category_map

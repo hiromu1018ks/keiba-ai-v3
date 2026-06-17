@@ -6,7 +6,7 @@
 REVIEWS HIGH #1 / HIGH #3:
 - HIGH #1: sortedness チェックは呼出元入力（sort 前）に対して行う。本関数内で
   入力を再ソートしない（契約違反を黙って吸収しない）。ソート後にチェックすると
-  未ソート入力でも常に monotonic になり raise が到達不能になるため**絶対に sort 後にチェックしない**。
+  未ソート入力でも常に monotonic になり raise が到達不能になる。
 - HIGH #3: リーク防止ガードは ``assert`` ではなく ``raise ValueError`` 形式
   （``python -O`` で削除されない）。
 """
@@ -47,7 +47,7 @@ def pit_join_backward(
         history 側の結合キー（as-of タイムスタンプ）。
     by : str | list[str]
         エンティティ単位（``horse_id`` 等）。``merge_asof`` の ``by=`` に渡す。
-        指定時は ``by`` グループ内でも ``on_cutoff`` / ``on_asof`` がソート済みであることを検証する。
+        指定時は ``by`` グループ内でも ``on_cutoff`` / ``on_asof`` がソート済みか検証する。
     tolerance : pd.Timedelta | None
         許容する履歴の古さ（これより古い履歴は付与しない）。
 
@@ -66,13 +66,9 @@ def pit_join_backward(
     # 注意: ここで入力を再ソートしてから is_monotonic_increasing を調べてはならない。
     # 再ソート後だと未ソート入力でも常に monotonic になり raise が到達不能になる。
     if on_cutoff not in observations.columns:
-        raise ValueError(
-            f"observations must have column '{on_cutoff}' (PIT join, §13/D-17)"
-        )
+        raise ValueError(f"observations must have column '{on_cutoff}' (PIT join, §13/D-17)")
     if on_asof not in history.columns:
-        raise ValueError(
-            f"history must have column '{on_asof}' (PIT join, §13/D-17)"
-        )
+        raise ValueError(f"history must have column '{on_asof}' (PIT join, §13/D-17)")
 
     if not observations[on_cutoff].is_monotonic_increasing:
         raise ValueError(
@@ -102,9 +98,7 @@ def pit_join_backward(
     )
 
 
-def _validate_by_group_sorted(
-    df: pd.DataFrame, by_cols: list[str], time_col: str
-) -> None:
+def _validate_by_group_sorted(df: pd.DataFrame, by_cols: list[str], time_col: str) -> None:
     """``by`` グループ内で ``time_col`` が昇順ソートされているか検証。
 
     ``merge_asof(by=...)`` は各グループ内でソート済みであることを要求する。
@@ -112,9 +106,7 @@ def _validate_by_group_sorted(
     """
     missing = [c for c in by_cols if c not in df.columns]
     if missing:
-        raise ValueError(
-            f"by columns {missing} not found in frame (PIT join, §13/D-17)"
-        )
+        raise ValueError(f"by columns {missing} not found in frame (PIT join, §13/D-17)")
     grouped = df.groupby(by_cols, sort=False)[time_col]
     all_monotonic = grouped.apply(lambda s: s.is_monotonic_increasing).all()
     if not all_monotonic:
