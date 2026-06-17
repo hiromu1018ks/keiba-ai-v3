@@ -13,7 +13,7 @@
 
 - [ ] **DATA-01**: EveryDB2由来PostgreSQLデータに対する品質チェックを実行し、主要テーブルの存在・件数・日付範囲・2015年以降の存在・主要項目のNULL・主キー/自然キーの重複・文字化け・コード値異常をレポートできる
 - [ ] **DATA-02**: normalized層のETLが型変換・コード変換を行い、原本テーブル（raw）を直接加工せずに別テーブルとして正規化データを生成できる
-- [ ] **DATA-03**: クラス正規化が文字列ではなく競走条件コード基準で行われ、`class_code_normalized`/`class_name_normalized`/`class_level_numeric`/`post_2019_class_system_flag` 等を保持できる
+- [x] **DATA-03**: クラス正規化が文字列ではなく競走条件コード基準で行われ、`class_code_normalized`/`class_name_normalized`/`class_level_numeric`/`post_2019_class_system_flag` 等を保持できる
 
 ### 複勝ラベル (LABEL)
 
@@ -113,7 +113,7 @@
 |-------------|-------|--------|
 | DATA-01 | Phase 1: Trust & Foundation | Pending |
 | DATA-02 | Phase 1: Trust & Foundation | Pending |
-| DATA-03 | Phase 1: Trust & Foundation | Pending |
+| DATA-03 | Phase 1: Trust & Foundation | Complete |
 | LABEL-01 | Phase 2: Fukusho Labels | Pending |
 | LABEL-02 | Phase 2: Fukusho Labels | Pending |
 | LABEL-03 | Phase 2: Fukusho Labels | Pending |
@@ -138,6 +138,7 @@
 | TEST-01 | Phase 8: Adversarial Audit Suite | Pending |
 
 **Coverage:**
+
 - v1 requirements: 25 total
 - Mapped to phases: 25 (fully mapped)
 - Unmapped: 0 ✓

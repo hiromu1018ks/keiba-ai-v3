@@ -40,7 +40,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 Plans:
 **Wave 1**
 
-- [ ] 01-01-PLAN.md — Wave 1 基盤（uv/接続/5層スキーマ/class_normalization.yaml）— DATA-03
+- [x] 01-01-PLAN.md — Wave 1 基盤（uv/接続/5層スキーマ/class_normalization.yaml）— DATA-03
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -155,7 +155,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Trust & Foundation | 0/4 plans | Plans created | - |
+| 1. Trust & Foundation | 1/4 | In Progress|  |
 | 2. Fukusho Labels | 0/TBD | Not started | - |
 | 3. As-of Features & Snapshots | 0/TBD | Not started | - |
 | 4. Model & Prediction | 0/TBD | Not started | - |
