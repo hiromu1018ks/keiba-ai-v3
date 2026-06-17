@@ -63,7 +63,20 @@ Plans:
   3. `sales_start_entry_count` is populated on every eligible race — either from a direct column OR restored from entry-list + 取消/競走除外 announcement timestamps, with the `unresolved` fraction reported and the `unresolved` rows excluded from training/evaluation
   4. Dead-heat races label ALL payout-table 複勝対象 horses as positive; 取消/除外 horses are prediction-excluded (and refund-handled later); 競走中止 horses remain in-training and are labeled `fukusho_hit=0` (no exclusion) — verified by a unit test that constructs each scenario and asserts the label
 
-**Plans**: TBD
+**Plans**: 4 plans in 3 waves
+Plans:
+**Wave 1**
+
+- [ ] 02-01-PLAN.md — Wave 1 基盤（label_spec.yaml / GRANT 拡張 / search_path / run_apply_schema 再実行）— LABEL-01/02/03/04 前提
+- [ ] 02-02-PLAN.md — Wave 1 unit test 集群（LABEL-01/02/04・合成 DataFrame・mock cursor・18テスト RED）— LABEL-01/02/04
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 02-03-PLAN.md — Wave 2 label ETL 本体（fukusho_label.py・idempotent load・raw 不変性拡張）— LABEL-01/02/04
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 02-04-PLAN.md — Wave 3 払戻テーブル突合ゲート（label_reconcile.py・§10.5 6検査 BLOCK/INFO・>99.9% agreement）— LABEL-03
 
 ### Phase 3: As-of Features & Snapshots
 

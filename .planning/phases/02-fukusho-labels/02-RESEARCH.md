@@ -579,21 +579,21 @@ def compute_is_model_eligible(row: pd.Series) -> tuple[bool, str | None]:
 
 **注:** `[ASSUMED]` タグは本研究では使用せず、上記は全て実測または公式文档に基づく `[VERIFIED]`/`[CITED]` の補足リスクとして整理。確認不要だが計画時に念のため再チェックすべき項目。
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **`label_generation_version` の採番方式**
    - What we know: §10.3/§19.1 がバージョン管理を要求。Phase 1 `class_normalization.yaml` に `class_normalization_status` の前例あり
    - What's unclear: セマンティック（`v1.0.0`）か日付（`2026-06-17`）かハッシュか
-   - Recommendation: セマンティック `v1.0.0` を `src/config/label_spec.yaml` に定義（D-07 Git 管理）。ラベルロジック変更時に bump。Phase 3 snapshot metadata に埋め込まれる
+   - RESOLVED: セマンティック `v1.0.0` を `src/config/label_spec.yaml` に定義（D-07 Git 管理）。ラベルロジック変更時に bump。Phase 3 snapshot metadata に埋め込まれる。**Plan 02-01 Task 1 で `label_generation_version: "v1.0.0"` を `src/config/label_spec.yaml` に実装済み・全行に同 version を付与して label.fukusho_label に格納（Plan 02-03 run_label_etl）**
 
 2. **`n_harai.HenkanUma1..28` のパース方法**
    - What we know: 28 個の varchar(1) フィールドが馬番 1-28 に対応（'1'=返還対象）。Phase 5 返還処理で使用
    - What's unclear: Phase 2 で `is_scratch_cancel`（予測対象外フラグ）をこの情報から付与するか、SE `bataijyu='000'` のみで付与するか
-   - Recommendation: Phase 2 では SE `bataijyu='000'` で付与（実測 956 行と一致）。`HenkanUma` のパースは Phase 5 返還処理で実装。ただし監査用に `henkan_flag2` は label 行に保持
+   - RESOLVED: Phase 2 では SE `bataijyu='000'` のみで `is_scratch_cancel` を付与（実測 956 行と一致）。**Plan 02-03 Task 1 `classify_status` / `compute_is_model_eligible` は SE `bataijyu=='000'` ブランチのみを使用し HenkanUma は参照しない。`henkanflag2` は監査用カラムとして label.fukusho_label に保持（Plan 02-03 `_create_label_table`）**。`HenkanUma1..28` のパースは Phase 5 返還処理で実装
 
 3. **`>99.9%` ゲートの「held-out サンプル」具体戦略**
    - What we know: 実測で naive raw vs valid の drift は 7 行（553,891 行中）。dead_heat 97 レース含む
-   - Recommendation: 時系列ホールドアウト（最新 10% = 約 3,958 レース・約 55,000 馬行）＋層化（年/競馬場/頭数帯）。agreement は**レース単位の馬集合完全一致**（precision/recall 両方 1.0）。dead_heat レースは明示的に層に含める。SC#2 の検証可能性を満たす
+   - RESOLVED: 時系列ホールドアウト（最新 10% = 約 3,958 レース・約 55,000 馬行）＋層化（年/競馬場/頭数帯）。agreement は**レース単位の馬集合完全一致**（precision/recall 両方 1.0）。dead_heat レースは明示的に層に含める。**Plan 02-04 Task 2 `_compute_race_level_agreement(cur, sample_pct=0.1)` で実装・reconcile_against_payout が agreement_pct を返す・test_gt_999_pct_agreement（@pytest.mark.requires_db）で検証**
 
 ## Environment Availability
 
