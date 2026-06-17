@@ -30,10 +30,20 @@ def race_id_time_series_split(
     races: pd.DataFrame,
     n_splits: int = 5,
 ) -> Iterator[tuple[list[str], list[str]]]:
-    """race_id 単位・``race_start_datetime`` 昇順の時系列CV。
+    """race_id 単位・``race_start_datetime`` 昇順の **expanding-window** 時系列CV。
 
     同一 race_id の train/test またぎを禁止し（§8.4/§15.4）、かつ各 foldで
     ``max(train_time) < min(test_time)``（**strict ``<``、等値不可**）を強制する。
+
+    **WR-04 honesty note（window semantics）:**
+    本関数は **expanding-window** のみを生成する: 各 fold の train は常に
+    ``unique_races[:test_start]`` で index 0 から始まり、test は後続区間。
+    これは ``TimeSeriesSplit`` と同じ振舞いであり、CLAUDE.md §15.5 が規定する
+    BT-1..BT-5（例: BT-1 train 2019-06→2022 / test 2023）のような**固定-window**
+    または**rolling-window** backtestは表現できない。BT-* helper は Phase 4 で
+    追加予定（``mlxtend.GroupTimeSeriesSplit`` を副 API として露出済み・必要なら
+    そちらで組み立てる）。従来の docstring は §15.4/§15.5 coverage を過剰に主張
+    していたため訂正。
 
     **strict chronological（HIGH #2）:**
     等値 ``race_start_datetime`` を持つレース群（例: 競馬場 A と B の第1レースが同時刻）
@@ -55,7 +65,7 @@ def race_id_time_series_split(
     Yields
     ------
     (train_rids, test_rids) : tuple[list[str], list[str]]
-        各 fold の train/test race_id リスト（共に時系列順）。
+        各 fold の train/test race_id リスト（共に時系列順・train は index 0 から拡張）。
 
     Raises
     ------
