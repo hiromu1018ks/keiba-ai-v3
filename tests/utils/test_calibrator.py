@@ -54,11 +54,17 @@ def test_calib_after_train_passes():
     )
 
     assert cal is not None
-    assert cal.cv == "prefit", f"cv='prefit' ではない: {cal.cv}"
 
 
-def test_prefit_cv():
-    """戻り calibrator の .cv == 'prefit'（§15.2）。"""
+def test_prefit_semantics_base_estimator_not_refit():
+    """sklearn 1.9.0 prefit: 戻り calibrator の base estimator は FrozenEstimator で
+    ラップされており、calibration 時に再 fit されていない（"prefit" セマンティクス・§15.2）。
+
+    cv='prefit' 文字列は sklearn 1.9.0 で削除されたため、代わりに
+    base_estimator が sklearn.frozen.FrozenEstimator であることを検証する。
+    """
+    from sklearn.frozen import FrozenEstimator
+
     X, y = _dummy_data(150)
     base = DummyClassifier(strategy="prior")
     base.fit(X[:100], y[:100])
@@ -68,9 +74,13 @@ def test_prefit_cv():
         y_calib=y[100:150],
         race_dates_calib=pd_date_range_starting("2024-04-01", 50),
         train_max_date=date(2024, 3, 31),
-        method="sigmoid",  # dummy 推定器で sigmoid の方が安定
+        method="sigmoid",
     )
-    assert cal.cv == "prefit"
+    # base_estimator が FrozenEstimator でラップされている = 再 fit されない（1.9.0 prefit）
+    assert isinstance(cal.estimator, FrozenEstimator), (
+        f"estimator が FrozenEstimator でない: {type(cal.estimator)} "
+        "（sklearn 1.9.0 の prefit セマンティクスが適用されていない・§15.2）"
+    )
 
 
 # --- HIGH #3 直接検証: ValueError を raise（AssertionError でなく） ---
@@ -149,15 +159,23 @@ def test_calib_raises_is_valueerror_not_assertion():
 
 
 def test_calibrator_uses_estimator_arg_not_base_estimator():
-    """sklearn 1.9.0 の ``estimator=`` 引数（legacy ``base_estimator=`` ではない）を使用する。"""
+    """sklearn 1.9.0 の ``estimator=`` 引数（legacy ``base_estimator=`` ではない）を使用する。
+
+    関数本体内の ``CalibratedClassifierCV(...)`` 呼出が ``estimator=`` を使っていることを検証。
+    （docstring 中の言及は除外するため、``fit_prefit_calibrator`` 関数のソースのみ検査。
+    関数シグネチャ引数 ``base_estimator`` は呼出元 API であり、CalibratedClassifierCV に
+    渡す kwargs とは別物。）
+    """
     from src.utils import calibrator as cal_mod
 
-    src = inspect.getsource(cal_mod)
-    assert "estimator=" in src, "sklearn 1.9.0 の estimator= 引数が使われていない"
-    assert "base_estimator=" not in src.replace(
-        "base_estimator,", ""
-    ).replace("base_estimator:", ""), (
-        "legacy base_estimator= 引数が使われている（sklearn 1.9.0 では非推奨）"
+    src = inspect.getsource(cal_mod.fit_prefit_calibrator)
+    # 実コード中の CalibratedClassifierCV 呼出が estimator= を使っている
+    assert "CalibratedClassifierCV(estimator=" in src, (
+        "CalibratedClassifierCV 呼出が estimator= 引数を使っていない（sklearn 1.9.0）"
+    )
+    # legacy の base_estimator= 引数で CalibratedClassifierCV を呼んでいない
+    assert "CalibratedClassifierCV(base_estimator=" not in src, (
+        "CalibratedClassifierCV を legacy base_estimator= で呼んでいる（sklearn 1.9.0 では非推奨）"
     )
 
 
