@@ -538,10 +538,18 @@ def run_quality_gate(cur: Cursor) -> dict[str, Any]:
             public.n_* への SELECT 権限を持つ raw 読取ロール）
 
     Returns:
-        ``{"verdict": "pass"|"fail", "checks": [CheckResult.asdict(), ...]}``
+        ``{"verdict": "pass"|"fail", "checks": [...], "degraded_checks_count": int}``
 
     verdict は severity="block" なチェックが全て passed の場合のみ "pass"。
     それ以外は "fail"。INFO チェックの passed は verdict に影響しない（D-01）。
+
+    **WR-05 degraded visibility:**
+    各 INFO check は ``except Exception as exc: ...detail={"error": str(exc)}``
+    で query error を dict に格納して継続する。これにより raw 側の column rename 等
+    で query が壊れても verdict は pass のまま silent-degradation するリスクがある。
+    本関数は ``degraded_checks_count``（``"error"`` キーを含む INFO check 件数）を
+    返り値に含め、downstream（``run_quality_report.py`` 等）で閾値監視できるようにする。
+    将来的な BLOCK escalation は product decision として保留（本件では単純に可視化のみ）。
 
     セキュリティ（T-02-02）: 各 check dict は ``name/passed/severity/detail`` のみを
     含む。DSN/password 等の認証情報は一切含めない。
@@ -574,9 +582,38 @@ def run_quality_gate(cur: Cursor) -> dict[str, Any]:
 
     verdict = "pass" if all(r.passed for r in results if r.severity == "block") else "fail"
 
+    # WR-05: INFO check の silent degradation を可視化。
+    # 各 INFO check は ``except Exception`` で ``detail = {"error": str(exc)}`` を格納
+    # して継続するため、query 破損等が起きても verdict は pass のまま黙る。downstream
+    # で監視できるよう ``degraded_checks_count`` を返り値に含める。
+    #
+    # INFO check の ``detail`` 構造は2系統ある:
+    #   - top-level error: ``detail = {"error": str(exc)}``（例: _check_date_range）
+    #   - nested per-column error: ``detail = {"columns": {key: {"error": str(exc)}}}``
+    #     （例: _check_cast_success / _check_null_rates / _check_mojibake /
+    #      _check_code_value_anomalies）
+    # 両方を走査して ``"error"`` キーを含む INFO check を数える。
+    def _has_error(detail: Any) -> bool:
+        if not isinstance(detail, dict):
+            return False
+        if "error" in detail:
+            return True
+        for v in detail.values():
+            if isinstance(v, dict) and "error" in v:
+                return True
+            # 2階層目（``columns`` 配下の per-column dict）も走査
+            if isinstance(v, dict):
+                for inner in v.values():
+                    if isinstance(inner, dict) and "error" in inner:
+                        return True
+        return False
+
+    degraded_checks_count = sum(1 for r in results if r.severity == "info" and _has_error(r.detail))
+
     return {
         "verdict": verdict,
         "checks": [asdict(r) for r in results],
+        "degraded_checks_count": degraded_checks_count,
     }
 
 
