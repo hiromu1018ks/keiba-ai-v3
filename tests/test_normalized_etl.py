@@ -26,6 +26,33 @@ def test_normalize_module_imports_and_signatures() -> None:
     assert callable(normalize._idempotent_load)
 
 
+def test_idempotent_load_refuses_empty_input_to_prevent_silent_data_loss() -> None:
+    """CR-04(a): ``_idempotent_load`` は rows=[] を拒否し RuntimeError を送出する。
+
+    従来は読出プールのタイムアウト・transform bug・誤設定で 0 行になった場合でも、
+    空の staging テーブルを ``normalized.<table>`` に swap し、``run_normalized_etl`` が
+    success で返っていた（silent data loss）。trust-foundation では即座に fail する。
+    """
+    from unittest.mock import MagicMock
+
+    from src.etl.normalize import _idempotent_load
+
+    cur = MagicMock()
+    cur.rowcount = 0
+
+    with pytest.raises(RuntimeError, match="refusing to swap to empty"):
+        _idempotent_load(cur, "n_race", [], ["year", "jyocd"])
+
+    # atomic swap の DROP / RENAME は発行されない（fail-fast）
+    executed_sql = " ".join(str(c.args[0]) for c in cur.execute.call_args_list)
+    assert "DROP TABLE" not in executed_sql.upper(), "空入力は swap 前に raise するべき（CR-04）"
+    # advisory lock は取得される（順序の検証）
+    advisory_calls = [
+        c for c in cur.execute.call_args_list if "pg_advisory_xact_lock" in str(c.args[0])
+    ]
+    assert advisory_calls, "advisory lock を取得すべき（CR-04(b)）"
+
+
 def test_normalize_no_duckdb_no_raw_writes() -> None:
     """DuckDB を import しない（§12.1）・raw に UPDATE/DELETE を発行しない（成功基準#2）。"""
     import inspect
@@ -182,8 +209,7 @@ def test_class_columns_populated(readonly_cur) -> None:  # noqa: ANN001
     """``class_level_numeric`` / ``post_2019_class_system_flag`` / ``class_normalization_status``
     が全行に存在し非NULL率が高い。"""
     readonly_cur.execute(
-        "SELECT count(*) FROM normalized.n_race "
-        "WHERE class_normalization_status IS NULL"
+        "SELECT count(*) FROM normalized.n_race WHERE class_normalization_status IS NULL"
     )
     null_cnt = readonly_cur.fetchone()[0]
     readonly_cur.execute("SELECT count(*) FROM normalized.n_race")
@@ -204,13 +230,11 @@ def test_class_columns_populated(readonly_cur) -> None:  # noqa: ANN001
 def test_rowcount_jra_matches_raw(readonly_cur) -> None:  # noqa: ANN001
     """``normalized.n_race`` 件数が raw の JRA・2015年以降件数と一致（要件 §6.1）。"""
     readonly_cur.execute(
-        "SELECT count(*) FROM public.n_race "
-        "WHERE jyocd BETWEEN '01' AND '10' AND year::int >= 2015"
+        "SELECT count(*) FROM public.n_race WHERE jyocd BETWEEN '01' AND '10' AND year::int >= 2015"
     )
     raw_count = readonly_cur.fetchone()[0]
     readonly_cur.execute(
-        "SELECT count(*) FROM normalized.n_race "
-        "WHERE jyocd BETWEEN '01' AND '10' AND year >= 2015"
+        "SELECT count(*) FROM normalized.n_race WHERE jyocd BETWEEN '01' AND '10' AND year >= 2015"
     )
     norm_count = readonly_cur.fetchone()[0]
     assert raw_count == norm_count, (

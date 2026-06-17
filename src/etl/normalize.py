@@ -245,6 +245,7 @@ def _safe_parse_hassotime(series: pd.Series) -> pd.Series:
     ``datetime.strptime('0', '%H%M')`` は ValueError で ETL 全体が停止するのを防ぐため、
     事前に長さ4・数値妥当性をチェックし不正値を NaT にフォールバックする。
     """
+
     def _parse(v: Any) -> pd.Timestamp | pd._TSNA:  # noqa: SLF001
         if v is None:
             return pd.NaT
@@ -310,9 +311,20 @@ def _transform_uma_race_df(df: pd.DataFrame) -> pd.DataFrame:
 
     # int 系
     int_cols = [
-        "year", "wakuban", "umaban", "kettonum", "kakuteijyuni",
-        "nyusenjyuni", "barei", "bataijyu", "zogensa", "ninki",
-        "jyuni1c", "jyuni2c", "jyuni3c", "jyuni4c",
+        "year",
+        "wakuban",
+        "umaban",
+        "kettonum",
+        "kakuteijyuni",
+        "nyusenjyuni",
+        "barei",
+        "bataijyu",
+        "zogensa",
+        "ninki",
+        "jyuni1c",
+        "jyuni2c",
+        "jyuni3c",
+        "jyuni4c",
     ]
     for c in int_cols:
         if c in out.columns:
@@ -339,6 +351,8 @@ def _idempotent_load(
     """staging-table-swap で atomic・idempotent な書込を行う（HIGH #5）。
 
     Steps（同一トランザクション内）:
+      0. ``SELECT pg_advisory_xact_lock(hashtext('normalized.<table>'))``
+         （CR-04: 同一テーブルに対する並行 ETL 実行を直列化）
       1. ``CREATE TABLE IF NOT EXISTS normalized.<table>_staging (LIKE normalized.<table> INCLUDING ALL)``
       2. ``TRUNCATE normalized.<table>_staging``
       3. ``INSERT INTO normalized.<table>_staging (...) VALUES (...)``
@@ -346,28 +360,62 @@ def _idempotent_load(
       5. ``ALTER TABLE normalized.<table>_staging RENAME TO <table>``
 
     atomic に commit されるため、外部からは常に ``<table>`` として見える。再実行で重複しない。
+
+    CR-04 hardening:
+      - 空入力（``rows == []``）の場合は ``RuntimeError`` で即座に fail する。
+        読出プールのタイムアウト・transform bug・誤設定で 0 行になった場合、
+        従来は空の staging を ``normalized.<table>`` に swap して silent data loss を
+        起こしていた。trust-foundation ではこれを許容しない。
+      - ``pg_advisory_xact_lock`` で同一テーブルの並行 swap を直列化する。並行実行で
+        最後に commit した run のみが生き残び行が混ざるレースを防ぐ。
+      - ``executemany`` 後 ``cursor.rowcount`` を検証し、期待行数と異なる場合は
+        ``RuntimeError`` で fail する（trigger 抑制等で黙って行数が減るのを検知）。
     """
     staging = f"{table}_staging"
+
+    # CR-04(b): 同一テーブルへの並行 ETL を直列化する transaction-scoped advisory lock。
+    # hashtext('normalized.<table>') はテーブル名から安定した int32 キーを生成する。
+    # xact_lock は現在の transaction の commit/rollback で自動解放される。
+    write_cur.execute(
+        "SELECT pg_advisory_xact_lock(hashtext(%s))",
+        (f"normalized.{table}",),
+    )
+
+    # CR-04(a): 空入力の swap を拒否（silent data loss 防止）。
+    # 読出プールのタイムアウトや transform bug で rows=0 になった場合、従来は空の
+    # staging が normalized.<table> になり、run_normalized_etl が success で返っていた。
+    if not rows:
+        raise RuntimeError(
+            f"_idempotent_load('{table}'): refusing to swap to empty (0 rows). "
+            "Investigate read pool / transform — silent data loss prevented (CR-04)."
+        )
+
     # IF NOT EXISTS で対象テーブルが存在しなければ作成（初回）
     write_cur.execute(
-        f"CREATE TABLE IF NOT EXISTS normalized.{table} "
-        f"(LIKE normalized.{table} INCLUDING ALL)"
+        f"CREATE TABLE IF NOT EXISTS normalized.{table} (LIKE normalized.{table} INCLUDING ALL)"
     )
     # staging を作成（既存定義を LIKE で継承・PK も含む）
     write_cur.execute(
-        f"CREATE TABLE IF NOT EXISTS normalized.{staging} "
-        f"(LIKE normalized.{table} INCLUDING ALL)"
+        f"CREATE TABLE IF NOT EXISTS normalized.{staging} (LIKE normalized.{table} INCLUDING ALL)"
     )
     # TRUNCATE staging（同一トランザクション内で安全）
     write_cur.execute(f"TRUNCATE normalized.{staging}")
 
     # INSERT INTO staging
-    if rows:
-        cols_sql = ", ".join(columns)
-        placeholders = ", ".join(["%s"] * len(columns))
-        write_cur.executemany(
-            f"INSERT INTO normalized.{staging} ({cols_sql}) VALUES ({placeholders})",
-            rows,
+    cols_sql = ", ".join(columns)
+    placeholders = ", ".join(["%s"] * len(columns))
+    write_cur.executemany(
+        f"INSERT INTO normalized.{staging} ({cols_sql}) VALUES ({placeholders})",
+        rows,
+    )
+    # CR-04(c): executemany の実際 rowcount を検証。
+    # psycopg3 は executemany 後 cursor.rowcount に作用した行数を返す。
+    # trigger 等で行が抑制された場合、len(rows) と一致しない可能性がある。
+    actual = write_cur.rowcount if write_cur.rowcount is not None else len(rows)
+    if actual != len(rows):
+        raise RuntimeError(
+            f"_idempotent_load('{table}'): executemany inserted {actual}, "
+            f"expected {len(rows)} (CR-04 rowcount verification)"
         )
 
     # atomic swap: DROP existing → RENAME staging → table
@@ -492,9 +540,19 @@ def _row_to_tuple(row: pd.Series, columns: list[str], *, table: str) -> tuple:
         elif v is pd.NA or (isinstance(v, float) and pd.isna(v)):
             vals.append(None)
         elif table == "n_uma_race" and c in {
-            "wakuban", "umaban", "kettonum", "kakuteijyuni",
-            "nyusenjyuni", "barei", "bataijyu", "zogensa", "ninki",
-            "jyuni1c", "jyuni2c", "jyuni3c", "jyuni4c",
+            "wakuban",
+            "umaban",
+            "kettonum",
+            "kakuteijyuni",
+            "nyusenjyuni",
+            "barei",
+            "bataijyu",
+            "zogensa",
+            "ninki",
+            "jyuni1c",
+            "jyuni2c",
+            "jyuni3c",
+            "jyuni4c",
         }:
             # Int64 → int or None
             vals.append(None if pd.isna(v) else int(v))
@@ -516,9 +574,7 @@ def _row_to_tuple(row: pd.Series, columns: list[str], *, table: str) -> tuple:
     return tuple(vals)
 
 
-def _load_race(
-    read_pool: ConnectionPool, write_pool: ConnectionPool
-) -> tuple[int, int]:
+def _load_race(read_pool: ConnectionPool, write_pool: ConnectionPool) -> tuple[int, int]:
     """``n_race`` を raw → typed/class-normalized → idempotent load。"""
     with read_pool.connection() as conn:
         with conn.cursor() as cur:
@@ -536,9 +592,7 @@ def _load_race(
     return inserted, unresolved
 
 
-def _load_uma_race(
-    read_pool: ConnectionPool, write_pool: ConnectionPool
-) -> int:
+def _load_uma_race(read_pool: ConnectionPool, write_pool: ConnectionPool) -> int:
     """``n_uma_race`` を raw → typed → idempotent load（MEDIUM #1）。"""
     with read_pool.connection() as conn:
         with conn.cursor() as cur:
