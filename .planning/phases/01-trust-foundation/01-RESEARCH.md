@@ -634,12 +634,12 @@ def fit_prefit_calibrator(
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **`gradecd='D'` の正確な意味（A1）**
+1. **`gradecd='D'` の正確な意味（A1）** — RESOLVED（plan 01-03 で交差確認実装）
    - What we know: 実測1,159件、G3 系と思われる。`C`(1,056) と件数近い。
    - What's unclear: 障害G3 と平地G3 の混在、または legacy コード。
-   - Recommendation: Phase 1 ETL で `SELECT gradecd, syubetucd, count(*) FROM n_race WHERE gradecd IN ('C','D')` を実行し、`syubetucd IN ('18','19')`（障害）の割合を確認。障害は §7.3 でモデル除外だがクラス正規化自体は通す。
+   - Resolution: plan 01-03 で `SELECT gradecd, syubetucd, count(*) FROM public.n_race WHERE jyocd BETWEEN '01' AND '10' AND gradecd IN ('C','D') GROUP BY 1,2` を実行し結果を INFO ログ出力するタスクを追加（`audit_gradecd_d_by_syubetucd`・T-03 syubetucd 交差確認・対象は raw の public.n_race、JRA限定フィルタ付き）。当面 `grade_numeric=3` は暫定扱いとし、障害（`syubetucd IN ('18','19')`）は §7.3 でモデル対象外のため class_level_numeric への影響は限定的。実測値は 01-03 SUMMARY で報告し必要なら Phase 4 で再調整。
 
 2. **`sales_start_entry_count` の取得経路（Phase 2 フラグ、Phase 1 では品質チェックのみ）**
    - What we know: `n_race.TorokuTosu`（登録頭数）と `SyussoTosu`（出走頭数）は存在。`sales_start_entry_count`（発売開始時点）の直接カラムは EveryDB2 仕様書に明示なし。
