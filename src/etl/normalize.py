@@ -34,6 +34,7 @@ from psycopg import Cursor
 from psycopg_pool import ConnectionPool
 
 from src.etl.class_normalize import normalize_race_classes
+from src.etl.filters import PROJECT_WINDOW_FILTER
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +43,12 @@ logger = logging.getLogger(__name__)
 # JRA フィルタ（Pitfall 2）+ 2015年以降フィルタ（要件 §6.1: 学習・分析対象期間）
 # EveryDB2 には2015年以前のレースも入っているが、本プロジェクトの対象外。ETL で
 # 機械的に除外する（Rule 2: 要件 §6.1 は本プロジェクトの core 前提）。
+#
+# CR-06: 単一の真の源は ``src.etl.filters``。``_JRA_FILTER`` というローカル名は
+# 互換性用の alias。raw_fingerprint / quality_gate は ``JRA_FILTER``（year 制限無し）
+# を使い、ETL SELECT は ``PROJECT_WINDOW_FILTER``（year >= 2015 付き）を使う。
 # ---------------------------------------------------------------------------
-_JRA_FILTER = "jyocd BETWEEN '01' AND '10' AND year::int >= 2015"
+_JRA_FILTER = PROJECT_WINDOW_FILTER
 
 
 # ---------------------------------------------------------------------------

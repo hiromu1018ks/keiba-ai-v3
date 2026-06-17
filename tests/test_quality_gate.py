@@ -92,9 +92,9 @@ def test_blocking_checks_fail_when_no_2015_data() -> None:
     block_checks = [c for c in result["checks"] if c["severity"] == "block"]
     assert block_checks, "BLOCK check が少なくとも1つ存在する"
     failed_blocks = [c for c in block_checks if not c["passed"]]
-    assert any(
-        "2015" in c["name"] or "jra_since" in c["name"].lower() for c in failed_blocks
-    ), f"2015 check が fail しているはず: {[c['name'] for c in failed_blocks]}"
+    assert any("2015" in c["name"] or "jra_since" in c["name"].lower() for c in failed_blocks), (
+        f"2015 check が fail しているはず: {[c['name'] for c in failed_blocks]}"
+    )
 
 
 def test_n_race_pk_duplicate_fails() -> None:
@@ -345,3 +345,61 @@ def test_check_cast_success_uses_decimal_pattern_for_real_columns() -> None:
     assert all(r"\." not in p for p in integer_patterns), (
         f"整数列は整数専用パターンを使うべき: {integer_patterns}"
     )
+
+
+# ---------------------------------------------------------------------------
+# CR-06: cross-module JRA filter consistency — single source of truth
+# ---------------------------------------------------------------------------
+
+
+def test_jra_filter_single_source_of_truth() -> None:
+    """CR-06: ``src.etl.filters`` が JRA フィルタの単一の真の源。
+
+    raw_fingerprint / quality_gate / normalize は全て ``src.etl.filters`` から
+    フィルタ文字列を import し、ローカルで定義しない。これにより将来の一方の
+    module 編集が他方に伝播しない silent-divergence リスクを排除する。
+
+    raw_fingerprint / quality_gate は ``JRA_FILTER``（year 制限無し）を使い、
+    normalize は ``PROJECT_WINDOW_FILTER``（year >= 2015 付き）を使う。これは
+    意図的: raw 監査は全 JRA 行を、ETL SELECT は対象期間のみを観察する。
+    """
+    from src.etl import filters, normalize, quality_gate, raw_fingerprint
+
+    # 基本定数の存在と値
+    assert filters.JRA_FILTER == "jyocd BETWEEN '01' AND '10'"
+    assert "year::int >= 2015" in filters.PROJECT_WINDOW_FILTER
+    assert "jyocd BETWEEN '01' AND '10'" in filters.PROJECT_WINDOW_FILTER
+
+    # 各 module のローカル _JRA_FILTER / JRA_ONLY_FILTER は
+    # src.etl.filters の定数を指す（再定義・分岐無し）
+    assert raw_fingerprint._JRA_FILTER is filters.JRA_FILTER, (
+        "raw_fingerprint._JRA_FILTER は filters.JRA_FILTER と同一の文字列オブジェクト"
+        "であるべき（CR-06 single source of truth）"
+    )
+    assert quality_gate.JRA_ONLY_FILTER is filters.JRA_FILTER, (
+        "quality_gate.JRA_ONLY_FILTER は filters.JRA_FILTER と同一であるべき（CR-06）"
+    )
+    assert normalize._JRA_FILTER is filters.PROJECT_WINDOW_FILTER, (
+        "normalize._JRA_FILTER は filters.PROJECT_WINDOW_FILTER と同一であるべき"
+        "（CR-06: ETL は対象期間 2015 以降で絞る）"
+    )
+
+    # 各 module のソースに JRA フィルタの文字列リテラル定義が残っていないことを検証
+    # （単一の真の源に従っていることのリグレッションガード）
+    import inspect
+
+    for mod in (raw_fingerprint, quality_gate, normalize):
+        mod_src = inspect.getsource(mod)
+        # ``jyocd BETWEEN`` を含む文字列リテラルの直接的な代入を検出
+        # （import や f-string 展開は許容するが、``= "jyocd BETWEEN`` は再定義を意味する）
+        redefinitions = [
+            ln.strip()
+            for ln in mod_src.splitlines()
+            if "jyocd BETWEEN" in ln
+            and ('= "jyocd' in ln or "= 'jyocd" in ln)
+            and "import" not in ln
+        ]
+        assert not redefinitions, (
+            f"{mod.__name__} に JRA フィルタの文字列リテラル再定義が残っている"
+            f"（CR-06 違反）: {redefinitions}"
+        )

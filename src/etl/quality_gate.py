@@ -38,10 +38,15 @@ from typing import Any
 import yaml
 from psycopg import Cursor
 
+# CR-06: single source of truth — import from src.etl.filters. The module-level
+# ``JRA_ONLY_FILTER`` name is kept as a re-export so existing imports/tests do
+# not break. New code should import from ``src.etl.filters`` directly.
+from src.etl.filters import JRA_FILTER
+
 # JRA 10場限定フィルタ（Pitfall 2）。class_normalization.yaml にも同一値。
 # 全ての品質クエリは ``jyocd BETWEEN '01' AND '10'`` で JRA に絞り、NAR 混入
 # （jyocd>=30）を排除する。下記 SQL 群の ``{JRA_ONLY_FILTER}`` 展開箇所がこの要件を満たす。
-JRA_ONLY_FILTER = "jyocd BETWEEN '01' AND '10'"
+JRA_ONLY_FILTER = JRA_FILTER
 
 # EveryDB2 主要5系統（D-02・plan 01-01 で実測: n_odds_fukusho は存在せず、
 # 単複は n_odds_tanpuku 共用テーブルに含まれる）。
@@ -125,9 +130,7 @@ def _load_allowed_codes() -> dict[str, set[str]]:
             code_yaml: dict[str, Any] = yaml.safe_load(f)
     except (OSError, yaml.YAMLError) as exc:
         # silent fallback 禁止（T-02-01・T-02-04）: 例外で fail に傾く
-        raise RuntimeError(
-            f"failed to load allowed-code config from {_CONFIG_DIR}: {exc}"
-        ) from exc
+        raise RuntimeError(f"failed to load allowed-code config from {_CONFIG_DIR}: {exc}") from exc
 
     jyokencd5_map = class_yaml.get("jyokencd5_map", {})
     gradecd_map = class_yaml.get("gradecd_map", {})
@@ -144,9 +147,7 @@ def _load_allowed_codes() -> dict[str, set[str]]:
     # いずれかが空の場合は設定ファイル破損の可能性 → fail-fast
     empty = [k for k, v in allowed.items() if not v]
     if empty:
-        raise RuntimeError(
-            f"allowed-code-set が空です（設定ファイル破損の疑い）: {empty}"
-        )
+        raise RuntimeError(f"allowed-code-set が空です（設定ファイル破損の疑い）: {empty}")
 
     return allowed
 
@@ -322,9 +323,7 @@ def _check_null_rates(cur: Cursor) -> CheckResult:
 
     for table, cols in table_cols.items():
         # 全体件数
-        cur.execute(
-            f"SELECT count(*) FROM {table} WHERE {JRA_ONLY_FILTER}"
-        )
+        cur.execute(f"SELECT count(*) FROM {table} WHERE {JRA_ONLY_FILTER}")
         total = int(cur.fetchone()[0])
         cols_stat: dict[str, float] = {}
         for c in cols:
@@ -378,9 +377,7 @@ def _check_cast_success(cur: Cursor) -> CheckResult:
                 # ため、事前正規表現でキャスト失敗行を安全に件数集計する（例外安全版）。
                 # CR-02: real 列（futan 等・小数）は小数を許容するパターンを使う。整数専用
                 # ``'^[0-9]+$'`` では "57.5" を誤って失敗扱いにし cast 成功率を破損していた。
-                pattern = (
-                    r"^[0-9]+(\.[0-9]+)?$" if c in REAL_CAST_COLUMNS else r"^[0-9]+$"
-                )
+                pattern = r"^[0-9]+(\.[0-9]+)?$" if c in REAL_CAST_COLUMNS else r"^[0-9]+$"
                 cur.execute(
                     f"""
                     SELECT count(*) FROM {table}
@@ -455,9 +452,7 @@ def _check_mojibake(cur: Cursor) -> CheckResult:
     )
 
 
-def _check_code_value_anomalies(
-    cur: Cursor, allowed_codes: dict[str, set[str]]
-) -> CheckResult:
+def _check_code_value_anomalies(cur: Cursor, allowed_codes: dict[str, set[str]]) -> CheckResult:
     """コードカラムが allowed-code-set 外の値を含む件数と割合を報告。
 
     **REVIEWS HIGH #7 必須チェック。** ``jyokencd5`` / ``gradecd`` / ``jyocd`` /
@@ -577,11 +572,7 @@ def run_quality_gate(cur: Cursor) -> dict[str, Any]:
     results.append(_check_mojibake(cur))
     results.append(_check_code_value_anomalies(cur, allowed_codes))
 
-    verdict = (
-        "pass"
-        if all(r.passed for r in results if r.severity == "block")
-        else "fail"
-    )
+    verdict = "pass" if all(r.passed for r in results if r.severity == "block") else "fail"
 
     return {
         "verdict": verdict,

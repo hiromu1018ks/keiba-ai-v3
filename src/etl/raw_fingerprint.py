@@ -22,8 +22,15 @@ from typing import Any
 
 from psycopg import Cursor
 
+from src.etl.filters import JRA_FILTER
+
 _DEFAULT_TABLES = ("n_race", "n_uma_race", "n_harai", "n_hyosu", "n_odds_tanpuku")
-_JRA_FILTER = "jyocd BETWEEN '01' AND '10'"
+# CR-06: single source of truth. raw fingerprint uses the broader JRA_FILTER
+# (no year cutoff) so that tampering with ANY JRA row — including pre-2015 rows
+# that normalize excludes from training — is detected. Pre-2015 changes do not
+# affect training data, but a trust-foundation primitive must observe all raw
+# mutations regardless of downstream relevance.
+_JRA_FILTER = JRA_FILTER
 
 
 def compute_raw_fingerprint(
@@ -116,9 +123,7 @@ def assert_raw_unchanged(before: dict[str, Any], after: dict[str, Any]) -> None:
                     f"{table}: before={before['row_hash'][table]} "
                     f"after={after['row_hash'].get(table)}"
                 )
-        raise AssertionError(
-            "raw 不変性違反（主証明 row_hash）: " + "; ".join(diffs)
-        )
+        raise AssertionError("raw 不変性違反（主証明 row_hash）: " + "; ".join(diffs))
 
     # 主証明: row_count
     if before["row_count"] != after["row_count"]:
@@ -129,9 +134,7 @@ def assert_raw_unchanged(before: dict[str, Any], after: dict[str, Any]) -> None:
                     f"{table}: before={before['row_count'][table]} "
                     f"after={after['row_count'].get(table)}"
                 )
-        raise AssertionError(
-            "raw 不変性違反（主証明 row_count）: " + "; ".join(diffs)
-        )
+        raise AssertionError("raw 不変性違反（主証明 row_count）: " + "; ".join(diffs))
 
     # 補助: pg_stat 差分（VACUUM でリセットされるため参考値・主証明の代替ではない）
     aux_violations = []
@@ -144,9 +147,7 @@ def assert_raw_unchanged(before: dict[str, Any], after: dict[str, Any]) -> None:
                 f"{table}: upd_diff={upd_diff}, del_diff={del_diff}, ins_diff={ins_diff}"
             )
     if aux_violations:
-        raise AssertionError(
-            "raw 不変性違反（補助 pg_stat）: " + "; ".join(aux_violations)
-        )
+        raise AssertionError("raw 不変性違反（補助 pg_stat）: " + "; ".join(aux_violations))
 
 
 __all__ = ["compute_raw_fingerprint", "assert_raw_unchanged"]
