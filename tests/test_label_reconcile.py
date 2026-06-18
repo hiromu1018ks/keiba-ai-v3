@@ -248,24 +248,44 @@ def test_check_payout_recall() -> None:
 
 
 def test_check_payout_precision_recall_use_n_race_monthday_join() -> None:
-    """CR-05 (iteration 6): precision/recall SQL は normalized.n_race 経由で monthday JOIN を持つ。
+    """CR-05 (iteration 6→7): precision/recall SQL は public.n_race 経由で monthday JOIN を持つ。
 
     REVIEW.md CR-05 修正（選択肢2・schema 変更なし）。将来の monthday 違いで
     同一 race-key が発生した場合の cross-join 誤照合（silent failure）を防止するため、
-    label.fukusho_label と public.n_harai を直接 JOIN せず normalized.n_race を経由して
+    label.fukusho_label と public.n_harai を直接 JOIN せず public.n_race を経由して
     monthday を JOIN キーに追加する。
+
+    iteration 6 は normalized.n_race を使っていたが、normalize.py は monthday を
+    normalized.n_race に入れていない（race_date 計算で消費するのみ）ため、実DB で
+    "column nr.monthday does not exist" で gate が crash した。iteration 7 は
+    public.n_race（raw varchar・monthday 列あり）を経由する方針に変更。
     """
     import inspect
 
     precision_src = inspect.getsource(_check_payout_precision)
     recall_src = inspect.getsource(_check_payout_recall)
     for src, name in [(precision_src, "_check_payout_precision"), (recall_src, "_check_payout_recall")]:
-        assert "normalized.n_race" in src, (
-            f"{name} の SQL が normalized.n_race JOIN を含まない（CR-05 違反・"
+        assert "JOIN public.n_race nr" in src, (
+            f"{name} の SQL が public.n_race JOIN を含まない（CR-05 iteration 7 違反・"
             "monthday による誤照合リスクが残る）"
         )
         assert "monthday" in src, (
-            f"{name} の SQL が monthday JOIN キーを含まない（CR-05 違反）"
+            f"{name} の SQL が monthday JOIN キーを含まない（CR-05 iteration 7 違反）"
+        )
+        # SQL コード（JOIN 句）での normalized.n_race 使用を検出。インラインコメント内の
+        # 説明文（"# iteration 6 は normalized.n_race を経由していた" 等）との誤マッチを
+        # 避けるため、実際の JOIN 構文 "JOIN normalized.n_race" のパターンで検査する。
+        assert "JOIN normalized.n_race" not in src, (
+            f"{name} の SQL が JOIN normalized.n_race を使っている（CR-05 iteration 7 違反・"
+            "normalized.n_race は monthday 列を持たず実DB で crash する・iteration 6 の回帰）"
+        )
+        assert "datakubun = '7'" in src, (
+            f"{name} の SQL が public.n_race の datakubun='7' 絞り込みを含まない"
+            "（CR-05 iteration 7 違反・複数 datakubin 行による行増殖防止）"
+        )
+        assert "datakubun = '2'" in src, (
+            f"{name} の SQL が public.n_harai の datakubun='2' 絞り込みを含まない"
+            "（CR-05 iteration 7 違反・確定行のみ参照する既存契約の維持）"
         )
 
 

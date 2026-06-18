@@ -183,28 +183,44 @@ def _check_payout_precision(cur: Cursor) -> CheckResult:
     (a) payout slot に NULL が混入しても三値論理で UNKNOWN とならず安全に skip、(b) label 側
     ``1``（int→'1'）と HR 側 ``'01'``（zero-padded）の padding 差を解消する。
     """
-    # CR-05 (iteration 6): monthday JOIN を追加して cross-join 誤照合リスクを排除。
-    # label.fukusho_label は monthday 列を持たないため normalized.n_race を経由して
-    # monthday を取得する（schema 変更なし・REVIEW.md CR-05 選択肢2 採用）。
+    # CR-05 (iteration 6→7 修正): monthday JOIN を追加して cross-join 誤照合リスクを排除。
+    # label.fukusho_label は monthday 列を持たないため public.n_race を経由して monthday
+    # を取得する（schema 変更なし・REVIEW.md CR-05 選択肢2 採用）。
+    #
+    # iteration 6 は normalized.n_race を経由していたが、normalize.py は monthday を
+    # normalized.n_race に入れていない（race_date 計算のため tuple で消費するのみ）ため、
+    # 実DB で "column nr.monthday does not exist" で gate が crash した。iteration 7 は
+    # **public.n_race（raw varchar）を経由** する方針に変更。public.n_race は monthday
+    # 列を持つ（実DB 確認済み）。
+    #
     # 現状 race-key PK は一意（実測 39,580 distinct）だが、将来の monthday 違いで
     # 同一 race-key が発生した場合の silent failure を防止する。
-    # Rule 1 (live schema): label 側 year/kaiji/racenum は int・hr 側は varchar のため明示 cast。
-    # normalized.n_race 側の monthday は varchar で public.n_harai.monthday と直接比較可能。
+    #
+    # 型（実DB 確認済み・全列 character varying）:
+    #   - label.fukusho_label: year/jyocd/kaiji/nichiji/racenum = int
+    #   - public.n_race: year/jyocd/kaiji/nichiji/racenum/monthday = varchar
+    #   - public.n_harai: year/jyocd/kaiji/nichiji/racenum/monthday = varchar
+    # 従って label ↔ public.n_race は cast 必須（l.year = nr.year::int 等）。
+    # public.n_race ↔ public.n_harai は両側 varchar のため cast 不要。
+    # public.n_race は datakubun='7'（月曜確定）・public.n_harai は datakubun='2'（確定）で
+    # 絞り、複数 datakubin 行による行増殖を防止する（datakubun は raw varchar）。
     sql = f"""
         SELECT count(*) FROM label.fukusho_label l
-        JOIN normalized.n_race nr
-          ON (l.year = nr.year
+        JOIN public.n_race nr
+          ON (l.year = nr.year::int
               AND l.jyocd = nr.jyocd
-              AND l.kaiji = nr.kaiji
+              AND l.kaiji = nr.kaiji::int
               AND l.nichiji = nr.nichiji
-              AND l.racenum = nr.racenum)
+              AND l.racenum = nr.racenum::int
+              AND nr.datakubun = '7')
         JOIN public.n_harai hr
-          ON (nr.year = hr.year::int
+          ON (nr.year = hr.year
               AND nr.monthday = hr.monthday
               AND nr.jyocd = hr.jyocd
-              AND nr.kaiji = hr.kaiji::int
+              AND nr.kaiji = hr.kaiji
               AND nr.nichiji = hr.nichiji
-              AND nr.racenum = hr.racenum::int)
+              AND nr.racenum = hr.racenum
+              AND hr.datakubun = '2')
         WHERE {_LABEL_WINDOW_FILTER}
           AND l.fukusho_hit_validated = 1
           AND NOT EXISTS (
@@ -248,24 +264,27 @@ def _check_payout_recall(cur: Cursor) -> CheckResult:
     **REVIEWS NEW HIGH #1:** ``_check_payout_precision`` と同じ NULL-safe + 両側 LPAD zero-pad。
     逆方向のため ``EXISTS`` で payout set 含有を判定する。
     """
-    # CR-05 (iteration 6): 上記 _check_payout_precision と同じく normalized.n_race 経由で
-    # monthday を JOIN キーに追加（schema 変更なし・REVIEW.md CR-05 選択肢2）。
-    # Rule 1 (live schema): label 側 int / hr 側 varchar のため明示 cast。
+    # CR-05 (iteration 6→7 修正): 上記 _check_payout_precision と同じく public.n_race 経由で
+    # monthday を JOIN キーに追加（schema 変更なし・REVIEW.md CR-05 選択肢2）。詳細な型解説は
+    # _check_payout_precision 側のコメントを参照（label↔public.n_race は cast 必須・
+    # public.n_race↔public.n_harai は両側 varchar で cast 不要・datakubun='7'/'2' で行増殖防止）。
     sql = f"""
         SELECT count(*) FROM label.fukusho_label l
-        JOIN normalized.n_race nr
-          ON (l.year = nr.year
+        JOIN public.n_race nr
+          ON (l.year = nr.year::int
               AND l.jyocd = nr.jyocd
-              AND l.kaiji = nr.kaiji
+              AND l.kaiji = nr.kaiji::int
               AND l.nichiji = nr.nichiji
-              AND l.racenum = nr.racenum)
+              AND l.racenum = nr.racenum::int
+              AND nr.datakubun = '7')
         JOIN public.n_harai hr
-          ON (nr.year = hr.year::int
+          ON (nr.year = hr.year
               AND nr.monthday = hr.monthday
               AND nr.jyocd = hr.jyocd
-              AND nr.kaiji = hr.kaiji::int
+              AND nr.kaiji = hr.kaiji
               AND nr.nichiji = hr.nichiji
-              AND nr.racenum = hr.racenum::int)
+              AND nr.racenum = hr.racenum
+              AND hr.datakubun = '2')
         WHERE {_LABEL_WINDOW_FILTER}
           AND l.fukusho_hit_validated = 0
           AND EXISTS (
