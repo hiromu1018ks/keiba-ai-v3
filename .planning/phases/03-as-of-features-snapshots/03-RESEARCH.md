@@ -657,6 +657,14 @@ features:
 2. **`ijyocd` 異常区分 5（1件のみ）の扱い** — `RESOLVED:` feature 構築では「異常区分=0（正常）以外は過去走から除外」で運用（下記 Recommendation 参照・1件の影響は無視可能・allowlist には関与しない）。**元の question:** 実 DB で ijyocd='5' は 2024年に1件のみ。EveryDB2 マニュアルでは明確に定義されない稀ケース。
    - **Recommendation:** feature 構築では「異常区分=0（正常）以外は過去走から除外」で運用。1件の影響は無視できる。allowlist には関与しない。
 
+3. **rolling latest-5 window のための CLAUDE.md §3 `merge_asof(direction='backward')` からの文書化された逸脱（WARNING #4・gsd-plan-checker revision iter 1）** — `RESOLVED:` `src/features/rolling.py`（Plan 03-03 Task 1）は `pit_join_backward` / `merge_asof(direction='backward')` を呼び出さず、明示的な per-observation latest-K algorithm を採用する。
+   - **元の question / checker 指摘:** CLAUDE.md「Leakage-prevention configuration §3 Point-in-time / as-of feature joins」は `pandas.merge_asof(direction='backward')` を PIT leak-safe の唯一のイディオムとして規定し、「5行で実装」「Feast/Spark feature store と同等」と述べる。一方 Plan 03-03 Task 1 は rolling latest-5 のために手書き groupby algorithm を採用している。この逸脱は監査可能に記録されるべきか。
+   - **What we know:** `merge_asof(direction='backward')` は各 observation 行に対し「cutoff 以前の **最新1件** の history 行」を付与する（last-mile carry）。これは「latest-1」には適するが「latest-5」rolling window（D-03 lookback=5）の取得には使えない。5件取得には `merge_asof` を5回（t=1..5 の offset）呼ぶか、別の algorithm が必要。CLAUDE.md §3 の「5行」記述は latest-1 as-of join のことであり、rolling window 集計のことではない。
+   - **Recommendation:** rolling.py は **`pit_join_backward` を呼ばず**、以下の algorithm で latest-5 を取得する（Plan 03-03 Task 1 action で実装義務化済み）: (1) strict `< cutoff` pre-filter で未来・同日・前日レースを構造排除（`history["as_of_datetime"] < observation["feature_cutoff_datetime"]`・HIGH #2 semantics）、(2) `sort_values(["kettonum","race_start_datetime"], ascending=[True,False])` で時間降順ソート、(3) `groupby("kettonum").head(5)` で各馬の直近5走を取得。
+   - **leak-safety invariant の保持根拠:** leak-safety の本質は「未来情報が feature 計算に入らないこと」であり、それは `merge_asof(direction='backward')` という API ではなく「strict `< cutoff` で history を pre-filter すること」で達成される。CLAUDE.md §3 の `direction='backward'` は strict `< cutoff` filter を wrap した便利 API に過ぎない。本 algorithm は strict `< cutoff` pre-filter を明示的に行うため、`direction='backward'` と同等の PIT-correctness を保持する。
+   - **検証:** 5-row adversarial unit test（target / same_day_prior / same_day_later / previous_day / future が全て rolling window から除外されること・各 timediff = 99.99 / 88.88 / 77.77 / 66.66 / 55.55・混入すれば mean ≠ -2.0 で検出）が GREEN になることで leak-safety を機械的に証明する（Plan 03-03 Task 1・test_per_observation_latest_5_excludes_target_same_day_previous_future / test_history_pre_filtered_strict_less_than_cutoff・HIGH #1/#2）。
+   - **source:** Plan 03-03 Task 1 action（本 RESEARCH entry と相互参照）。
+
 ## Environment Availability
 
 > Phase 3 は外部 service / CLI tool を追加しない。既存 PostgreSQL (readonly) と Python stack のみ。
