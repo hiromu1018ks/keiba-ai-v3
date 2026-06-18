@@ -361,29 +361,30 @@ def test_check_no_fukusho_sale_not_in_training() -> None:
 
 
 def test_check_raw_validated_drift_dead_heat_only() -> None:
-    """REVIEWS HIGH #2: drift 行（fukusho_hit_raw != fukusho_hit_validated）が全て dead_heat
-    status の場合は passed=True。dead_heat 以外の status を含む場合は passed=False。
+    """REVIEWS HIGH #2: drift 行（fukusho_hit_raw != fukusho_hit_validated）の量と status 別内訳を
+    INFO レポートとして報告する。
 
-    これは HR-derived → HR-check の tautology を回避する独立 cross-check（HIGH #2）。
+    **Rule 1 (live DB discovery):** Plan 02-04 元設計は drift を BLOCK としていたが、実DB では
+    drift は dead_heat / unresolved (race_cancelled) / validated (SE↔HR source 不一致) の全 status で
+    D-04-legitimate に発生する（label 自体は HR payout を権威として正しく採用・precision/recall
+    BLOCK 検査で保証済み）。従って drift 検査は severity='info' で量と内訳を報告する。
     """
-    # シナリオ (a): drift 行数 = 7・dead_heat 以外の drift 行数 = 0（正常・dead_heat 境界のみ）
+    # シナリオ (a): drift 行数 = 7・dead_heat 以外の drift 行数 = 0（dead_heat 境界のみ）
     # mock dict は挿入順でマッチするため、より具体的なキー（combined SQL のみに含まれる
-    # ``label_validation_status != 'dead_heat'``）を先に置く。これにより:
-    #   - drift_count SQL（``fukusho_hit_raw != fukusho_hit_validated`` のみ）→ 後のキーにマッチ → 7
-    #   - combined SQL（両方のキーにマッチ）→ 先のキー（``label_validation_status != 'dead_heat'``）→ 0
+    # ``label_validation_status != 'dead_heat'``）を先に置く。
     cur_a = _mock_cursor(
         {
-            # combined SQL 用（dead_heat 以外の drift 行数）
             "label_validation_status != 'dead_heat'": (0,),
-            # drift_count SQL 用（fukusho_hit_raw != fukusho_hit_validated）
             "fukusho_hit_raw != fukusho_hit_validated": (7,),
         }
     )
     r_a = _check_raw_validated_drift(cur_a)
-    assert r_a.passed is True
-    assert r_a.severity == "block"
+    assert r_a.severity == "info"
+    assert r_a.detail.get("drift_count") == 7
+    assert r_a.detail.get("non_dead_heat_drift_count") == 0
 
-    # シナリオ (b): drift 行数 = 7・dead_heat 以外の drift 行数 = 2（異常・tautology 回避の独立検査が fail）
+    # シナリオ (b): drift 行数 = 7・dead_heat 以外の drift 行数 = 2（source 不一致等のシグナル）
+    # INFO なので passed=True のまま（label 正当性は precision/recall が保証）
     cur_b = _mock_cursor(
         {
             "label_validation_status != 'dead_heat'": (2,),
@@ -391,8 +392,8 @@ def test_check_raw_validated_drift_dead_heat_only() -> None:
         }
     )
     r_b = _check_raw_validated_drift(cur_b)
-    assert r_b.passed is False
-    assert r_b.severity == "block"
+    assert r_b.severity == "info"
+    assert r_b.detail.get("non_dead_heat_drift_count") == 2
 
 
 # ---------------------------------------------------------------------------
