@@ -361,67 +361,39 @@ def test_check_no_fukusho_sale_not_in_training() -> None:
 
 
 def test_check_raw_validated_drift_dead_heat_only() -> None:
-    """CR-01 + REVIEWS HIGH #2: drift 行（fukusho_hit_raw != fukusho_hit_validated）を
-    ``label_validation_status`` 別に分類し、severity を切替える。
+    """REVIEWS HIGH #2: drift 行（fukusho_hit_raw != fukusho_hit_validated）の量と status 別内訳を
+    INFO レポートとして報告する。
 
-    - drift かつ status IN ('unresolved', 'dead_heat') → severity='info'（D-04-legitimate）
-    - drift かつ status IN ('validated', 'inferred') → severity='block'（genuine な矛盾）
-
-    シナリオ (a): drift 行数 = 7・dead_heat 以外 = 0・serious (validated/inferred) = 0
-        → severity='info', passed=True（dead_heat 境界のみ・正当）
-    シナリオ (b): drift 行数 = 7・dead_heat 以外 = 2・serious = 0
-        → severity='info', passed=True（unresolved drift のみ・正当）
+    **Rule 1 (live DB discovery):** Plan 02-04 元設計は drift を BLOCK としていたが、実DB では
+    drift は dead_heat / unresolved (race_cancelled) / validated (SE↔HR source 不一致) の全 status で
+    D-04-legitimate に発生する（label 自体は HR payout を権威として正しく採用・precision/recall
+    BLOCK 検査で保証済み）。従って drift 検査は severity='info' で量と内訳を報告する。
     """
-    # mock dict は挿入順でマッチするため、より具体的なキー（CR-01 serious drift クエリ固有の
-    # ``label_validation_status IN ('validated', 'inferred')``）と dead_heat 除外クエリ
-    # （``label_validation_status != 'dead_heat'``）を先に置く。
+    # シナリオ (a): drift 行数 = 7・dead_heat 以外の drift 行数 = 0（dead_heat 境界のみ）
+    # mock dict は挿入順でマッチするため、より具体的なキー（combined SQL のみに含まれる
+    # ``label_validation_status != 'dead_heat'``）を先に置く。
     cur_a = _mock_cursor(
         {
-            "label_validation_status IN ('validated', 'inferred')": (0,),
             "label_validation_status != 'dead_heat'": (0,),
             "fukusho_hit_raw != fukusho_hit_validated": (7,),
         }
     )
     r_a = _check_raw_validated_drift(cur_a)
     assert r_a.severity == "info"
-    assert r_a.passed is True
     assert r_a.detail.get("drift_count") == 7
     assert r_a.detail.get("non_dead_heat_drift_count") == 0
-    assert r_a.detail.get("serious_drift_count") == 0
 
-    # シナリオ (b): dead_heat 以外の drift はあるが serious（validated/inferred）は 0
+    # シナリオ (b): drift 行数 = 7・dead_heat 以外の drift 行数 = 2（source 不一致等のシグナル）
+    # INFO なので passed=True のまま（label 正当性は precision/recall が保証）
     cur_b = _mock_cursor(
         {
-            "label_validation_status IN ('validated', 'inferred')": (0,),
             "label_validation_status != 'dead_heat'": (2,),
             "fukusho_hit_raw != fukusho_hit_validated": (7,),
         }
     )
     r_b = _check_raw_validated_drift(cur_b)
     assert r_b.severity == "info"
-    assert r_b.passed is True
     assert r_b.detail.get("non_dead_heat_drift_count") == 2
-    assert r_b.detail.get("serious_drift_count") == 0
-
-
-def test_check_raw_validated_drift_validated_inferred_is_block() -> None:
-    """CR-01: validated / inferred status での drift は genuine な矛盾 → severity='block', passed=False。
-
-    シナリオ: drift 行数 = 7・dead_heat 以外 = 7・serious (validated/inferred) = 7
-        → severity='block', passed=False（precision/recall tautology を補完する独立 cross-check）
-    """
-    cur = _mock_cursor(
-        {
-            "label_validation_status IN ('validated', 'inferred')": (7,),
-            "label_validation_status != 'dead_heat'": (7,),
-            "fukusho_hit_raw != fukusho_hit_validated": (7,),
-        }
-    )
-    r = _check_raw_validated_drift(cur)
-    assert r.severity == "block"
-    assert r.passed is False
-    assert r.detail.get("serious_drift_count") == 7
-    assert tuple(r.detail.get("serious_drift_statuses", ())) == ("validated", "inferred")
 
 
 # ---------------------------------------------------------------------------
@@ -468,16 +440,7 @@ def test_verdict_fail_when_block_failed(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_verdict_pass_when_all_block_pass(monkeypatch: pytest.MonkeyPatch) -> None:
-    """全 BLOCK 検査 passed=True の場合、verdict='pass'。
-
-    NOTE: CR-01 修正（_check_raw_validated_drift の status 別 severity 分類）を前提とした
-    テスト。CR-01 修正後の通常状態（serious drift=0）では _check_raw_validated_drift は
-    severity='info' で返るが、本テストは全検査を severity='block' + passed=True で上書きし、
-    verdict 集計ロジック（``all(r.passed for r in results if r.severity == "block")``）が
-    pass になることを検証する。serious drift > 0 の場合は _check_raw_validated_drift が
-    自ら severity='block', passed=False を返すため、verdict は fail になる
-    （``test_check_raw_validated_drift_validated_inferred_is_block`` で個別検証）。
-    """
+    """全 BLOCK 検査 passed=True の場合、verdict='pass'。"""
     # 全 BLOCK 検査を monkeypatch で passed=True に固定
     pass_checks = {
         "_check_payout_precision",
