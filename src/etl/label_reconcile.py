@@ -183,18 +183,28 @@ def _check_payout_precision(cur: Cursor) -> CheckResult:
     (a) payout slot に NULL が混入しても三値論理で UNKNOWN とならず安全に skip、(b) label 側
     ``1``（int→'1'）と HR 側 ``'01'``（zero-padded）の padding 差を解消する。
     """
-    # Rule 1: label.fukusho_label は monthday 列を持たず race_date を持つ。
-    # public.n_harai の race-key PK (year, jyocd, kaiji, nichiji, racenum) は JRA+2015 で
-    # 一意（実測 39,580 = 39,580 distinct）のため monthday による追加絞り込みは不要。
+    # CR-05 (iteration 6): monthday JOIN を追加して cross-join 誤照合リスクを排除。
+    # label.fukusho_label は monthday 列を持たないため normalized.n_race を経由して
+    # monthday を取得する（schema 変更なし・REVIEW.md CR-05 選択肢2 採用）。
+    # 現状 race-key PK は一意（実測 39,580 distinct）だが、将来の monthday 違いで
+    # 同一 race-key が発生した場合の silent failure を防止する。
     # Rule 1 (live schema): label 側 year/kaiji/racenum は int・hr 側は varchar のため明示 cast。
+    # normalized.n_race 側の monthday は varchar で public.n_harai.monthday と直接比較可能。
     sql = f"""
         SELECT count(*) FROM label.fukusho_label l
+        JOIN normalized.n_race nr
+          ON (l.year = nr.year
+              AND l.jyocd = nr.jyocd
+              AND l.kaiji = nr.kaiji
+              AND l.nichiji = nr.nichiji
+              AND l.racenum = nr.racenum)
         JOIN public.n_harai hr
-          ON (l.year = hr.year::int
-              AND l.jyocd = hr.jyocd
-              AND l.kaiji = hr.kaiji::int
-              AND l.nichiji = hr.nichiji
-              AND l.racenum = hr.racenum::int)
+          ON (nr.year = hr.year::int
+              AND nr.monthday = hr.monthday
+              AND nr.jyocd = hr.jyocd
+              AND nr.kaiji = hr.kaiji::int
+              AND nr.nichiji = hr.nichiji
+              AND nr.racenum = hr.racenum::int)
         WHERE {_LABEL_WINDOW_FILTER}
           AND l.fukusho_hit_validated = 1
           AND NOT EXISTS (
@@ -238,16 +248,24 @@ def _check_payout_recall(cur: Cursor) -> CheckResult:
     **REVIEWS NEW HIGH #1:** ``_check_payout_precision`` と同じ NULL-safe + 両側 LPAD zero-pad。
     逆方向のため ``EXISTS`` で payout set 含有を判定する。
     """
-    # Rule 1: 上記 _check_payout_precision と同じく monthday JOIN は不要（race-key PK 一意）。
+    # CR-05 (iteration 6): 上記 _check_payout_precision と同じく normalized.n_race 経由で
+    # monthday を JOIN キーに追加（schema 変更なし・REVIEW.md CR-05 選択肢2）。
     # Rule 1 (live schema): label 側 int / hr 側 varchar のため明示 cast。
     sql = f"""
         SELECT count(*) FROM label.fukusho_label l
+        JOIN normalized.n_race nr
+          ON (l.year = nr.year
+              AND l.jyocd = nr.jyocd
+              AND l.kaiji = nr.kaiji
+              AND l.nichiji = nr.nichiji
+              AND l.racenum = nr.racenum)
         JOIN public.n_harai hr
-          ON (l.year = hr.year::int
-              AND l.jyocd = hr.jyocd
-              AND l.kaiji = hr.kaiji::int
-              AND l.nichiji = hr.nichiji
-              AND l.racenum = hr.racenum::int)
+          ON (nr.year = hr.year::int
+              AND nr.monthday = hr.monthday
+              AND nr.jyocd = hr.jyocd
+              AND nr.kaiji = hr.kaiji::int
+              AND nr.nichiji = hr.nichiji
+              AND nr.racenum = hr.racenum::int)
         WHERE {_LABEL_WINDOW_FILTER}
           AND l.fukusho_hit_validated = 0
           AND EXISTS (

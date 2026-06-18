@@ -247,6 +247,28 @@ def test_check_payout_recall() -> None:
     assert r.detail.get("count") == 3
 
 
+def test_check_payout_precision_recall_use_n_race_monthday_join() -> None:
+    """CR-05 (iteration 6): precision/recall SQL は normalized.n_race 経由で monthday JOIN を持つ。
+
+    REVIEW.md CR-05 修正（選択肢2・schema 変更なし）。将来の monthday 違いで
+    同一 race-key が発生した場合の cross-join 誤照合（silent failure）を防止するため、
+    label.fukusho_label と public.n_harai を直接 JOIN せず normalized.n_race を経由して
+    monthday を JOIN キーに追加する。
+    """
+    import inspect
+
+    precision_src = inspect.getsource(_check_payout_precision)
+    recall_src = inspect.getsource(_check_payout_recall)
+    for src, name in [(precision_src, "_check_payout_precision"), (recall_src, "_check_payout_recall")]:
+        assert "normalized.n_race" in src, (
+            f"{name} の SQL が normalized.n_race JOIN を含まない（CR-05 違反・"
+            "monthday による誤照合リスクが残る）"
+        )
+        assert "monthday" in src, (
+            f"{name} の SQL が monthday JOIN キーを含まない（CR-05 違反）"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Test 5: dead_heat integrity（検査3）
 # ---------------------------------------------------------------------------
