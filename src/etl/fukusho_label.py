@@ -155,14 +155,16 @@ _SE_SELECT_COLUMNS = [
     "harontimel3",  # ハロンタイム（marker）
     "harontimel4",  # ハロンタイム（marker・予備）
     "time",  # 走破タイム（競走中止識別・time_present）
-    "dochachukubun",  # 同着区分（参考値・payout-table が権威）
-    "dochachutosu",  # 同着頭数（参考値）
     "datakubun",  # 月曜確定='7' / レース全体中止='9'
+    # 注: dochakukubun / dochakutosu は normalized.n_uma_race に未格納のため
+    # public.n_uma_race 側（_SE_TIMEDIFF_SELECT_COLUMNS）から取得し merge する
+    # （参考値・payout-table が権威・MEDIUM #2・下記参照）。
 ]
 
-# timediff は normalized.n_uma_race に未格納（Phase 1 normalize.py 未 SELECT）。
-# public.n_uma_race から別 SELECT で取得し merge する（NEW HIGH #2: 両側 datakubun
-# IN ('7','9') + merge キーに datakubun を含め 1:1 merge・row-multiplication 防止）。
+# timediff / dochakukubun / dochakutosu は normalized.n_uma_race に未格納
+# （Phase 1 normalize.py 未 SELECT）。public.n_uma_race から別 SELECT で取得し merge
+# する（NEW HIGH #2: 両側 datakubun IN ('7','9') + merge キーに datakubun を含め
+# 1:1 merge・row-multiplication 防止）。
 _SE_TIMEDIFF_SELECT_COLUMNS = [
     "year",
     "jyocd",
@@ -173,32 +175,37 @@ _SE_TIMEDIFF_SELECT_COLUMNS = [
     "kettonum",
     "datakubun",
     "timediff",  # 実カラム名（Pitfall 1・EveryDB2 マニュアル TimeDIFN でない）
+    "dochakukubun",  # 同着区分（参考値・payout-table が権威・MEDIUM #2）
+    "dochakutosu",  # 同着頭数（参考値）
 ]
 
 
 def _select_se_state(read_cur: Cursor) -> pd.DataFrame:
-    """SE 状態を ``normalized.n_uma_race`` + ``public.n_uma_race.timediff`` から取得（HIGH #4/#2）。
+    """SE 状態を ``public.n_uma_race`` から取得（HIGH #4/#2）。
 
     **HIGH #4**: ``WHERE datakubun IN ('7', '9')`` で SELECT する。``datakubun='7'`` 単独では
     race_cancelled（DataKubun='9'）の 376 SE 行が SELECT から落とされ silent data loss になる。
 
-    **NEW HIGH #2**: timediff は normalized.n_uma_race に未格納（Phase 1 normalize.py 未 SELECT）
-    のため ``public.n_uma_race`` から別 SELECT で取得し merge する。両側（normalized 側 + public 側）
-    とも ``datakubun IN ('7','9')`` でフィルタし、merge キーに ``datakubun`` を含める。
+    **NEW HIGH #2**: ``timediff`` / ``dochakutosu`` / ``dochakukubun`` は
+    ``normalized.n_uma_race`` に未格納（Phase 1 normalize.py 未 SELECT）かつ
+    ``normalized.n_uma_race`` には ``datakubun`` 列自体が存在しないため、SE state 全体を
+    ``public.n_uma_race`` から取得する。両側の SELECT（基本状態 + timediff/参考列）とも
+    ``datakubun IN ('7','9')`` でフィルタし、merge キーに ``datakubun`` を含める。
     public 側に複数 DataKubun 行が存在する場合でも PK+datakubun で厳密 1:1 となり SE 行の
     増殖を構造的に防止する。merge 前後で ``len(se_df) == len(merged_df)`` を assert し、
     不一致時は ``RuntimeError`` で fail-fast する（D-13 silent fallback 禁止）。
     """
     cols = ", ".join(_SE_SELECT_COLUMNS)
     sql = (
-        f"SELECT {cols} FROM normalized.n_uma_race "
+        f"SELECT {cols} FROM public.n_uma_race "
         f"WHERE {PROJECT_WINDOW_FILTER} AND datakubun IN ('7', '9')"
     )
     read_cur.execute(sql)
     rows = read_cur.fetchall()
     se_df = pd.DataFrame(rows, columns=_SE_SELECT_COLUMNS)
 
-    # timediff を public.n_uma_race から取得（NEW HIGH #2: 両側 datakubun IN ('7','9') + 1:1 merge）
+    # timediff + 参考列を public.n_uma_race から取得
+    # （NEW HIGH #2: 両側 datakubun IN ('7','9') + 1:1 merge）
     tcols = ", ".join(_SE_TIMEDIFF_SELECT_COLUMNS)
     tsql = (
         f"SELECT {tcols} FROM public.n_uma_race "
@@ -592,10 +599,17 @@ def compute_fukusho_labels(
     # --- merge: + race_df（syubetucd / class_level_numeric / race_date）---
     # race_date は実DB（normalized.n_race）には存在するが、合成 DataFrame（unit test）には
     # 含まれない場合があるため、存在する列のみ merge する（deterministic・両対応）。
+    # 実DB では race 側の _RACE_KEY は int4（normalized.n_race）、SE/HR 側は varchar
+    # （public.n_*）のため、merge 前に両者を str に揃える（Pitfall: str vs int64 merge error）。
     race_extra_cols = [
         c for c in ("syubetucd", "class_level_numeric", "race_date") if c in race_df.columns
     ]
     race_merge = race_df[_RACE_KEY + race_extra_cols].copy()
+    for k in _RACE_KEY:
+        if k in merged.columns:
+            merged[k] = merged[k].astype(str)
+        if k in race_merge.columns:
+            race_merge[k] = race_merge[k].astype(str)
     merged = merged.merge(race_merge, on=_RACE_KEY, how="left")
     if "race_date" not in merged.columns:
         merged["race_date"] = pd.NA

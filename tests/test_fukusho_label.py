@@ -89,8 +89,8 @@ def _build_se_row(umaban: int, **overrides) -> dict:
         "timediff": "0",                   # TimeDIFN 正常（実カラム名は timediff）
         "time": "90.0",                    # 走破タイム有り（発走後完走）
         "datakubun": "7",                  # 月曜確定 SE
-        "dochachukubun": "0",
-        "dochachutosu": "0",
+        "dochakukubun": "0",
+        "dochakutosu": "0",
     }
     row.update(overrides)
     return row
@@ -697,7 +697,7 @@ def test_is_model_eligible_validated_normal() -> None:
     assert len(reasons) == 0
 
 
-def test_dochachukubun_dead_heat_detection() -> None:
+def test_dochakukubun_dead_heat_detection() -> None:
     """同着検出: DochacoTosu='1' でも payout slot4/5 非使用なら dead_heat 判定にならない。
 
     MEDIUM #2: dead_heat 判定の権威は払戻テーブル slot4/5 使用のみ（DochacoTosu は参考値）。
@@ -713,8 +713,8 @@ def test_dochachukubun_dead_heat_detection() -> None:
         },
     )
     # umaban=2,3 を同着（DochacoTosu='1'）に設定・ただし payout slot4/5 は未使用
-    se_df.loc[se_df["umaban"] == "02", "dochachutosu"] = "1"
-    se_df.loc[se_df["umaban"] == "03", "dochachutosu"] = "1"
+    se_df.loc[se_df["umaban"] == "02", "dochakutosu"] = "1"
+    se_df.loc[se_df["umaban"] == "03", "dochakutosu"] = "1"
     se_df.loc[se_df["umaban"] == "03", "kakuteijyuni"] = "02"  # 同着
 
     spec = _load_label_spec()
