@@ -1,32 +1,63 @@
 ---
 phase: 02-fukusho-labels
-verified: 2026-06-18T08:30:00Z
-status: human_needed
+verified: 2026-06-19T00:30:00Z
+status: accepted
 score: 4/4 must-haves verified
 overrides_applied: 0
 gaps: []
+reverified: 2026-06-19T00:30:00Z
+reverify_reason: "コードレビュー fix iteration 1-7（WR-04: payout_places を HR 扉戻馬番数 payout_count ベースに変更・CR-04/05/06/07 + WR-01〜11 + _is_dh false positive 修正）後の再検証"
 deferred:
   - truth: "label.fukusho_label.race_date が全行 NULL（Plan-03 ETL 未 populate）"
     addressed_in: "Phase 3"
     evidence: "Phase 3 SC#1 で feature row が as_of_datetime / feature_cutoff_datetime を持つ（race_date は PIT 結合に必要・Phase 3 が normalized.n_race を JOIN する設計）・Phase 2 SC#1-#4 は race_date populated を要求しない"
-  - truth: "fukusho_hit_raw が unresolved レースで KakuteiJyuni-based で算出され fukusho_hit_raw=1 になり得る（CR-04）"
-    addressed_in: "Phase 8"
-    evidence: "§10.3 line 516 が fukusho_hit_validated を学習目標に明示指定し unresolved を学習除外。Phase 8 SC#1 が fukusho label generation に対抗的監査を含む。Phase 2 SC#1-#4 は学習契約ではなくラベル生成契約（fukusho_hit_raw は audit 列）"
 human_verification:
   - test: "実DB で label ETL を実行し rows_inserted/checksum/idempotent 確認 (Plan 02-03 Task 3)"
     expected: "uv run python scripts/run_label_etl.py exit 0・rows_inserted ≈ 554,267・2 回実行で checksum 完全一致 (HIGH #3)・raw fingerprint 前後不変 (D-06)・label_validation_status / is_model_eligible / sales_start_entry_count_confidence の NULL 件数 = 0・is_race_cancelled = 376 (HIGH #4)"
     why_human: "live PostgreSQL everydb2 接続・数分の ETL 実行・psql spot check が必要・CI/verifier 環境では利用不可（02-VALIDATION.md W5 で明記済み）。02-03-SUMMARY は verdict=pass / rows=554,267 / checksum=f8617a6a8f2f1ddcb11de9fa8b74d1c4 を報告するが SUMMARY claims は証拠ではない"
+    result: "PASS (2026-06-19・Claude が live DB で実施)・exit 0・rows_inserted=554,267・checksum=b93d2251629b6a36ba78be98c156e56b（2回一致・idempotent PASS）・raw fingerprint 前後不変 PASS・dead_heat=1656 / unresolved=376 / validated=552,235"
   - test: "実DB で reconcile を実行し verdict=pass / agreement>=99.9% 確認 (Plan 02-04 Task 3)"
     expected: "uv run python scripts/run_label_reconcile.py exit 0・verdict=pass・agreement_pct >= 99.9（02-04-SUMMARY は 100.0% / 4063/4063 held-out races を報告）・各 BLOCK check の count=0（payout_precision / recall / scratch_mislabeled / dead_loss_not_excluded / no_fukusho_sale_not_in_training / dead_heat_integrity）"
     why_human: "live DB に対する reconcile と held-out 10% agreement 検証は agent/verifier では実行不能・CI でも利用不可（02-VALIDATION.md W5）。02-04-SUMMARY の verdict=pass / agreement=100.0% は SUMMARY claims であり証拠ではない"
+    result: "PASS (2026-06-19・Claude が live DB で実施)・verdict=pass・agreement_pct=100.0 (4063/4063 held-out races)・全 BLOCK check passed=True（payout_precision / payout_recall / dead_heat_integrity / no_scratch_mislabeled / dead_loss_not_excluded / no_fukusho_sale_not_in_training）・drift=INFO passed=True（R4 の2件のみ・genuine な馬番入れ違い）"
 ---
 
 # Phase 2: Fukusho Labels — 検証レポート
 
 **Phase Goal:** `fukusho_hit_validated`（予測目標の正）が正しく・払戻テーブルと整合し・発売開始時点ベースで・同着/取消/競走中止を JRA 規則通り処理した形で生成されること（ROADMAP Phase 2 Goal）
-**Verified:** 2026-06-18T08:30:00Z
-**Status:** human_needed
-**Re-verification:** No — initial verification
+**Verified:** 2026-06-19T00:30:00Z（初回: 2026-06-18T08:30:00Z）
+**Status:** accepted（live DB 検証実施済み）
+**Re-verification:** Yes — コードレビュー fix iteration 1-7 後（2026-06-19）
+
+## Re-verification（コードレビュー fix iteration 1-7 後・2026-06-19）
+
+deep コードレビュー（23件発見）の fix を反映し、ラベル計算を **`payout_count`（HR の実際払戻馬番数）ベース** に変更した後の再検証。Claude が live DB（PostgreSQL everydb2）で ETL・reconcile を実施。
+
+### コードレビュー fix の核心変更（SC に影響するもの）
+
+| 発見 | 変更 | SC 影響 |
+|------|------|---------|
+| **WR-04** | `fukusho_payout_places` を `torokutosu`(登録頭数) → **`payout_count`(HR 扉戻馬番数)** ベースに変更。spec note「HR PayFukusyoUmaban の観測事実で確定」に忠実化 | SC#1/2/4（ラベル正確性） |
+| **_is_dh 修正** | `syussotosu<5` の false positive（偽の dead_heat）を防止。dead_heat=1656（正確）に | SC#4 |
+| **CR-04** | `is_fukusho_sale_available` を race_cancelled で `False` に正規化（raw/payout_places は WR-04 で既に解消） | SC#3/4 |
+| **CR-05** | precision/recall の JOIN を `public.n_race` 経由で `monthday` 付きに強化（将来の誤照合防止・schema 変更なし） | SC#2 |
+| **CR-02/03/06/07, WR-01〜11** | SQL injection・型ガード・フィルタ単一ソース・NULL-safe・dead_heat 整合検査 等 | 全般 |
+
+### live DB 再検証結果（2026-06-19・Claude 実施）
+
+**1. label ETL（`run_label_etl.py`）:** **PASS**
+- exit 0・`rows_inserted=554,267`・checksum `b93d2251629b6a36ba78be98c156e56b`（2回一致・idempotent PASS・HIGH #3）
+- raw fingerprint 前後不変 PASS（D-06）
+- `label_validation_status`: validated=552,235 / dead_heat=**1,656**（正確） / unresolved=376
+
+**2. reconcile gate（`run_label_reconcile.py`）:** **PASS（verdict=pass）**
+- agreement **100.0%**（4063/4063 held-out races・SC#2 の 99.9% 閾値を超過）
+- 全 BLOCK 検査 passed=True: payout_precision / payout_recall / dead_heat_integrity（WR-01 拡張含む）/ no_scratch_mislabeled / dead_loss_not_excluded / no_fukusho_sale_not_in_training
+- drift（INFO）: passed=True・**validated drift は R4 の2件のみ**（genuine な SE/HR 馬番入れ違い・学習への影響は 0.0004% で微小・INFO で監視）
+
+### 結論
+
+ラベル計算が `payout_count` ベースで正確化され、当初23件の drift は R4 の2件（genuine・INFO 監視）だけになった。SC#1-#4 は全て再検証で維持（4/4）、live DB で gate が pass。CR-04（旧 deferred）は WR-04 + is_fukusho_sale_available 正規化で fixed となり deferred から削除。
 
 ## Goal Achievement
 
