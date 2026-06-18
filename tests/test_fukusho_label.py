@@ -295,8 +295,14 @@ def test_no_fukusho_sale_under_5_horses() -> None:
     assert (out["ineligibility_reason"] == "no_fukusho_sale").all()
 
 
-def test_payout_places_uses_torokutosu_not_syussotosu() -> None:
-    """Pitfall 3: SyussoTosu=7 でも TorokuTosu=8 なら payout_places=3。"""
+def test_payout_places_uses_syussotosu_not_torokutosu() -> None:
+    """WR-04 (iteration 2): 払戻対象頭数は実際出走頭数（syussotosu）ベース。
+
+    登録8頭（torokutosu=8）でも取消1頭で実7頭出走（syussotosu=7）なら **2頭払い**
+    （2着まで）。旧 Pitfall 3（torokutosu ベース・3頭払い）は実DB観測で誤りと判明し撤回。
+    本テストは7件の validated drift のうち5件が torokutosu ベース誤判定であった根本原因
+    （CR-01 を revert した原因）を回帰検出する。
+    """
     hr_df, se_df, race_df = _build_label_input_df(
         8, hr_overrides={"torokutosu": "8", "syussotosu": "7"}
     )
@@ -304,12 +310,110 @@ def test_payout_places_uses_torokutosu_not_syussotosu() -> None:
     mod = _get_fukusho_label_module()
     out = mod.compute_fukusho_labels(hr_df, se_df, race_df, spec=spec)
 
+    # WR-04: syussotosu=7 → 2頭払い（torokutosu=8 だが実際出走は7頭）
+    assert (out["fukusho_payout_places"] == 2).all(), (
+        "WR-04: torokutosu=8, syussotosu=7 は 2頭払い（2着まで）でなければならない。"
+        "torokutosu ベースの3頭払い計算は7件 validated drift のうち5件の根本原因。"
+    )
+
+
+def test_payout_places_scratch_race_3rd_place_excluded() -> None:
+    """WR-04 (iteration 2): 取消レース（torokutosu=8, syussotosu=7）で 3着馬の raw=0。
+
+    2頭払いレースでは3着馬（kakuteijyuni='03'）は払戻対象外。torokutosu ベース3頭払い
+    計算だと誤って raw=1 になり、HR（正しく2頭払い）の3着馬番='00' と食い違って
+    validated drift になる（実DBの5件ドリフトの再現）。syussotosu ベースで raw=0 となる
+    ことを検証する。
+    """
+    hr_df, se_df, race_df = _build_label_input_df(
+        8,
+        hr_overrides={
+            "torokutosu": "8",
+            "syussotosu": "7",
+            # HR は2頭払いとして記録（3着 slot='00' = 対象外）
+            "payfukusyoumaban1": "01",
+            "payfukusyoumaban2": "02",
+            "payfukusyoumaban3": "00",
+            "payfukusyoumaban4": "",
+            "payfukusyoumaban5": "",
+        },
+    )
+    spec = _load_label_spec()
+    mod = _get_fukusho_label_module()
+    out = mod.compute_fukusho_labels(hr_df, se_df, race_df, spec=spec)
+
+    # payout_places = 2（syussotosu=7）
+    assert (out["fukusho_payout_places"] == 2).all()
+    # 3着馬（kakuteijyuni='03' → umaban='03'）は払戻対象外・raw=0・validated=0
+    row3 = out[out["umaban"] == "03"].iloc[0]
+    assert row3["fukusho_hit_raw"] == 0, (
+        "WR-04: 2頭払いレース（syussotosu=7）では3着馬は払戻対象外・raw=0 でなければならない。"
+        "torokutosu ベース3頭払いだと raw=1 になり HR と食い違う（実DB5件ドリフトの再現）。"
+    )
+    assert row3["fukusho_hit_validated"] == 0  # HR slot3='00' → payout set に含まれない
+    # raw と validated が一致（drift 無し）・CR-01 が検知すべきでなかった誤検知の回帰
+    drift_rows = out[out["fukusho_hit_raw"] != out["fukusho_hit_validated"]]
+    assert len(drift_rows) == 0, (
+        "WR-04: 取消レース（2頭払い正しく計算）では raw/validated drift が発生しない。"
+        f"drift 行: {drift_rows[['umaban','fukusho_hit_raw','fukusho_hit_validated']].to_dict('records')}"
+    )
+
+
+def test_payout_places_normal_race_8_starters_3_places_regression() -> None:
+    """WR-04 regression: torokutosu=8, syussotosu=8 の通常レースは3頭払いのまま。
+
+    syussotosu ベースに変更しても、取消の無い通常レース（torokutosu == syussotosu）
+    の payout_places は従来通り3（8頭以上）であることを検証する。
+    """
+    hr_df, se_df, race_df = _build_label_input_df(
+        8, hr_overrides={"torokutosu": "8", "syussotosu": "8"}
+    )
+    spec = _load_label_spec()
+    mod = _get_fukusho_label_module()
+    out = mod.compute_fukusho_labels(hr_df, se_df, race_df, spec=spec)
+
+    # 取消なし・torokutosu=syussotosu=8 → 3頭払い
     assert (out["fukusho_payout_places"] == 3).all()
+    # 1-3着馬は raw=1
+    assert (out.loc[out["umaban"].isin(["01", "02", "03"]), "fukusho_hit_raw"] == 1).all()
+    assert (out.loc[out["umaban"].isin(["04", "05"]), "fukusho_hit_raw"] == 0).all()
+
+
+def test_payout_places_syussotosu_missing_returns_no_sale() -> None:
+    """WR-04 (iteration 2): syussotosu 欠損時は payout_places=0（no_sale）。
+
+    D-13 silent fallback 禁止・安全側。_payout_places の先頭の _is_na ガードで処理される
+    ことを検証する。torokutosu が有効でも syussotosu が欠損なら境界は確定できないため
+    no_sale に隔離される（学習除外）。
+    """
+    spec = _load_label_spec()
+    mod = _get_fukusho_label_module()
+    no_sale = int(spec["payout_places_rules"]["no_sale_marker_value"])
+
+    # syussotosu を欠損（pd.NA / None / 空文字 / 英字混じり）にした4パターン
+    abnormal_values = [
+        pd.NA,
+        None,
+        "",
+        "abc",
+    ]
+    for bad in abnormal_values:
+        hr_df, se_df, race_df = _build_label_input_df(
+            8, hr_overrides={"torokutosu": "8", "syussotosu": bad}
+        )
+        out = mod.compute_fukusho_labels(hr_df, se_df, race_df, spec=spec)
+        assert (out["fukusho_payout_places"] == no_sale).all(), (
+            f"WR-04: syussotosu={bad!r} のとき fukusho_payout_places が no_sale({no_sale}) "
+            f"でない行がある: {out['fukusho_payout_places'].tolist()}"
+        )
 
 
 def test_payout_places_and_is_dh_handle_pd_na_and_abnormal_values() -> None:
-    """CR-03 regression: torokutosu が pd.NA / np.float64(nan) / 空文字 / 英字混じりの場合に
+    """CR-03 regression: syussotosu が pd.NA / np.float64(nan) / 空文字 / 英字混じりの場合に
     TypeError を起こさず no_sale に正規化されること。
+
+    WR-04 (iteration 2) で ``fukusho_payout_places`` の計算ベースが torokutosu から
+    syussotosu に変更されたため、本 regression も異常値を syussotosu に駆動させる。
 
     _payout_places の int() 変換で pd.NA が TypeError になる経路（Int64 nullable dtype
     等で発生し得る）と異常 varchar 値（pd.to_numeric → nan）の両方をガードする。
@@ -319,9 +423,9 @@ def test_payout_places_and_is_dh_handle_pd_na_and_abnormal_values() -> None:
     mod = _get_fukusho_label_module()
     no_sale = int(spec["payout_places_rules"]["no_sale_marker_value"])
 
-    # 4パターンの異常 torokutosu 値を1レースずつ作り、それぞれの fukusho_payout_places
-    # が no_sale になることを検証する。SE 側は正常马（8頭）で固定し HR 側の torokutosu
-    # のみ変える。
+    # 4パターンの異常 syussotosu 値を1レースずつ作り、それぞれの fukusho_payout_places
+    # が no_sale になることを検証する。SE 側は正常马（8頭）で固定し HR 側の syussotosu
+    # のみ変える（torokutosu は正常値 '8' に固定）。
     abnormal_values = [
         pd.NA,                  # pandas NA・str(pd.NA)='<NA>' で TypeError 経路
         np.float64("nan"),      # numpy nan・_is_na で捕捉される経路
@@ -329,13 +433,15 @@ def test_payout_places_and_is_dh_handle_pd_na_and_abnormal_values() -> None:
         "abc",                  # 英字混じり・pd.to_numeric(errors='coerce') → nan
     ]
     for bad in abnormal_values:
-        hr_df, se_df, race_df = _build_label_input_df(8, hr_overrides={"torokutosu": bad})
+        hr_df, se_df, race_df = _build_label_input_df(
+            8, hr_overrides={"torokutosu": "8", "syussotosu": bad}
+        )
         # pd.NA は dict 経由で DataFrame に入ると object dtype になる。
         # compute_fukusho_labels 内の pd.to_numeric(errors='coerce') が nan を返し、
         # _payout_places の _is_na 分岐 / try-except 分岐で no_sale になる。
         out = mod.compute_fukusho_labels(hr_df, se_df, race_df, spec=spec)
         assert (out["fukusho_payout_places"] == no_sale).all(), (
-            f"CR-03: torokutosu={bad!r} で fukusho_payout_places が no_sale({no_sale}) "
+            f"CR-03: syussotosu={bad!r} で fukusho_payout_places が no_sale({no_sale}) "
             f"でない行がある: {out['fukusho_payout_places'].tolist()}"
         )
         # is_dead_heat も TypeError を起こさず False になること（payout_places <= 0 で早期 False）

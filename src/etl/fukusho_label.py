@@ -10,8 +10,13 @@
       unresolved）の判定は HR/SE の観測事実のみで行う（推測なし・silent fallback 禁止・D-13）。
   - **Pitfall 1:** 実カラム名は ``timediff``（EveryDB2 マニュアルの ``TimeDIFN`` ではない）。
       ``bataijyu``（``bataiju`` ではない）。本モジュールは両者を実カラム名で SELECT する。
-  - **Pitfall 3:** ``fukusho_payout_places`` 境界は ``torokutosu``（登録頭数＝出馬表発表時）
-      のみで決定。``syussotosu``（最終出走頭数）は ``final_starter_count`` 参考値のみ。
+  - **WR-04 修正:** ``fukusho_payout_places`` 境界は ``syussotosu``（実際出走頭数・取消/除外
+      反映後）ベースで決定する。登録8頭でも取消1頭で実7頭出走なら **2頭払い（2着まで）** が
+      正しく、3着馬は払戻対象外。``torokutosu``（登録頭数＝出馬表発表時）は
+      ``is_fukusho_sale_available``（複勝発売の有無・出馬表発表時決定）と
+      ``sales_start_entry_count`` 代理値としてのみ使用。実DB観測で 7件の validated drift は
+      5件が ``torokutosu`` ベース誤判定（3頭払い計算だったが正しくは2頭払い）によることが
+      判明したため、``syussotosu`` ベースに訂正した（iteration 2・旧 Pitfall 3 は撤回）。
   - **REVIEWS HIGH #1:** ``label.fukusho_label`` は ``sales_start_entry_count_confidence``
       （='inferred'）と ``sales_start_entry_count_source``（='torokutosu_proxy'）を
       ``label_validation_status`` から独立した varchar(16) NOT NULL カラムとして持つ。
@@ -633,7 +638,14 @@ def compute_fukusho_labels(
             merged[required] = pd.NA
     merged = _canonicalize_markers(merged, spec=spec)
 
-    # --- fukusho_payout_places（torokutosu のみ使用・Pitfall 3）---
+    # --- fukusho_payout_places（syussotosu ベース・WR-04 修正）---
+    # WR-04（iteration 2）: 払戻対象頭数は「実際出走頭数（syussotosu）」で決まる。
+    # 取消・除外で syussotosu < torokutosu となるレースでは払戻対象頭数が減る
+    # （例: 登録8頭でも取消1頭で実7頭出走 → 2頭払い・2着まで）。
+    # 旧 Pitfall 3（torokutosu ベース）は実DB観測で誤りと判明（7件 validated drift
+    # のうち5件は torokutosu ベース3頭払い計算が原因）。is_fukusho_sale_available
+    # （発売の有無・出馬表発表時決定）と sales_start_entry_count 代理値は引き続き
+    # torokutosu を使用する（下記）。
     def _payout_places(t: Any) -> int:
         if t is None or _is_na(t):
             return no_sale
@@ -650,9 +662,14 @@ def compute_fukusho_labels(
             return places_5_7
         return no_sale
 
-    merged["fukusho_payout_places"] = merged["torokutosu_i"].map(_payout_places)
+    merged["fukusho_payout_places"] = merged["syussotosu_i"].map(_payout_places)
 
     # --- is_fukusho_sale_available: torokutosu >= 5 AND fuseirituflag2 != '1' ---
+    # WR-04（iteration 2）: 複勝発売の有無は「出馬表発表時（登録時）」に決まるため
+    # torokutosu（= sales_start_entry_count 代理値）ベースのまま変更しない。
+    # 発売あり（torokutosu >= 5）だが当日取消で syussotosu < 5 になる境界では、
+    # payout_places が 0（不成立）になるが is_fukusho_sale_available=True のまま残る。
+    # これは「発売はあったが対象頭数に満たず不成立」の正当な状態。
     fuseiritu = (
         merged["fuseirituflag2"].map(_safe_str)
         if "fuseirituflag2" in merged.columns
