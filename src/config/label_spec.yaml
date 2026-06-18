@@ -1,0 +1,245 @@
+# Keiba AI v3 — LABEL-01..04 の正: 複勝ラベル定義の静的仕様（実データ検証済み）
+#
+# 由来: PostgreSQL everydb2 に直接接続し、2015-01-01 以降の JRA データ
+# （jyocd BETWEEN '01' AND '10'）39,580 レース / 553,891 馬行を実測照合して導出
+# （02-RESEARCH.md・EveryDB2 公式マニュアル 04-UMA_RACE.md / 05-HARAI.md と整合）。
+# docs/everydb2/CODE.md はスクレイピング不完全（Phase 1 D-10）のため実データ SELECT のみを正とする。
+#
+# 根拠: docs/keiba_ai_requirements_v1.3.md §10.1-10.6（ラベル生成・検証仕様）+
+#   §7.2-7.3（初期モデル対象/除外）+ 02-CONTEXT.md D-01..D-04（locked decisions）+
+#   02-REVIEWS.md HIGH #1/#4/#5 + NEW HIGH #3 + MEDIUM（class_eligibility precision）対応。
+#
+# 後続 Plan 02-03 の src/etl/fukusho_label.py が本ファイルを読込、ラベル計算の全境界値と
+# marker 識別条件を機械適用する。名称 regex マッチは一切使用しない（D-13 silent fallback 禁止）。
+# 本ファイルがラベル定義の単一の正（D-07 Git 管理・§19.1 再現性）。
+
+# ===========================================================================
+# ラベル定義バージョン（§10.3 / §19.1 再現性）
+# セマンティック採番。ラベルロジック（境界・status 分類・marker 識別）を変更する際は bump し、
+# Phase 3 snapshot metadata に埋め込んで再現性を保証する。
+# ===========================================================================
+label_generation_version: "v1.0.0"
+
+# ===========================================================================
+# D-04 固定4値 status（label_validation_status の値域・観測事実ベース・推測なし）
+#   - validated : HR DataKubun='2'（月曜確定）の通常レース（本DBでは全件）
+#   - inferred  : HR DataKubun='1'（速報成績）が存在する場合のみ（本DBでは0件・将来用）
+#   - dead_heat : 払戻テーブル slot4/5 使用で対象馬数 > 理論払戻対象数（実測 97 レース）
+#   - unresolved: HR 欠損 / FuseirituFlag2='1'（不成立）/ DataKubun='9'（レース全体中止）
+# ===========================================================================
+status_values: ["validated", "inferred", "dead_heat", "unresolved"]
+
+# ===========================================================================
+# D-01 厳格: 複勝払戻対象数ルール（label 境界そのもの・学習除外対象）
+# 境界は HR PayFukusyoUmaban / FuseirituFlag2 の観測事実で最終確定する（D-01 厳格）。
+# TorokuTosu は補助（sales_start_entry_count の代理値・下記 sales_start_entry_count 参照）。
+# Pitfall 3: SyussoTosu（最終出走頭数）で境界を決定してはならない（§10.2 明確な禁止）。
+# ===========================================================================
+payout_places_rules:
+  min_torokutosu_for_fukusho_sale: 5  # 5頭未満は複勝発売なし（§7.3）
+  places_5_to_7_horses: 2
+  places_8_or_more_horses: 3
+  no_sale_marker_value: 0
+  note: |
+    境界は HR PayFukusyoUmaban/FuseirituFlag2 の観測事実で最終確定（D-01 厳格）。
+    TorokuTosu は sales_start_entry_count の代理値としてのみ使用（補助メタデータ）。
+
+# ===========================================================================
+# D-01 寛容: sales_start_entry_count 復元（補助メタデータ・適格性フィルタ用）
+# REVIEWS HIGH #1: label_validation_status から明示分離。
+#   - proxy_source       : label.fukusho_label.sales_start_entry_count_source カラムへ格納
+#   - source_confidence : label.fukusho_label.sales_start_entry_count_confidence カラムへ格納
+#   これらは label_validation_status（上記 status_values）とは独立した概念。
+#   下流が `WHERE label_validation_status != 'inferred'` でフィルタしても、
+#   sales_start_entry_count の proxy 性は隠れない（直交する信頼度軸）。
+# ===========================================================================
+sales_start_entry_count:
+  proxy_source: "n_harai.TorokuTosu"
+  # source_confidence は label_validation_status とは独立キー（HIGH #1 回避）。
+  # この 'inferred' は sales_start_entry_count カラム群の信頼度表示のみで、
+  # 当該レースの label_validation_status（HR DataKubun='2' なら 'validated'）とは無関係。
+  source_confidence: "inferred"
+  source_note: |
+    AV (TORIKESI_JYOGAI) テーブルは本DBで0行・HappyoTime 復元は技術的に不可能
+    （RESEARCH Pitfall 2）。TorokuTosu は SE 馬番数と 99.97% 一致（39,570/39,580）。
+    この 'inferred' は sales_start_entry_count の信頼度表示のみで、当該レースの
+    label_validation_status（HR DataKubun='2' なら 'validated'）とは直交する概念。
+
+# ===========================================================================
+# §7.3 モデル除外 syubetucd（code_tables.yaml 実測値）
+# ===========================================================================
+model_ineligibility_syubetucd: ["18", "19"]  # 障害競走（飛越 / 障害OP・J・G1/2/3）
+
+# ===========================================================================
+# §7.3 新馬戦 syubetucd（code_tables.yaml 実測値）
+# ===========================================================================
+newcomer_syubetucd: ["11", "12"]  # 2歳新馬 / 3歳新馬
+
+# ===========================================================================
+# §7.2 適格性クラス条件精密化（REVIEWS MEDIUM 解決）
+# §7.2「2歳未勝利以上 / 3歳未勝利以上 / 1勝クラス以上」を機械判定するための設定。
+#
+# 未勝利（class_level_numeric=0・syubetucd='13'/'14'/'15'）は §7.2 対象として残る。
+# 新馬（class_level_numeric=0・syubetucd='11'/'12'）は §7.3 除外・ステップ(a)で除外される。
+# 従って class_level_numeric=0 単独では不適格としない（syubetucd で識別）。
+#
+# compute_is_model_eligible 適用順序:
+#   (a) syubetucd が obstacle/newcomer なら不適格
+#   (b) 複勝発売なし → no_fukusho_sale
+#   (c) unresolved → unresolved
+#   (d) cancel系マーカー → race_or_horse_cancelled
+#   (e) class_level_numeric < 1 AND syubetucd NOT IN maiden_syubetucd → class_below_minimum
+# これにより未勝利（class_level_numeric=0・syubetucd='13'/'14'）は §7.2 対象として残り、
+# 新馬（class_level_numeric=0・syubetucd='11'/'12'）はステップ(a)で除外される。
+# ===========================================================================
+class_eligibility:
+  minimum_class_level_numeric: 1  # 1勝クラス以上（jyokencd5='005'）
+  # 未勝利戦: class_level_numeric=0 だが §7.2「未勝利以上」に含まれるため適格対象
+  # （2歳未勝利=13 / 3歳未勝利=14 / 条件戦=15）
+  maiden_syubetucd: ["13", "14", "15"]
+  # 新馬戦: class_level_numeric=0 かつ §7.3 除外・上記 newcomer_syubetucd と重複するが
+  # 理由コード分離のため明示
+  maiden_ineligible_syubetucd: ["11", "12"]
+
+# ===========================================================================
+# REVIEWS HIGH #5: SE marker canonicalization（brittle marker 回避）
+# raw 文字列（varchar）と数値キャスト後（pandas to_numeric）の両表現を許容する sentinel 集合。
+# _canonicalize_markers（Plan 03）は必ずこの sentinel 集合で判定する。
+# 単一文字列等価比較（例: harontimel3 == '999.0'）は禁止・sentinel 集合への `in` 判定のみ許可。
+#
+# REVIEWS NEW HIGH #3: missing/null 値は pd.isna(v) guard で missing_value_sentinel にマップ
+# してから sentinel 判定に回す。str() 変換で 'nan'/'<NA>'/'None' になる silent corruption
+# を防止（missing time が is_dead_loss=True に化けるのを防ぐ）。
+# ===========================================================================
+se_marker_canonicalization:
+  enabled: true
+  # ハロンタイム異常 sentinel: raw varchar '999' / pandas to_numeric 後 999.0 / 文字列表現 '999.0'/'999.00'
+  harontimel3_sentinels: ["999", "999.0", "999.00"]
+  # タイム差異常 sentinel（同上）
+  timediff_sentinels: ["9999", "9999.0"]
+  # time がこれらの値なら「発走前停止/除外」扱い
+  time_sentinels_absent: ["0", "0.0", "", "9999", "9999.0"]
+  # time が数値で sentinel 集合外なら「発走後停止=競走中止」扱い
+  time_sentinels_present_hint: "non-zero numeric not in time_sentinels_absent"
+  # NEW HIGH #3: pd.isna(v) で missing/null（NaN / pd.NA / None）を捕捉した際にマップする sentinel。
+  # str() 変換で 'nan' / '<NA>' / 'None' になる silent corruption を防止。
+  # time_present / marker_active 判定でこの sentinel を除外条件として使用。
+  # missing time → time_present=False → is_race_excluded または unresolved に分類（is_dead_loss にはしない）。
+  missing_value_sentinel: "__MISSING__"
+  # 出走取消マーカー: raw '000' / 数値キャスト 0 を同一視
+  bataijyu_sentinels_scratch: ["000", "0", "0.0"]
+  # レース全体中止: HR/SE 両方で DataKubun='9' を「レース中止」扱い・先頭0埋め許容
+  datakubun_sentinels_race_cancelled: ["9", "09"]
+  note: |
+    _canonicalize_markers（Plan 03）は必ずこの sentinel 集合で判定する。
+    harontimel3 == '999.0' のような単一文字列等価比較は禁止・sentinel 集合への `in` 判定のみ許可。
+    raw が varchar で normalized が numeric の両方で同一結果を返す。
+    NEW HIGH #3: missing/null 値は pd.isna(v) guard で missing_value_sentinel='__MISSING__'
+    にマップしてから sentinel 判定に回す（str() 変換で 'nan'/'<NA>'/'None' になるのを防止）。
+
+# ===========================================================================
+# D-04 / RESEARCH Pitfall 4: SE marker 識別ルール（実測識別条件表・実カラム名）
+# 各 condition は _canonicalize_markers（Plan 03）が生成する canonicalized_* 列を参照する。
+# 注: timediff は EveryDB2 マニュアル TimeDIFN だが本DB実カラム名（RESEARCH Pitfall 1）。
+# ===========================================================================
+se_marker_rules:
+  # 出走取消（実測 956 行）
+  scratch_cancel:
+    condition: "canonicalized_bataijyu in bataijyu_sentinels_scratch"
+    expected_count: 956
+    label: "予測対象外"
+    is_model_eligible: false
+  # 馬個別競走中止（実測 3,554 行・発走後停止・time 有り）
+  dead_loss_individual:
+    condition: "canonicalized_harontimel3 in harontimel3_sentinels AND canonicalized_timediff in timediff_sentinels AND canonicalized_time NOT in time_sentinels_absent"
+    expected_count: 3554
+    label: "fukusho_hit=0 で学習残"
+    is_model_eligible: true
+  # 発走前除外（実測 0 件・本DBでは発生なし）
+  race_excluded_before_start:
+    condition: "canonicalized_harontimel3 in harontimel3_sentinels AND canonicalized_timediff in timediff_sentinels AND canonicalized_time in time_sentinels_absent"
+    expected_count: 0
+    label: "予測対象外（本DBでは発生なし）"
+    is_model_eligible: false
+  # レース全体中止（HR/SE DataKubun='9'・実測 376 SE 行）
+  race_cancelled:
+    condition: "canonicalized_datakubun in datakubun_sentinels_race_cancelled"
+    expected_count_se: 376
+    label: "全馬 unresolved"
+    is_model_eligible: false
+
+# ===========================================================================
+# REVIEWS HIGH #4: SE DataKubun 包含表明
+# Plan 03 の _select_se_state は datakubun IN ('7','9') で SELECT する。
+# datakubun='7' のみに絞ると race_cancelled の 376 SE 行がラベル生成前に消失し
+# silent data loss になる（HIGH #4）。
+# ===========================================================================
+se_datakubun_inclusion:
+  required_se_datakubun_values: ["7", "9"]  # confirmed='7' と race_cancelled='9' の両方を SELECT 対象
+  note: |
+    Plan 03 の _select_se_state は datakubun IN ('7','9') で SELECT する。
+    datakubun='7' のみに絞ると race_cancelled の 376 SE 行がラベル生成前に消失し
+    silent data loss になる（HIGH #4）。
+
+# ===========================================================================
+# D-04 / RESEARCH 実測: HR status ルール
+# ===========================================================================
+hr_status_rules:
+  monday_confirmed_datakubun: "2"   # 本DBでは全件・validated
+  flash_report_datakubun: "1"       # 本DBでは0件・将来用 inferred 分岐保持（D-13）
+  fuseiritu_flag2_value:
+    value: "1"
+    meaning: "複勝不成立"
+    status: "unresolved"
+    expected_count: 0
+  tokubarai_flag2_value:
+    value: "1"
+    meaning: "複勝特払"
+    status: "validated_if_payout_exists_else_unresolved"
+    expected_count: 0
+
+# ===========================================================================
+# D-04 / LABEL-04 / REVIEWS MEDIUM #2: 同着ルール（payout-table authoritative）
+# detection は payout slot4/5 使用が唯一の権威ある同着検出。DochacoTosu は参考値に過ぎない。
+# ===========================================================================
+dead_heat_rules:
+  # payout slot4/5 使用が唯一の権威ある同着検出・DochacoTosu='1' は別途監査列として保持するが参考値
+  detection: "payout_count > fukusho_payout_places AND fukusho_payout_places > 0"
+  slot4_used_count: 97   # 実測・PayFukusyoUmaban4 使用
+  slot5_used_count: 1    # 実測・PayFukusyoUmaban5 使用
+  status: "dead_heat"
+  is_model_eligible: true  # 学習対象・払戻テーブル全対象馬を正例
+  note: |
+    DochacoTosu='1' は別途監査列として保持するが、dead_heat 判定の権威は払戻テーブル slot 拡張のみ。
+    DochacoTosu の意味が EveryDB2 で確定していないため、payout-table-derived の is_dead_heat を唯一の正とする。
+
+# ===========================================================================
+# D-03 / RESEARCH: 不適格理由コード（label.fukusho_label.ineligibility_reason 値域）
+# REVIEWS HIGH #6 docstring: 競走中止馬（is_dead_loss=True）がその他の理由で不適格になる場合、
+# ineligibility_reason には本来の理由（obstacle / newcomer / no_fukusho_sale / unresolved /
+# race_or_horse_cancelled / class_below_minimum）を格納し、競走中止単独では不適格にしない。
+# Plan 04 _check_dead_loss_not_excluded（HIGH #6 修正版）は「ineligibility_reason が存在する かつ
+# それが上記の非 dead_loss 理由である」場合のみ passed=True とし、純粋な dead_loss 除外
+# （reason が存在しないのに is_model_eligible=False）を passed=False とする。
+# ===========================================================================
+ineligibility_reason_codes:
+  - "obstacle"
+  - "newcomer"
+  - "no_fukusho_sale"
+  - "unresolved"
+  - "race_or_horse_cancelled"
+  - "class_below_minimum"
+  - "status_not_eligible"
+  # HIGH #6 docstring: 競走中止馬（is_dead_loss=True）がその他の理由で不適格になる場合、
+  # ineligibility_reason には本来の理由（obstacle / newcomer / no_fukusho_sale / unresolved /
+  # race_or_horse_cancelled / class_below_minimum）を格納し、競走中止単独では不適格にしない。
+  # Plan 04 _check_dead_loss_not_excluded（HIGH #6 修正版）は「ineligibility_reason が存在する かつ
+  # それが上記の非 dead_loss 理由である」場合のみ passed=True とし、純粋な dead_loss 除外
+  # （reason が存在しないのに is_model_eligible=False）を passed=False とする。
+
+# ===========================================================================
+# D-13: 未知コード戦略。silent fallback 禁止。
+# class_normalization.yaml と同形式。未知の status 値や syubetucd は unresolved /
+# is_model_eligible=False で明示隔離し、WARNING ログと件数レポートを出力する。
+# ===========================================================================
+unresolved_strategy: "error_and_isolate"
