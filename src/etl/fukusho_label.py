@@ -801,6 +801,24 @@ def compute_fukusho_labels(
     merged["is_model_eligible"] = elig["is_model_eligible"]
     merged["ineligibility_reason"] = elig["ineligibility_reason"]
 
+    # --- CR-04: race_cancelled レースは複勝発売不成立・is_fukusho_sale_available=False に正規化 ---
+    # REVIEW.md CR-04 残る論点（iteration 3 以降の payout_count ベースで fukusho_payout_places=0,
+    # fukusho_hit_raw=0 は既に達成）に対する最終是正。
+    # 現状: is_fukusho_sale_available は torokutosu ベース（登録>=5 → True）のため、
+    # race_cancelled レース（出馬表発表時は発売予定だったが当日中止）でも True になる。
+    # 「複勝発売が実際には無かった（中止）レースで is_fukusho_sale_available=True」を是正する。
+    #
+    # fukusho_payout_places（payout_count ベース・race_cancelled=0）と
+    # fukusho_hit_raw（payout_count=0 → raw=0）は iteration 3 (WR-04) で既に達成済み。
+    #
+    # _check_no_fukusho_sale_not_in_training gate への影響:
+    # race_cancelled 馬は status='unresolved' → compute_is_model_eligible step (d) で
+    # is_model_eligible=False となる。従って本正規化により race_cancelled 馬が
+    # is_fukusho_sale_available=False になっても gate には引っかからない（is_model_eligible=False
+    # で既に学習除外されているため）。
+    mask_race_cancelled = merged["is_race_cancelled"] == True  # noqa: E712
+    merged.loc[mask_race_cancelled, "is_fukusho_sale_available"] = False
+
     # --- label_generation_version ---
     merged["label_generation_version"] = label_version
 

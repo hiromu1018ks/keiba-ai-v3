@@ -888,6 +888,9 @@ def test_race_cancelled_all_unresolved() -> None:
     assert (out["label_validation_status"] == "unresolved").all()
     assert (out["is_model_eligible"] == False).all()  # noqa: E712
     assert (out["ineligibility_reason"] == "unresolved").all()
+    # CR-04 (iteration 6): race_cancelled レースは複勝発売不成立・is_fukusho_sale_available=False
+    # torokutosu ベース（登録>=5 → True）でも当日中止なら False に正規化される。
+    assert (out["is_fukusho_sale_available"] == False).all()  # noqa: E712
 
 
 def test_select_se_state_includes_datakubun_9() -> None:
