@@ -14,7 +14,7 @@ Phase 1 (v1 milestone) is a single milestone — a leakage-critical, reproducibi
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Trust & Foundation** - Raw quality gate + normalized ETL + leakage-prevention stack bootstrap (completed 2026-06-17)
-- [ ] **Phase 2: Fukusho Labels** - Sales-start-time labels with payout-table reconciliation (highest-risk, long pole)
+- [x] **Phase 2: Fukusho Labels** - Sales-start-time labels with payout-table reconciliation (highest-risk, long pole) (completed 2026-06-18)
 - [ ] **Phase 3: As-of Features & Snapshots** - PIT-correct feature builder + immutable versioned Parquet snapshots
 - [ ] **Phase 4: Model & Prediction** - Baselines BL-1..BL-5 + Phase 1-A LightGBM/CatBoost + calibrated p_fukusho_hit
 - [ ] **Phase 5: EV & Backtest** - EV/rank module + race_id-grouped virtual-purchase simulator with fixed odds policy
@@ -76,7 +76,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 02-04-PLAN.md — Wave 3 払戻テーブル突合ゲート（label_reconcile.py・§10.5 6検査 BLOCK/INFO・>99.9% agreement）— LABEL-03
+- [x] 02-04-PLAN.md — Wave 3 払戻テーブル突合ゲート（label_reconcile.py・§10.5 6検査 BLOCK/INFO・>99.9% agreement）— LABEL-03
 
 ### Phase 3: As-of Features & Snapshots
 
@@ -169,7 +169,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Trust & Foundation | 4/4 | Complete    | 2026-06-17 |
-| 2. Fukusho Labels | 3/4 | In Progress|  |
+| 2. Fukusho Labels | 4/4 | Complete   | 2026-06-18 |
 | 3. As-of Features & Snapshots | 0/TBD | Not started | - |
 | 4. Model & Prediction | 0/TBD | Not started | - |
 | 5. EV & Backtest | 0/TBD | Not started | - |
