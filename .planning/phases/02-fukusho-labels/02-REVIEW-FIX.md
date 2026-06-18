@@ -2,13 +2,14 @@
 phase: 02-fukusho-labels
 review_path: .planning/phases/02-fukusho-labels/02-REVIEW.md
 fix_scope: critical_warning
-iteration: 1
+iteration: 2
 findings_in_scope: 18
-fixed: 12
+fixed: 13
 skipped: 0
-needs_human: 5
+needs_human: 4
 status: all_fixed
-fixed_at: 2026-06-18T18:30:00+09:00
+fixed_at: 2026-06-18T19:50:00+09:00
+iteration_1_fixed_at: 2026-06-18T18:30:00+09:00
 ---
 
 # Phase 02: Code Review Fix Report
@@ -336,6 +337,86 @@ schema 変更を伴う構造的判断。`label.fukusho_label` に `monthday` 列
 
 ---
 
-_Fixed: 2026-06-18T18:30:00+09:00_
+_Fixed (iteration 1): 2026-06-18T18:30:00+09:00_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 1_
+
+---
+
+# Iteration 2: WR-04 修正（CR-01 revert の根本原因解決）
+
+**Fixed at:** 2026-06-18T19:50:00+09:00
+**Iteration:** 2
+**Fixer:** Claude (gsd-code-fixer)
+**Trigger:** iteration 1 の CR-01 修正（`_check_raw_validated_drift` の severity を BLOCK に格上げ）が実DB の LABEL-03 gate で7件の validated drift を捕捉し gate fail になった。ユーザーが実DB を個別確認した結果、**7件のうち5件は `payout_places` が `torokutosu`（登録頭数）ベースで計算されていることが根本原因**と判明。CR-01 は誤検知（revert 済み `8bf0ae8`）で、真の原因は WR-04 だった。
+
+## 実DB観測で判明した事実（iteration 1 の前提の誤り）
+
+RESEARCH Pitfall 3 / CONTEXT D-01 / 旧 label_spec.yaml note は「払戻対象頭数は `torokutosu`（登録頭数＝出馬表発表時）ベースで決定。`syussotosu`（最終出走頭数）で決定してはならない」と主張していた。しかし実DB の7件 validated drift を `final_starter_count`（= `syussotosu_i`）で確認した結果:
+
+| レース | 登録頭数 (torokutosu) | 実際出走 (syussotosu) | 旧 payout_places (torokutosu ベース) | 正しい payout_places (syussotosu ベース) | HR 3着馬番 |
+|--------|----------------------|---------------------|------------------------------------|---------------------------------------|-----------|
+| R10/R11/R8/R9/R1 (5件) | 8-13 | **7** | 3（3頭払い・誤り） | **2（2頭払い）** | '00'（正当・2頭払いの対象外） |
+| R4 (2件) | 10 | 10 | 3（3頭払い） | 3（3頭払い） | 別馬番（genuine な馬番入れ違い） |
+
+5件は「登録8頭超だが取消で実際7頭出走」のレース。`torokutosu` ベースの3頭払い計算だと3着馬（`kakuteijyuni='03'`）が `raw=1` になるが、HR は正しく2頭払いで記録（3着 slot='00'）なので `valid=0`。この raw=1 / valid=0 が drift として検出されていた。**正しくは syussotosu ベースの2頭払いで raw=0 となり drift は消失する。**
+
+RESEARCH Pitfall 3 の主張は観測事実と逆だった（当時の観測「SyussoTosu != TorokuTosu が 1,899 レース」は取消/除外レースを指していたが、それらのレースでは **syussotosu ベースが JRA の実際の払戻ルール** と一致する）。
+
+## Summary (iteration 2)
+
+- **WR-04:** `needs_human` → **`fixed`** に昇格（CR-01 の根本原因として判明・コミット `81b7b07`）
+- **CR-01:** iteration 1 で適用した severity 格上げ（`b3bf210`）は **誤検知** と判明し revert 済み（`8bf0ae8`）。WR-04 修正後に残る drift は R4 の2件のみ = genuine な馬番入れ違い（EveryDB2 側の入力ミス）。CR-01 の再適用は別タスクで R4 の2件のみを allowlist 対象とする形で検討
+- **Fixed (累計):** 12 → **13 件**（WR-04 追加）
+- **Needs human (累計):** 5 → **4 件**（WR-04 解消・残り: CR-04, CR-05, WR-01, WR-10）
+
+## Fixed Issues (iteration 2)
+
+### WR-04: `payout_places` を `syussotosu`（実際出走頭数）ベースに修正
+
+**Files modified:** `src/etl/fukusho_label.py`, `src/config/label_spec.yaml`, `tests/test_fukusho_label.py`
+**Commit:** `81b7b07`
+**Test result:** `KEIBA_SKIP_DB_TESTS=1 pytest tests/` → `116 passed, 20 skipped`（iteration 1 の 114 から +2 net・新規3テスト追加 + 1テスト置換）
+
+**Applied fix:**
+
+1. **`src/etl/fukusho_label.py`** — `merged["fukusho_payout_places"]` の計算ベースを `torokutosu_i.map(_payout_places)` から `syussotosu_i.map(_payout_places)` に変更。取消・除外で `syussotosu < torokutosu` となるレースでは払戻対象頭数が減る（登録8頭でも実7頭出走→2頭払い・2着まで）。ファイル先頭の Pitfall 3 コメント（14行付近）と `_payout_places` のコメント（636行付近）も「syussotosu ベース」に訂正。
+
+2. **`is_fukusho_sale_available` は `torokutosu` のまま（変更なし）** — 複勝発売の有無は出馬表発表時（登録時）に決まるので `torokutosu`（= `sales_start_entry_count` 代理値）ベースが正しい。境界ケース確認: `torokutosu=8`（発売あり）で `syussotosu=4` だと `payout_places=0`（不成立）になるが `is_fukusho_sale_available=True` のまま残る。これは「発売は宣言されたが当日取消で対象頭数に満たず不成立」の正当な状態で、`_check_no_fukusho_sale_not_in_training`（`is_model_eligible=True AND is_fukusho_sale_available=False` を検査）と**論理的に整合**する（逆方向の汚染は起きない）。ただし「発売あり宣言だが不成立」レースの `is_model_eligible` 扱いは将来の検討課題（本 fix の scope 外・自動修正禁止）。
+
+3. **`src/config/label_spec.yaml`** — `payout_places_rules.note` と冒頭コメント（33-46行）を「払戻対象頭数は `syussotosu` ベース」に訂正。旧 Pitfall 3（torokutosu のみで決定）は撤回と明記。**spec↔impl の整合**（WR-04 の核心）を回復。
+
+4. **`tests/test_fukusho_label.py`**:
+   - `test_payout_places_uses_torokutosu_not_syussotosu` → `test_payout_places_uses_syussotosu_not_torokutosu` に**置換**（セマンティクス逆転・旧テストは新仕様で fail するため）。torokutosu=8, syussotosu=7 で payout_places=2 を assert。
+   - **新規 `test_payout_places_scratch_race_3rd_place_excluded`**: 取消レース（torokutosu=8, syussotosu=7）で3着馬（`kakuteijyuni='03'`）の `raw=0` を assert。HR slot3='00' と整合し drift=0 になることを検証。実DB の5件ドリフトの再現防止回帰テスト。
+   - **新規 `test_payout_places_normal_race_8_starters_3_places_regression`**: torokutosu=syussotosu=8 の通常レースは3頭払いのままであることを検証（取消の無いレースへの影響がないことの保証）。
+   - **新規 `test_payout_places_syussotosu_missing_returns_no_sale`**: `syussotosu` が pd.NA / None / "" / "abc" のとき payout_places=0（no_sale）になることを検証（D-13 silent fallback 禁止・安全側）。
+   - **CR-03 regression test 更新**: `test_payout_places_and_is_dh_handle_pd_na_and_abnormal_values` の駆動値を `torokutosu` から `syussotosu` に切替（計算ベース変更に追随・torokutosu='8' は固定）。
+
+**Logic bug flag:** 本修正は `payout_places` 計算ベースの変更（意味論的）のため、Tier 1/2 自動検証では実DB での正しさを完全に保証できない。追加した3テスト（特に `test_payout_places_scratch_race_3rd_place_excluded` が実DB の5件ドリフトシナリオを再現）でカバーしているが、実DB での LABEL-03 gate 実行による最終確認が推奨される。
+
+## Skipped Issues (iteration 2)
+
+なし。WR-04 は iteration 1 では `needs_human` だったが、ユーザーによる実DB 個別確認で仕様判断が確定したため iteration 2 で fixed に昇格。
+
+---
+
+## 要対応 (iteration 2 時点・残課題)
+
+### CR-01 の再適用検討（WR-04 修正後）
+
+WR-04 修正により7件の validated drift のうち5件は解消される。残るは **R4 の2件**（2020/05 R4・torokutosu=10, syussotosu=10・3頭払い正しい・SE と HR で3着の馬番が入れ違っている genuine な矛盾）。
+
+**推奨対応（別タスク）:**
+1. WR-04 修正を適用した上で実DB の LABEL-03 gate を再実行し、drift が R4 の2件のみになることを確認
+2. R4 の2件を allowlist（`label_spec.yaml` に race_key 明示）するか、EveryDB2 側で `payfukusyoumaban3` 入力ミスを修復するかを判断
+3. allowlist 導入後に CR-01 の severity 格上げ（`_check_raw_validated_drift` の validated/inferred status での BLOCK 化）を再適用するか判断
+
+### `is_fukusho_sale_available` 境界ケースの将来検討
+
+`torokutosu=8`（発売あり宣言）で `syussotosu < 5`（当日取消で対象頭数未満）のレースは `payout_places=0`（不成立）だが `is_fukusho_sale_available=True` のまま残る。これは「発売は宣言されたが不成立」の正当な状態だが、`compute_is_model_eligible` のステップ (c)（`not is_fukusho_sale_available` → no_fukusho_sale）では捕捉されない。実DB で該当件数を確認し、必要なら `payout_places <= 0` の行を `no_fukusho_sale` で不適格にする追加検査を検討（本 fix の scope 外）。
+
+---
+
+_Fixed (iteration 2): 2026-06-18T19:50:00+09:00_
+_Fixer: Claude (gsd-code-fixer)_
+_Iteration: 2_
