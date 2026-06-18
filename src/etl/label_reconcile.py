@@ -290,6 +290,26 @@ def _check_dead_heat_integrity(cur: Cursor) -> CheckResult:
 
     - ``label_validation_status='dead_heat'`` なのに ``is_dead_heat=False`` は矛盾
     - ``is_dead_heat=True`` なのに ``label_validation_status != 'dead_heat'`` は不整合
+
+    **WR-01 拡張（payout_count 整合検査）:** ``is_dead_heat`` flag と実際の払戻拡張
+    （``payout_count > JRA 標準払戻対象頭数``）の双方向の矛盾を追加検査する。標準払戻
+    対象頭数は ``final_starter_count``（``syussotosu`` ベース）で計算し、``_is_dh``
+    （fukusho_label.py iteration 4）と同じロジックで判定する:
+
+      - ``final_starter_count >= 8`` → 標準 = ``places_8_or_more_horses`` (3)
+      - ``5 <= final_starter_count <= 7`` → 標準 = ``places_5_to_7_horses`` (2)
+      - ``final_starter_count < 5`` → 標準 = NULL（保護・dead_heat 判定対象外・
+        ``syussotosu < 5`` は複勝発売なし/不成立の可能性が高いため iteration 4 で保護）
+
+    検出する矛盾:
+      - ``is_dead_heat=True`` なのに ``fukusho_payout_places <= 標準``
+        （slot4/5 未使用なのに dead_heat 扱い = flag と実際が矛盾）
+      - ``is_dead_heat=False`` なのに ``fukusho_payout_places > 標準``
+        （slot4/5 使用なのに dead_heat 扱いでない = 逆方向の矛盾）
+
+    これらの矛盾は ``_check_payout_precision`` / ``_check_payout_recall`` では見えない
+    （precision/recall は ``fukusho_hit_validated`` vs HR payout set の照合であって、
+    ``is_dead_heat`` flag との整合は見ない）。
     """
     # 方向1: dead_heat status なのに is_dead_heat=False
     cur.execute(
@@ -313,7 +333,61 @@ def _check_dead_heat_integrity(cur: Cursor) -> CheckResult:
     )
     mismatches_flag_to_status = int(cur.fetchone()[0])
 
-    total_mismatch = mismatches_status_to_flag + mismatches_flag_to_status
+    # --- WR-01 拡張: is_dead_heat flag と実際の払戻拡張（payout_count > 標準）の整合 ---
+    # 標準払戻対象頭数は _is_dh（fukusho_label.py iteration 4）と同じロジック:
+    #   final_starter_count >= 8 → places_8_or_more_horses (3)
+    #   5 <= final_starter_count <= 7 → places_5_to_7_horses (2)
+    #   final_starter_count < 5 → NULL（保護・dead_heat 判定対象外）
+    # label_spec.yaml から places_* / min_torokutosu を取得（D-07 単一の正・D-13 維持）。
+    spec = load_label_spec()
+    payout_rules = spec["payout_places_rules"]
+    places_8plus = int(payout_rules["places_8_or_more_horses"])
+    places_5_7 = int(payout_rules["places_5_to_7_horses"])
+    min_torokutosu = int(payout_rules["min_torokutosu_for_fukusho_sale"])
+
+    # CASE 式で標準払戻対象頭数を計算（_is_dh と同じ・final_starter_count ベース）。
+    # final_starter_count IS NULL の行は dead_heat 判定対象外（_is_dh が False を返す経路）
+    # のため NULL とし、両方向の矛盾検査から除外する。
+    standard_case = (
+        "CASE "
+        f"WHEN final_starter_count IS NULL THEN NULL "
+        f"WHEN final_starter_count >= 8 THEN {places_8plus} "
+        f"WHEN final_starter_count >= {min_torokutosu} THEN {places_5_7} "
+        "ELSE NULL END"
+    )
+
+    # 方向3 (WR-01): is_dead_heat=True なのに fukusho_payout_places <= 標準
+    # （slot4/5 未使用なのに dead_heat 扱い = flag と実際が矛盾）
+    cur.execute(
+        f"""
+        SELECT count(*) FROM label.fukusho_label
+        WHERE {PROJECT_WINDOW_FILTER}
+          AND is_dead_heat = true
+          AND {standard_case} IS NOT NULL
+          AND fukusho_payout_places <= {standard_case}
+        """
+    )
+    mismatches_flag_no_slot_expansion = int(cur.fetchone()[0])
+
+    # 方向4 (WR-01): is_dead_heat=False なのに fukusho_payout_places > 標準
+    # （slot4/5 使用なのに dead_heat 扱いでない = 逆方向の矛盾）
+    cur.execute(
+        f"""
+        SELECT count(*) FROM label.fukusho_label
+        WHERE {PROJECT_WINDOW_FILTER}
+          AND is_dead_heat = false
+          AND {standard_case} IS NOT NULL
+          AND fukusho_payout_places > {standard_case}
+        """
+    )
+    mismatches_slot_expansion_no_flag = int(cur.fetchone()[0])
+
+    total_mismatch = (
+        mismatches_status_to_flag
+        + mismatches_flag_to_status
+        + mismatches_flag_no_slot_expansion
+        + mismatches_slot_expansion_no_flag
+    )
     return CheckResult(
         name="dead_heat_integrity",
         passed=total_mismatch == 0,
@@ -322,7 +396,13 @@ def _check_dead_heat_integrity(cur: Cursor) -> CheckResult:
             "mismatch_count": total_mismatch,
             "status_to_flag_mismatch": mismatches_status_to_flag,
             "flag_to_status_mismatch": mismatches_flag_to_status,
-            "method": "bidirectional_dead_heat_flag_status_consistency",
+            "flag_no_slot_expansion_mismatch": mismatches_flag_no_slot_expansion,
+            "slot_expansion_no_flag_mismatch": mismatches_slot_expansion_no_flag,
+            "method": "bidirectional_dead_heat_flag_status_and_payout_count_consistency",
+            "wr01_standard_basis": "final_starter_count (syussotosu) based standard places",
+            "wr01_places_8_or_more_horses": places_8plus,
+            "wr01_places_5_to_7_horses": places_5_7,
+            "wr01_min_final_starter_count": min_torokutosu,
         },
     )
 

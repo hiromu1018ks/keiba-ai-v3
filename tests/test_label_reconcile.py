@@ -266,6 +266,93 @@ def test_check_dead_heat_integrity() -> None:
     assert r.severity == "block"
 
 
+def test_check_dead_heat_integrity_wr01_payout_count_consistency() -> None:
+    """WR-01 拡張: is_dead_heat flag と実際の払戻拡張（payout_count > 標準）の整合検査。
+
+    ``_check_dead_heat_integrity`` は WR-01 拡張で以下を追加検査する:
+      - 方向3: ``is_dead_heat=True`` なのに ``fukusho_payout_places <= 標準``
+        （slot4/5 未使用なのに dead_heat 扱い = flag と実際が矛盾）
+      - 方向4: ``is_dead_heat=False`` なのに ``fukusho_payout_places > 標準``
+        （slot4/5 使用なのに dead_heat 扱いでない = 逆方向の矛盾）
+
+    本テストは順序依存の mock cursor（call_index で戻り値を切り替え）で4クエリを区別し、
+    WR-01 矛盾検知の両方向と正常状態（0 件）の両方を検証する。
+
+    また detail に WR-01 関連の標準枠パラメータ（places_*_horses / min_final_starter_count）
+    が格納されることを検証する。
+    """
+    # _check_dead_heat_integrity は4クエリを順に発行する:
+    #   Q1: status='dead_heat' AND NOT is_dead_heat=true  (status_to_flag)
+    #   Q2: is_dead_heat=true AND label_validation_status != 'dead_heat'  (flag_to_status)
+    #   Q3: is_dead_heat=true AND ... fukusho_payout_places <= standard  (flag_no_slot_expansion / WR-01)
+    #   Q4: is_dead_heat=false AND ... fukusho_payout_places > standard  (slot_expansion_no_flag / WR-01)
+    # call_index で順に戻り値を切り替える mock cursor を構築。
+
+    # シナリオ (a): 方向3 (flag_no_slot_expansion) で 2 件矛盾検知
+    cur_a = _mock_cursor_call_index([(0,), (0,), (2,), (0,)])
+    r_a = _check_dead_heat_integrity(cur_a)
+    assert r_a.passed is False, "WR-01 方向3 矛矛盾 2件で passed=False のはず"
+    assert r_a.severity == "block"
+    assert r_a.detail["mismatch_count"] == 2
+    assert r_a.detail["flag_no_slot_expansion_mismatch"] == 2
+    assert r_a.detail["slot_expansion_no_flag_mismatch"] == 0
+    assert r_a.detail["status_to_flag_mismatch"] == 0
+    assert r_a.detail["flag_to_status_mismatch"] == 0
+
+    # シナリオ (b): 方向4 (slot_expansion_no_flag) で 3 件矛盾検知
+    cur_b = _mock_cursor_call_index([(0,), (0,), (0,), (3,)])
+    r_b = _check_dead_heat_integrity(cur_b)
+    assert r_b.passed is False, "WR-01 方向4 矛盾 3件で passed=False のはず"
+    assert r_b.severity == "block"
+    assert r_b.detail["mismatch_count"] == 3
+    assert r_b.detail["flag_no_slot_expansion_mismatch"] == 0
+    assert r_b.detail["slot_expansion_no_flag_mismatch"] == 3
+
+    # シナリオ (c): 全方向 0 件（正常状態）
+    cur_c = _mock_cursor_call_index([(0,), (0,), (0,), (0,)])
+    r_c = _check_dead_heat_integrity(cur_c)
+    assert r_c.passed is True
+    assert r_c.detail["mismatch_count"] == 0
+
+    # WR-01 標準枠パラメータが detail に格納されることを検証
+    assert "wr01_standard_basis" in r_c.detail
+    assert r_c.detail["wr01_standard_basis"] == "final_starter_count (syussotosu) based standard places"
+    assert "wr01_places_8_or_more_horses" in r_c.detail
+    assert "wr01_places_5_to_7_horses" in r_c.detail
+    assert "wr01_min_final_starter_count" in r_c.detail
+    # spec の places_*_horses / min_torokutosu_for_fukusho_sale と一致
+    assert r_c.detail["wr01_places_8_or_more_horses"] == 3
+    assert r_c.detail["wr01_places_5_to_7_horses"] == 2
+    assert r_c.detail["wr01_min_final_starter_count"] == 5
+
+
+def _mock_cursor_call_index(return_values: list[tuple]) -> MagicMock:
+    """実行順（fetchone 呼出順）で戻り値を切り替える mock cursor。
+
+    ``_mock_cursor`` は SQL 部分文字列マッチだが、WR-01 拡張で追加された
+    ``_check_dead_heat_integrity`` の4クエリは ``is_dead_heat = true`` 等の共通部分文字列を
+    持つため部分文字列マッチで区別できない。call_index で確実に順序区別する。
+    """
+    cur = MagicMock()
+    state = {"index": 0}
+
+    def _execute(sql: str, *args, **kwargs):  # noqa: ANN002
+        cur._last_sql = sql  # noqa: SLF001
+        return cur
+
+    cur.execute.side_effect = _execute
+
+    def _fetchone():
+        idx = state["index"]
+        state["index"] += 1
+        if idx < len(return_values):
+            return return_values[idx]
+        return (0,)
+
+    cur.fetchone.side_effect = _fetchone
+    return cur
+
+
 # ---------------------------------------------------------------------------
 # Test 6: REVIEWS HIGH #7 — scratch mislabeled（raw marker 再計算）
 # ---------------------------------------------------------------------------
