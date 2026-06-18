@@ -332,7 +332,13 @@ def _check_no_scratch_mislabeled(cur: Cursor) -> CheckResult:
         sample_size = 0
     else:
         # recomputed_is_scratch=True かつ fukusho_hit_validated=1 の行が違反
-        viol_df = df[(df["recomputed_is_scratch"] == True) & (df["fukusho_hit_validated"] == 1)]  # noqa: E712
+        # WR-02: fukusho_hit_validated は smallint（NOT NULL 明記無し）のため、万が一
+        # NULL が混入しても ``NULL == 1`` が False 扱いで違反見逃しになるのを防ぐため
+        # fillna(0).astype(int) == 1 で NULL-safe に比較する。
+        viol_df = df[
+            (df["recomputed_is_scratch"] == True)  # noqa: E712
+            & (df["fukusho_hit_validated"].fillna(0).astype(int) == 1)
+        ]
         violations = int(len(viol_df))
         sample_size = int(len(df))
 
