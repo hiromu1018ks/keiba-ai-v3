@@ -203,6 +203,11 @@ def _select_se_state(read_cur: Cursor) -> pd.DataFrame:
     public 側に複数 DataKubun 行が存在する場合でも PK+datakubun で厳密 1:1 となり SE 行の
     増殖を構造的に防止する。merge 前後で ``len(se_df) == len(merged_df)`` を assert し、
     不一致時は ``RuntimeError`` で fail-fast する（D-13 silent fallback 禁止）。
+
+    **WR-10**: ``how="inner"`` で両側の行完全一致を強制する。``how="left"`` では
+    timediff_df 側の余剰行・欠損行（PK 不一致・フィルタ退化）が silent に進み、
+    ``timediff`` が NaN になることで競走中止馬が正常馬に誤分類される silent leak 源に
+    なった。inner merge + merge 後 ``timediff`` の全行非 NaN assert で構造的に防止する。
     """
     cols = ", ".join(_SE_SELECT_COLUMNS)
     sql = (
@@ -238,13 +243,25 @@ def _select_se_state(read_cur: Cursor) -> pd.DataFrame:
     # （HIGH #2: public 側に複数 DataKubun 行が存在しても PK+datakubun で 1:1）。
     merge_keys = ["year", "jyocd", "kaiji", "nichiji", "racenum", "umaban", "kettonum", "datakubun"]
     pre_len = len(se_df)
-    merged = se_df.merge(timediff_df, on=merge_keys, how="left")
-    # row-multiplication 防止 assertion（NEW HIGH #2）・不一致は RuntimeError で fail-fast。
+    # WR-10: how="inner" で両側一致を強制する。how="left" では:
+    #   (a) timediff_df 側に SE 側と一致しない余剰行があっても silent に捨てられ検知不能
+    #   (b) timediff_df 側が欠損（行が少ない）と timediff 列が NaN になり silent に進む
+    #       → 競走中止馬が正常馬に誤分類される silent leak 源（D-13）
+    # inner merge で両側一致を強制し、行数不一致・timediff NaN を即時 RuntimeError で fail-fast。
+    merged = se_df.merge(timediff_df, on=merge_keys, how="inner")
+    # 行数増殖（duplicate rows）または欠損（余剰行 dropped）の検知・不一致は fail-fast。
     if len(merged) != pre_len:
         raise RuntimeError(
-            f"_select_se_state: timediff merge で行数が増殖しました "
-            f"(pre={pre_len}, post={len(merged)})。merge キーに datakubun を含めて "
-            f"1:1 merge になっているか確認してください（NEW HIGH #2・D-13）"
+            f"_select_se_state: timediff merge で行数が不一致 "
+            f"(se={pre_len}, merged={len(merged)})。timediff_df 側に SE 側と "
+            f"一致しない行が存在する可能性（WR-10・D-13）"
+        )
+    # left merge では検知できなかった timediff NaN（timediff_df 側の欠損行）も検知。
+    # inner merge 後であれば timediff は全行非 NaN であることを assert する。
+    if merged["timediff"].isna().any():
+        raise RuntimeError(
+            f"_select_se_state: merge 後の timediff に NaN が "
+            f"{int(merged['timediff'].isna().sum())} 件存在（WR-10）"
         )
     return merged
 

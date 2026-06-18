@@ -1159,3 +1159,40 @@ def test_select_se_state_both_selects_share_filter_assertion() -> None:
         "WR-05: _select_se_state が両 SELECT のフィルタ一致を直接 assert していない。"
         f"マッチしたパターン: {matched}"
     )
+
+
+def test_select_se_state_uses_inner_merge_with_timediff_nan_guard() -> None:
+    """WR-10 regression: _select_se_state の timediff merge が how="inner" で
+    両側一致を強制し、merge 後 timediff NaN guard で silent leak を防止する。
+
+    how="left" では:
+      (a) timediff_df 側の余剰行が silent に捨てられ検知不能
+      (b) timediff_df 側の欠損行で timediff が NaN になり silent に進む
+          → 競走中止馬が正常馬に誤分類される silent leak 源（D-13）
+
+    inner merge + timediff NaN guard で構造的に防止する。本テストは実行時挙動
+    （DB 必須）ではなくコード契約の regression として検証する。
+    """
+    mod = _get_fukusho_label_module()
+    src = inspect.getsource(mod._select_se_state)
+
+    # (a) how="inner" を使用（how="left" を明示的に禁止）
+    # merge(..., how="inner") のパターンを検出・how="left" が残っていないことを確認
+    assert re.search(r'\.merge\([^)]*how\s*=\s*["\']inner["\']', src), (
+        'WR-10: _select_se_state の timediff merge が how="inner" を使用していない（silent leak 源）'
+    )
+    assert not re.search(r'\.merge\([^)]*how\s*=\s*["\']left["\']', src), (
+        'WR-10: _select_se_state に how="left" merge が残存している（WR-10 違反）'
+    )
+
+    # (b) merge 後の行数不一致検知（inner merge でも se 側と merged 側で行数が
+    # 異なる場合 = 余剰行 or 欠損行 がある場合に RuntimeError で fail-fast）
+    assert re.search(r'len\(merged\)\s*!=\s*pre_len', src) or re.search(
+        r'len\(merged\)\s*!=\s*len\(se_df\)', src
+    ), "WR-10: merge 後の行数不一致検知 (RuntimeError) が存在しない"
+
+    # (c) merge 後 timediff NaN guard（inner merge 後でも timediff が全行非 NaN
+    # であることを assert・NaN があれば RuntimeError で fail-fast）
+    assert re.search(r'timediff["\']?\]\.isna\(\)\.any\(\)', src) or re.search(
+        r'timediff["\']?\]\.isna\(\)\.sum\(\)', src
+    ), "WR-10: merge 後 timediff NaN guard (RuntimeError) が存在しない"
