@@ -1,7 +1,9 @@
 ---
 phase: 2
 reviewers: [codex]
-reviewed_at: 2026-06-18T00:00:00Z
+reviewed_at: 2026-06-18T02:24:39Z
+cycle: 2
+prior_cycle_commit: 8800fdc
 plans_reviewed:
   - 02-01-PLAN.md
   - 02-02-PLAN.md
@@ -9,117 +11,106 @@ plans_reviewed:
   - 02-04-PLAN.md
 ---
 
-# Cross-AI Plan Review — Phase 2: Fukusho Labels
+# Cross-AI Plan Review — Phase 2: Fukusho Labels (Cycle 2 — Re-review of REVISED plans)
 
-> Reviewer selection: `--codex` requested. Claude CLI skipped (review running inside Claude Code → `SELF_CLI=claude`). Gemini / Qwen / Cursor / Antigravity CLIs not installed; OpenCode available but not requested. Single external reviewer: **Codex**.
+> **Reviewer selection:** `--codex` requested. Claude CLI skipped (review running inside Claude Code → `SELF_CLI=claude`). Gemini / Qwen / Cursor / Antigravity CLIs not installed. Single external reviewer: **Codex**.
 >
-> This is the first cross-AI review cycle for Phase 2. No prior REVIEWS.md existed (`has_reviews: false`).
+> **This is cycle 2 of a plan-convergence loop.** Cycle 1 raised 7 HIGH concerns on the original Phase 2 plans. The plans were then REPLANNED in reviews-mode to resolve those 7 HIGHs and committed as `8800fdc` ("docs(02): replan phase 2 with cross-AI review feedback (7 HIGH resolved)"). This cycle re-reviews the **current (revised)** PLAN.md files to determine how many HIGH concerns remain unresolved.
+>
+> **Convergence result:** All 7 cycle-1 HIGHs are **FULLY RESOLVED** by the revised plans. However, Codex raised **3 NEW HIGH concerns** introduced by the revisions. Net HIGHs remaining: **3**.
+>
+> **CYCLE_SUMMARY: current_high=3**
 
-## Codex Review
+---
 
-**Summary**
+## Codex Review (Cycle 2)
 
-The plans are strong on intent and generally aligned with the Phase 2 "sacred surface" requirements: two-layer labels, payout-table priority, `TorokuTosu` over `SyussoTosu`, D-13 explicit isolation, raw immutability, and a reconciliation gate are all explicitly planned. However, several details are brittle enough to matter for a leakage-critical label surface. The biggest risks are inconsistent status semantics around `inferred`, fragile marker representations such as `harontimel3 == '999.0'`, staging-swap privilege/idempotency issues, and a reconciliation test design that can become tautological if it compares labels derived from HR back to HR without independently checking the ETL joins and exclusion flags. Overall the plan is promising but not yet low-risk.
+### Cycle-1 HIGH Verdicts (1-7)
 
-**Strengths**
+For each of the 7 cycle-1 HIGHs, Codex judged the revised plan against a FULLY/PARTIALLY/UNRESOLVED bar.
 
-- The 3-wave dependency structure is sound: config/GRANT foundation → RED unit tests → ETL → reconciliation gate.
-- Pitfall 3 is correctly addressed: `fukusho_payout_places` uses `TorokuTosu`, not `SyussoTosu`, with an explicit regression test in Plan 02.
-- Pitfall 1 is repeatedly called out with real names: `bataijyu`, `harontimel3`, `timediff`, `payfukusyounmaban1..5`.
-- Plan 02 has good synthetic coverage for LABEL-04: dead heat, scratch/cancel, individual dead-loss, race cancelled, no-sale, and `tokubaraiflag2`.
-- D-13 is mostly respected: unresolved/special branches are explicit rather than silently falling through.
-- Plan 03 includes raw fingerprint checks and a dedicated raw immutability test, which is appropriate for D-06.
-- Plan 04 correctly chooses race-level payout-set equality rather than row-level accuracy alone.
-- `tokubaraiflag2` is handled even though live count is zero, which is the right future-proofing posture.
+1. **HIGH #1 (`inferred` status semantics conflation) — FULLY RESOLVED.**
+   Plan 01 explicitly separates `label_validation_status='inferred'` from `sales_start_entry_count.source_confidence='inferred'` as independent YAML keys, and Plan 03 requires separate table columns `sales_start_entry_count_source` and `sales_start_entry_count_confidence`. Plan 02 adds `test_sales_start_entry_count_proxy_and_source_confidence_separated_from_status`, asserting `label_validation_status == 'validated'` while `sales_start_entry_count_confidence == 'inferred'` on the same row. Carry-over: no.
 
-**Concerns**
+2. **HIGH #2 (reconciliation may be tautological) — FULLY RESOLVED** *(but see NEW HIGH #1 below for a SQL-level gap in the implementation of these checks)*.
+   Plan 04 adds the required independent checks: `_check_raw_validated_drift` for raw-vs-validated drift, `_compute_race_level_agreement` for race-set reconstruction from label rows, and SQL-side payout-set reconstruction inside `_check_payout_precision` / `_check_payout_recall`. The original tautology concern is addressed at the plan-contract level. Carry-over: no.
 
-- **HIGH — Plan 02/03 status semantics conflict for `sales_start_entry_count`.** Plan 01 says `sales_start_entry_count.proxy_status: "inferred"`, but Plan 03 status logic says HR `DataKubun='2'` rows become `validated`. Plan 02's `test_sales_start_entry_count_proxy` even notes this ambiguity. This conflates "sales_start count source inferred" with `label_validation_status`. Keep these as separate concepts or downstream filtering may misinterpret `inferred`.
+3. **HIGH #3 (staging-swap privilege/idempotency + `GRANT ... TO PUBLIC`) — FULLY RESOLVED** *(but see NEW HIGH #2/MEDIUM note for a stale-staging edge case)*.
+   Plan 01 removes `PUBLIC` grants and introduces explicit `{reader}` grants for the `label` schema. Plan 03 requires `CREATE TABLE ... (LIKE label.fukusho_label INCLUDING ALL)`, post-rename `GRANT SELECT ... TO {reader_role}`, no `TO PUBLIC`, and two-run rowcount/checksum idempotency verification via `scripts/run_label_etl.py` and `test_label_etl_idempotent`. Carry-over: no.
 
-- **HIGH — Reconciliation may be tautological.** Plan 03 derives `fukusho_hit_validated` directly from `PayFukusyoUmaban1..5`; Plan 04 then checks it against the same HR fields. That catches ETL bugs, but it does not independently validate the label against finishing order, scratch/dead-loss classification, or sales-start boundary except via auxiliary checks. The >99.9% gate should explicitly include raw-vs-validated drift classification and independent race-set reconstruction from label rows.
+4. **HIGH #4 (race-cancelled `DataKubun='9'` rows dropped by `_select_se_state`) — FULLY RESOLVED.**
+   Plan 01 codifies `se_datakubun_inclusion.required_se_datakubun_values: ["7", "9"]`; Plan 02 adds `test_select_se_state_includes_datakubun_9`; Plan 03 requires the `_select_se_state` SQL to contain `datakubun IN ('7', '9')`. This directly proves race-cancelled SE rows are not silently filtered out. Carry-over: no.
 
-- **HIGH — Staging swap can drop grants/indexes/comments.** Plan 03's `DROP TABLE label.fukusho_label` then rename staging may lose grants/default privileges depending on ownership/default privilege state. The plan adds `GRANT SELECT ON label.fukusho_label TO PUBLIC`, which is both too broad and inconsistent with reader-role-only access. This threatens D-06/least privilege and idempotent correctness.
+5. **HIGH #5 (brittle marker string/float comparisons) — FULLY RESOLVED** *(but see NEW HIGH #3 below for a null-canonicalization gap in the same code path)*.
+   Plan 01 defines `se_marker_canonicalization` sentinel sets covering both string and numeric forms. Plan 02 tests raw-string and numeric-cast forms (`test_canonicalize_markers_raw_string_form` / `test_canonicalize_markers_numeric_cast_form`) asserting identical results. Plan 03 implements `_canonicalize_markers` using sentinel-set membership rather than single string/float equality. Carry-over: no.
 
-- **HIGH — Race cancellation handling is underspecified in ETL joins.** Plan 03 primarily selects `normalized.n_uma_race`, while race-cancelled rows may have `DataKubun='9'` and not `DataKubun='7'`. If normalized ETL filtered to confirmed SE only, race-cancelled rows can be lost before label generation. The plan must prove `_select_se_state` includes both `DataKubun='7'` and `DataKubun='9'`.
+6. **HIGH #6 (reconciliation Check #5 too broad) — FULLY RESOLVED.**
+   Plan 04 rewrites `_check_dead_loss_not_excluded` to fail only rows where `is_dead_loss=true AND is_model_eligible=false AND (ineligibility_reason IS NULL OR ineligibility_reason NOT IN (...legitimate reasons...))`. The legitimate-reason list matches Plan 03's `compute_is_model_eligible` outputs (`obstacle`, `newcomer`, `no_fukusho_sale`, `unresolved`, `race_or_horse_cancelled`, `class_below_minimum`, `status_not_eligible`). Dead-loss in an otherwise-legitimately-ineligible race no longer raises a false alarm. Carry-over: no.
 
-- **HIGH — `dead_loss` marker uses fragile string/float comparisons.** Plans use examples like `harontimel3 == '999.0'`, `time='9990.0'`, `time NOT IN ('0.0','','9999')`. If source columns are strings in raw and normalized has numeric conversions, equality may fail silently. Normalize marker columns to canonical strings or numeric sentinels before classification and test both raw-style and normalized-style representations.
+7. **HIGH #7 (scratch check misses payout-set contamination via label booleans) — FULLY RESOLVED.**
+   Plan 04 requires `_check_no_scratch_mislabeled` to call `_recompute_scratch_markers`, which recomputes scratch from raw SE `bataijyu` using `label_spec.yaml` sentinels and explicitly does NOT use `label.is_scratch_cancel`. Tests include the failure mode where `label.is_scratch_cancel=False` but raw `bataijyu='000'` (`test_check_no_scratch_mislabeled_raw_marker`), plus an `inspect.getsource` regression assert (`test_recompute_scratch_markers_uses_sentinel`). Carry-over: no.
 
-- **HIGH — Reconciliation Check #5 may incorrectly require every dead-loss horse to be model-eligible.** §10.6 says individual 競走中止 should not be excluded because of dead-loss itself. But a dead-loss horse in an obstacle race, newcomer race, no-sale race, or unresolved race should still be `is_model_eligible=False` for other reasons. Plan 04's `_check_dead_loss_not_excluded`: `is_dead_loss=True AND is_model_eligible=False` is too broad. It must check "excluded solely due to dead_loss" or constrain to otherwise eligible races.
+**Cycle-1 outcome: 7/7 FULLY RESOLVED → 0 carry-over HIGHs.**
 
-- **HIGH — Scratch/cancel check may miss payout-set contamination.** Plan 04 checks `is_scratch_cancel=True AND fukusho_hit_validated=1`, but if scratch classification fails, the horse may not be flagged. A stronger check joins SE marker conditions directly, not just label booleans.
+### New HIGH Concerns (cycle 2)
 
-- **MEDIUM — Plan 02 claims 18 tests but later defines 20+.** This is not a functional bug, but acceptance criteria and Plan 03 verify regexes mention `18 passed|19 passed`, while Plan 02 adds 20 tests including `tokubaraiflag2`. This can make the implementation "pass" with missing tests.
+These are NEW HIGHs raised on the revised plans. Each represents either a latent bug in newly-added code paths or a cross-plan contract mismatch the revisions introduced.
 
-- **MEDIUM — `dochachutosu == '1'` dead-heat detection is suspicious.** Research says slot4/5 usage and payout_count > theoretical places are reliable. Depending on EveryDB2 semantics, `DochacoTosu=1` may not mean "there is a dead heat"; it may be a count field or per-order count. Payout-table expansion should be authoritative.
+- **NEW HIGH #1 (newly raised, cycle 2) — `_check_payout_precision` / `_check_payout_recall` SQL is unsafe: `NOT IN` with NULLs + unpadded `umaban`.** [Plan 04]
+  Plan 04's `_check_payout_precision` SQL sketch uses `l.umaban::varchar NOT IN (NULLIF(hr.payfukusyounmaban1, '00'), NULLIF(hr.payfukusyounmaban2, '00'), ...)`. Two compounding defects:
+  (a) **`NOT IN` with NULLs** — if any payout slot is NULL/empty after `NULLIF`, SQL three-valued logic makes `NOT IN` evaluate to UNKNOWN, which can silently fail to flag extra positives. This undermines the most important reconciliation gate (LABEL-03 / SC#2).
+  (b) **`umaban` padding mismatch** — `l.umaban` is an integer in `label.fukusho_label`, so `1::varchar = '1'`, while HR `payfukusyounmaban1` is zero-padded (`'01'`). The string comparison will produce false mismatches (or mask real ones) depending on how the query is structured.
+  **Required fix:** use `LPAD(l.umaban::text, 2, '0')` on the label side and a `NOT EXISTS` over an unnested, NULL-filtered payout set (or equivalent `EXCEPT`-based set comparison) rather than `NOT IN`. This must be added as a concrete acceptance criterion + test in Plan 04 before the cycle can converge.
 
-- **MEDIUM — `tokubaraiflag2` branch is reasonable but underconstrained.** Plan 03 validates if payout exists, unresolved if payout set empty. It should also assert `FuseirituFlag2 != '1'` precedence and distinguish `PayFukusyoUmaban='00'` from empty slots. Plan currently says fuseiritu branch comes first, which is good, but tests should lock this precedence.
+- **NEW HIGH #2 (newly raised, cycle 2) — `_select_se_state` `timediff` merge can multiply SE rows (one-to-many).** [Plan 03]
+  Plan 03's `_select_se_state` selects `normalized.n_uma_race WHERE datakubun IN ('7','9')`, then **separately** selects `public.n_uma_race.timediff` with **no `datakubun` filter** and merges on horse/race PK `(year, jyocd, kaiji, nichiji, racenum, umaban, kettonum)` — which does NOT include `datakubun`. The CONTEXT/RESEARCH states SE can have multiple `DataKubun` records per horse. If `public.n_uma_race` carries multiple rows per horse (different `datakubun`), the merge becomes one-to-many, duplicating label rows and corrupting marker assignment downstream (and thus the `is_dead_loss` / `is_scratch_cancel` classifications that depend on `timediff`/`time`).
+  Plan 03 explicitly chose "public 側の全 DataKubun 行から timediff を拾える方が安全" but did not specify a de-duplication/priority rule. This is ambiguous and unverifiable from the plan text.
+  **Required fix:** either filter `public.n_uma_race.timediff` to `datakubun IN ('7','9')` and join on `datakubun` too, or specify an explicit priority rule (e.g., prefer `datakubun='7'`, fall back to max `datakubun`) and add a unit test asserting no row multiplication.
 
-- **MEDIUM — Plan 04 says all §10.5 six checks are BLOCK, but D-02 originally allows quantitative drift as INFO.** The six structural checks being BLOCK is defensible. But "agreement <99.9%" must itself be BLOCK, not just metadata under `agreement`. The plan does not clearly say the verdict fails when agreement is below threshold.
+- **NEW HIGH #3 (newly raised, cycle 2) — `_canonicalize_markers` treats null/missing `time` as "present", mislabeling as `is_dead_loss`.** [Plan 03]
+  Plan 03's `_canonicalize_markers` normalizes each marker column via `str(v).strip()` and computes `time_present = canonicalized_time not in time_sentinels_absent AND canonicalized_time != ''` where `time_sentinels_absent: ["0", "0.0", "", "9999", "9999.0"]`. For a missing `time` (`NaN`, `pd.NA`, `None`), `str()` yields `'nan'`, `'<NA>'`, or `'None'` — none of which are in the sentinel set. Such a row is therefore classified as `time_present=True`, and combined with `marker_active=True` becomes `is_dead_loss=True` (競走中止), when the correct classification for a missing/unknown time is almost certainly `is_race_excluded` or unresolved. This is label-critical: dead-loss horses are kept in training as `fukusho_hit=0` (§10.6), so a false `is_dead_loss` directly corrupts the training target.
+  Note Plan 02's `test_canonicalize_markers_*` tests cover raw-string and numeric-cast forms but NOT the null/missing form, so the bug would slip through the current RED→GREEN cycle.
+  **Required fix:** add explicit `pd.isna(v)` handling before string conversion (treat missing as absent/excluded, not present), and add a `test_canonicalize_markers_missing_time` test covering `None`/`NaN`/`pd.NA`.
 
-- **MEDIUM — Held-out design is more complex than useful for deterministic labels.** Time-series holdout + stratification is not harmful, but for label reconciliation this is not model evaluation. The real risk is implementation correctness, not overfitting to a split. Full-dataset reconciliation should be the primary gate; held-out should be a secondary smoke check.
+### MEDIUM/LOW Notes
 
-- **MEDIUM — `class_level_numeric_minimum: 1` may exclude 未勝利 despite project text saying "2歳未勝利以上".** The context is internally ambiguous: §7.2 includes 2歳未勝利以上, but Plan 01 says minimum 1 means 1勝クラス. This could accidentally exclude intended maiden races. Needs requirement confirmation against `docs/keiba_ai_requirements_v1.3.md §7.2`.
+- **MEDIUM — `test_dochachukubun_dead_heat_detection` wording is internally inconsistent** [Plan 02]. The test text says `dochachutosu='1'` should make `dead_heat`, then immediately says payout slot4/5 is authoritative and `DochacoTosu` alone should not trigger it. The latter is correct (matches Plan 01's `dead_heat_rules.detection`); tighten the test wording so the implementation does not accidentally gate on `dochachutosu`.
+- **MEDIUM — stale staging table can bypass `INCLUDING ALL` repair** [Plan 03]. `CREATE TABLE IF NOT EXISTS label.fukusho_label_staging (LIKE ... INCLUDING ALL)` will not repair a pre-existing staging table left over from an older implementation with different columns/indexes. Prefer `DROP TABLE IF EXISTS label.fukusho_label_staging` before creating staging, or assert staging indexes/constraints match the target before use. This is adjacent to the (resolved) HIGH #3 idempotency work.
+- **MEDIUM — `_recompute_scratch_markers` reads `normalized.n_uma_race.bataijyu`, not raw** [Plan 04]. The docstring/plan text says "raw SE marker" but the SQL targets `normalized.n_uma_race`. This is acceptable only if normalized preserves `bataijyu` byte-for-byte enough for sentinel checks (no trimming/case-folding). Otherwise it should read `public.n_uma_race.bataijyu`. Pin the source explicitly and add an assertion that normalized `bataijyu` is identical to raw for the sentinel values.
 
-- **MEDIUM — `GRANT ... TO PUBLIC` in Plan 03 conflicts with Plan 01 reader role design.** This is unnecessary privilege expansion. Use `keiba_readonly` or rely on default privileges, not PUBLIC.
+### Summary and Tally
 
-- **MEDIUM — `settings.py` adds `db_schema_label`, but Plan 03 hard-codes `label` in many SQL statements.** That weakens configurability and can diverge from settings. Either use settings consistently or explicitly declare label schema non-configurable.
+The revisions materially address **all 7 cycle-1 HIGH concerns** (7/7 FULLY RESOLVED, 0 carry-over). However, the revised plans introduce **3 NEW HIGH concerns** that can independently break reconciliation (NEW HIGH #1) or label classification (NEW HIGH #2, #3):
 
-- **LOW — `label_spec.yaml` includes observed counts as config.** Expected counts like 956/3554/97 are useful documentation but risky as config. Future DB updates will invalidate them. Keep as comments or monitoring baselines, not behavioral config.
+- NEW HIGH #1 — unsafe payout precision/recall SQL (`NOT IN` NULLs + `umaban` padding) → can miss reconciliation violations.
+- NEW HIGH #2 — `timediff` merge row multiplication → can duplicate labels and corrupt marker assignment.
+- NEW HIGH #3 — null/missing `time` misclassified as present → false `is_dead_loss` → corrupted training target.
 
-- **LOW — `scripts/apply_schema.sql` synchronization is ambiguous.** Plan 01 says dry-run then manually sync or maybe source-of-truth is `schema.py`. Pick one. Ambiguity invites stale SQL artifacts.
+**Final tally (PARTIALLY/UNRESOLVED cycle-1 HIGHs + newly-raised cycle-2 HIGHs): 3 HIGH concerns remain.**
 
-**Suggestions**
-
-- Split `label_validation_status` from `sales_start_entry_count_source_status`. Example: `label_validation_status='validated'`, `sales_start_entry_count_source='torokutosu_proxy'`, `sales_start_entry_count_confidence='inferred'`.
-
-- Make the reconciliation verdict fail if `agreement_pct < 99.9`, and run agreement on the full dataset as the primary gate. Keep latest-10% stratified holdout as an additional report.
-
-- Replace Plan 04 Check #5 with: dead-loss horses in otherwise model-eligible races must remain eligible and have `fukusho_hit_validated=0`; dead-loss in ineligible race classes may be excluded for the other reason.
-
-- In reconciliation checks, recompute scratch/dead-loss/race-cancelled markers from raw SE/HR columns, not only from label table boolean flags.
-
-- Avoid `GRANT SELECT ... TO PUBLIC`; grant to the reader role explicitly after staging rename.
-
-- Strengthen idempotent staging swap: preserve indexes, primary key, owner, grants, and comments; verify two consecutive ETL runs produce identical row counts and a deterministic label-table checksum.
-
-- Normalize marker fields before classification: canonicalize `bataijyu`, `harontimel3`, `timediff`, `time`, and `datakubun` into strings or numeric sentinels once, then classify from those canonical fields.
-
-- Add tests for mixed reasons: dead-loss in obstacle/newcomer/no-sale races, scratch in no-sale race, race-cancelled with HR missing, and `tokubaraiflag2=1` plus `fuseirituflag2=1`.
-
-- Confirm §7.2 class eligibility before implementing `class_level_numeric_minimum=1`; the "2歳未勝利以上" language may require allowing `class_level_numeric=0` for 未勝利.
-
-- Treat observed-count baselines as INFO checks, not config behavior. Example: report `scratch_count`, `dead_loss_count`, `race_cancelled_count`, but do not assert exact counts except in research snapshots.
-
-**Risk Assessment**
-
-Overall risk: **MEDIUM**.
-
-The architecture is directionally correct and covers the major domain pitfalls, especially `TorokuTosu`, payout-table priority, dead heat, and D-13. The remaining risks are not scope creep; they are correctness risks on the sacred label surface. The highest-risk areas are semantic ambiguity around `inferred`, tautological reconciliation, brittle marker normalization, and staging-swap grants. Fixing those before implementation would likely reduce the phase to LOW/MEDIUM risk.
+Convergence is NOT yet reached. Another replan cycle is needed to close NEW HIGH #1/#2/#3 (the three are all in Plan 03/04 and are concrete, mechanical fixes: SQL set-comparison, merge-key/priority rule, and `pd.isna` guard + test).
 
 ---
 
 ## Consensus Summary
 
-> Single-reviewer cycle (Codex only). The "consensus" below is Codex's findings, prioritized for the convergence loop. No divergent views exist (only one reviewer).
+> Single-reviewer cycle (Codex only). No divergent views. The summary below is Codex's cycle-2 findings structured for the convergence loop.
 
-### Agreed Strengths
-- 3-wave dependency structure is sound (config/GRANT → RED tests → ETL → reconcile).
-- Pitfall 1 (real column names) and Pitfall 3 (`TorokuTosu` not `SyussoTosu`) correctly handled with regression tests.
-- Strong LABEL-04 synthetic coverage (dead heat / scratch / dead-loss / race-cancelled / no-sale / `tokubaraiflag2`).
-- D-13 explicit-isolation posture and raw-immutability (D-06) tests are present.
-- Reconciliation uses race-level payout-set equality (correct over row-level accuracy).
+### Agreed Strengths (carried forward from cycle 1, now verified in revisions)
+- 3-wave dependency structure remains sound (config/GRANT → RED tests → ETL → reconcile).
+- All 7 cycle-1 HIGHs have concrete, verifiable fixes in the revised plans (separate columns/keys, independent drift check, INCLUDING ALL + reader-role GRANT + idempotent checksum, `datakubun IN ('7','9')`, sentinel-set canonicalization, dead_loss_only constraint, raw-marker scratch recomputation).
+- Cross-plan contract for the legitimate-ineligibility-reason list (HIGH #6) is consistent between Plan 03 (`compute_is_model_eligible`) and Plan 04 (`_check_dead_loss_not_excluded`).
+- Sentinel-set approach (HIGH #5) is consistently referenced across Plan 01 (config), Plan 02 (tests), Plan 03 (`_canonicalize_markers`), and Plan 04 (`_recompute_scratch_markers`).
 
-### Agreed Concerns (HIGH priority — must resolve before GREEN implementation)
-1. **`inferred` status semantics conflation** between `label_validation_status` and `sales_start_entry_count` source. Separate the two concepts. (Plan 01/02/03)
-2. **Reconciliation is at risk of being tautological** — `fukusho_hit_validated` is derived from `PayFukusyoUmaban`, then reconciled back to the same field. Must add independent cross-checks (raw-vs-validated drift, marker reconstruction from raw, race-set reconstruction from label rows). (Plan 04)
-3. **Staging-swap `GRANT SELECT ... TO PUBLIC`** is over-broad and inconsistent with reader-role least privilege; risks losing indexes/grants/comments on DROP+RENAME. (Plan 03)
-4. **Race-cancelled rows (`DataKubun='9'`) may be silently dropped** by `normalized.n_uma_race` if the normalized ETL filtered to confirmed SE only. Prove `_select_se_state` includes them. (Plan 03)
-5. **`dead_loss` / scratch / race-cancelled marker comparisons are brittle** (string `'999.0'` vs numeric, `time NOT IN ('0.0','','9999')`). Canonicalize markers before classification. (Plan 02/03)
-6. **Reconciliation Check #5 (`is_dead_loss=True AND is_model_eligible=False`) is too broad** — dead-loss in obstacle/newcomer/no-sale races is legitimately ineligible for other reasons. Restrict to "excluded solely due to dead_loss". (Plan 04)
-7. **Scratch check relies on label booleans, not raw markers** — if scratch classification fails, contamination goes undetected. Recompute from raw SE/HR. (Plan 04)
+### Agreed Concerns (HIGH priority — must resolve before convergence)
+1. **NEW HIGH #1** — `_check_payout_precision` / `_check_payout_recall` SQL uses `NOT IN` with NULLs + unpadded `umaban` (Plan 04). Replace with `LPAD` + `NOT EXISTS`/`EXCEPT` set comparison. (newly raised, cycle 2)
+2. **NEW HIGH #2** — `_select_se_state` `timediff` merge from `public.n_uma_race` (no `datakubun` filter) can multiply SE rows (Plan 03). Filter on `datakubun IN ('7','9')` + join on `datakubun`, or specify a priority rule + no-row-multiplication test. (newly raised, cycle 2)
+3. **NEW HIGH #3** — `_canonicalize_markers` misclassifies null/missing `time` as present → false `is_dead_loss` (Plan 03). Add `pd.isna` guard + `test_canonicalize_markers_missing_time`. (newly raised, cycle 2)
 
 ### Divergent Views
 None (single reviewer).
 
-### Open Question for Planner
-- Confirm `class_level_numeric_minimum=1` against `docs/keiba_ai_requirements_v1.3.md §7.2` — "2歳未勝利以上" may require allowing `class_level_numeric=0` (未勝利), which would change D-03 eligibility. (Plan 01 / MEDIUM)
+### Open Questions for the Next Replan Cycle
+- Pin the exact SQL for payout-set comparison (Plan 04) — is `EXCEPT`-based set equality preferred over `NOT EXISTS` for the race-level agreement helper too?
+- Pin the `timediff` source (Plan 03): filter `public.n_uma_race` to `datakubun IN ('7','9')` and join on `datakubun`, or pull `timediff` from `normalized.n_uma_race` instead (requires Phase 1 `normalize.py` to start selecting `timediff`)?
+- Confirm normalized `bataijyu` (Plan 04 `_recompute_scratch_markers` source) is byte-identical to raw for sentinel values, or switch to `public.n_uma_race`.
