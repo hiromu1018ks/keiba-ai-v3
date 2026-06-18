@@ -1,46 +1,361 @@
-# Keiba AI v3 — feature_availability registry（§13.3・D-15）
+# Keiba AI v3 — feature_availability registry（§13.3 / §13.5・Phase 3 Plan 03-01）
 #
-# Phase 1 では「枠＋項目定義」のみ。実エントリと allowlist test は Phase 3 で追加。
-# feature_schema: に §13.3 の6項目スキーマを定義し、Phase 3 で各 feature 行が従う contract
-# を示す。features: [] は空（registry bootstrap）。
+# Phase 3 で枠（features: []）から §13.5 全 feature エントリに拡充。
+# schema_version 0.1.0 → 0.2.0（Phase 3 で初めて features を埋めた印・§19.1 再現性）。
+# 各 feature エントリは7項目スキーマ（feature_name / feature_group / available_from_timing /
+# source_role / source_table / cutoff_rule / leakage_risk_level）を持つ。
+#
+# REVIEWS HIGH #2: cutoff_semantics ブロックで strict_less_than / JST midnight を仕様化。
+# REVIEWS HIGH #4: source_role フィールドで target_obs_banned / history_allowed_post_race /
+#                  both_allowed を区別。sibababacd/dirtbabacd は target_obs_banned で
+#                  registry 未登録・babacd（過去走 source）は history_allowed_post_race。
+# D-07: available_from_timing は {entry_confirmed, post_position_confirmed} のみ許可。
 
-schema_version: "0.1.0"
+schema_version: "0.2.0"
 
 # ---------------------------------------------------------------------------
-# §13.3 項目スキーマ。各 feature エントリは以下6キーを全て持つ。
+# REVIEWS HIGH #2: cutoff semantics の仕様化（厳密 `<`・JST midnight 解釈）
+# PIT filter の単一不変量: history.as_of_datetime < observation.feature_cutoff_datetime
+# ---------------------------------------------------------------------------
+cutoff_semantics:
+  comparison_operator: "strict_less_than"
+  timezone: "Asia/Tokyo"
+  cutoff_definition: "feature_cutoff_datetime = pd.to_datetime(race_date) - pd.Timedelta(days=1) (JST midnight)"
+  boundary_rule: "race row is included in history IFF race.as_of_datetime < feature_cutoff_datetime (strict <); a race on the same calendar date as feature_cutoff_datetime IS excluded"
+  documented_in: "Parquet §12.4 metadata field feature_cutoff_rule"
+
+# ---------------------------------------------------------------------------
+# §13.3 項目スキーマ（7項目・Phase 3 で source_role を追加・HIGH #4）
 # ---------------------------------------------------------------------------
 feature_schema:
   feature_name:
     type: "string"
-    description: "feature 識別子（例: jockey_win_rate_1y）"
+    description: "feature 識別子（例: rolling_timediff_mean_5）"
   feature_group:
     type: "string"
-    description: "feature 分類（jockey / horse / trainer / race_context 等）"
+    description: "feature 分類（horse_static / jockey / trainer / bloodline / race_context / post_position / rolling_* / running_style）"
   available_from_timing:
     type: "string"
-    description: "1A（出馬表確定後）/ 1B（直前）/ post-race 等。feature_cutoff_rule と対応"
+    description: "Phase 1-A allowlist: {entry_confirmed, post_position_confirmed} のみ許可（D-07）"
+  source_role:
+    type: "string"
+    description: "target_obs_banned / history_allowed_post_race / both_allowed（HIGH #4 taxonomy）"
   source_table:
     type: "string"
-    description: "正規化済み source（例: normalized.n_uma_race）。raw は直接参照しない"
+    description: "正規化済み source（例: normalized.n_uma_race）。raw は readonly SELECT のみ"
   cutoff_rule:
     type: "string"
-    description: "race_date - 1 day 等。feature_cutoff_datetime の導出規則（§13.2/§13.4）"
+    description: "race_date - 1 day (strict < cutoff, JST midnight)（§13.2/§13.4・HIGH #2）"
   leakage_risk_level:
     type: "string"
-    description: "low / medium / high。allowlist test（Phase 3）で高リスクは必ず検査"
+    description: "low / medium / high。allowlist test で高リスクは必ず検査"
 
 # ---------------------------------------------------------------------------
-# Phase 1 では空リスト。Phase 3 で各 feature 行を追加。
+# §13.5 全 feature エントリ（静的15 + rolling 8系統 × 3軸 = 24 + 推定脚質1 = 計40）
 # ---------------------------------------------------------------------------
-features: []
+features:
+  # === 静的属性 (15) — source_role: both_allowed ===
+  - feature_name: barei
+    feature_group: horse_static
+    available_from_timing: entry_confirmed
+    source_role: both_allowed
+    source_table: normalized.n_uma_race
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: sexcd
+    feature_group: horse_static
+    available_from_timing: entry_confirmed
+    source_role: both_allowed
+    source_table: normalized.n_uma_race
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: futan
+    feature_group: horse_static
+    available_from_timing: post_position_confirmed
+    source_role: both_allowed
+    source_table: normalized.n_uma_race
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: jockey_id
+    feature_group: jockey
+    available_from_timing: post_position_confirmed
+    source_role: both_allowed
+    source_table: normalized.n_uma_race
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: trainer_id
+    feature_group: trainer
+    available_from_timing: entry_confirmed
+    source_role: both_allowed
+    source_table: normalized.n_uma_race
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: sire_id
+    feature_group: bloodline
+    available_from_timing: entry_confirmed
+    source_role: both_allowed
+    source_table: public.n_uma
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: bms_id
+    feature_group: bloodline
+    available_from_timing: entry_confirmed
+    source_role: both_allowed
+    source_table: public.n_uma
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: jyocd
+    feature_group: race_context
+    available_from_timing: entry_confirmed
+    source_role: both_allowed
+    source_table: normalized.n_race
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: kyori
+    feature_group: race_context
+    available_from_timing: entry_confirmed
+    source_role: both_allowed
+    source_table: normalized.n_race
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: trackcd
+    feature_group: race_context
+    available_from_timing: entry_confirmed
+    source_role: both_allowed
+    source_table: raw_everydb2.n_race
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: course_kubun
+    feature_group: race_context
+    available_from_timing: entry_confirmed
+    source_role: both_allowed
+    source_table: raw_everydb2.n_race
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: class_code_normalized
+    feature_group: race_context
+    available_from_timing: entry_confirmed
+    source_role: both_allowed
+    source_table: normalized.n_race
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: umaban
+    feature_group: post_position
+    available_from_timing: post_position_confirmed
+    source_role: both_allowed
+    source_table: normalized.n_uma_race
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: wakuban
+    feature_group: post_position
+    available_from_timing: post_position_confirmed
+    source_role: both_allowed
+    source_table: normalized.n_uma_race
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: horse_id
+    feature_group: horse_static
+    available_from_timing: entry_confirmed
+    source_role: both_allowed
+    source_table: normalized.n_uma_race
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: medium
 
-# ---------------------------------------------------------------------------
-# 記入例（Phase 3 で features: に移行する際のテンプレート・6キー全てを埋める）
-# ---------------------------------------------------------------------------
-# feature_example_phase3:
-#   - feature_name: jockey_win_rate_1y
-#     feature_group: jockey
-#     available_from_timing: "1A"
-#     source_table: normalized.n_uma_race
-#     cutoff_rule: "race_date - 1 day"
-#     leakage_risk_level: low
+  # === Rolling 8系統 × 3軸 (mean / latest / sd) = 24 — source_role: history_allowed_post_race ===
+  # 系統: kakuteijyuni / timediff / harontimel3 / jyuni3c_jyuni4c / kyori / babacd / jyocd / days_since_prev
+  # source となる過去走カラムは history SELECT のみ許可・target race 当日行は cutoff で構造排除 +
+  # target_obs_banned の二重防御。babacd は過去走馬場状態（HIGH #4）。
+
+  # --- rolling_kakuteijyuni (過去走着順) ---
+  - feature_name: rolling_kakuteijyuni_mean_5
+    feature_group: rolling_result
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: normalized.n_uma_race (history)
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_kakuteijyuni_latest_5
+    feature_group: rolling_result
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: normalized.n_uma_race (history)
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_kakuteijyuni_sd_5
+    feature_group: rolling_result
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: normalized.n_uma_race (history)
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+
+  # --- rolling_timediff (勝馬差 / TimeDIFN) ---
+  - feature_name: rolling_timediff_mean_5
+    feature_group: rolling_timediff
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: normalized.n_uma_race (history)
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_timediff_latest_5
+    feature_group: rolling_timediff
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: normalized.n_uma_race (history)
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_timediff_sd_5
+    feature_group: rolling_timediff
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: normalized.n_uma_race (history)
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+
+  # --- rolling_harontimel3 (上がり3F・harontimel4 は絶対に使用しない・Pitfall 3.6) ---
+  - feature_name: rolling_harontimel3_mean_5
+    feature_group: rolling_harontimel3
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: normalized.n_uma_race (history)
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_harontimel3_latest_5
+    feature_group: rolling_harontimel3
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: normalized.n_uma_race (history)
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_harontimel3_sd_5
+    feature_group: rolling_harontimel3
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: normalized.n_uma_race (history)
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+
+  # --- rolling_jyuni3c_jyuni4c (通過順・3コーナー/4コーナー) ---
+  - feature_name: rolling_jyuni3c_jyuni4c_mean_5
+    feature_group: rolling_jyuni3c_jyuni4c
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: normalized.n_uma_race (history)
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_jyuni3c_jyuni4c_latest_5
+    feature_group: rolling_jyuni3c_jyuni4c
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: normalized.n_uma_race (history)
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_jyuni3c_jyuni4c_sd_5
+    feature_group: rolling_jyuni3c_jyuni4c
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: normalized.n_uma_race (history)
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+
+  # --- rolling_kyori (過去走距離) ---
+  - feature_name: rolling_kyori_mean_5
+    feature_group: rolling_kyori
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: normalized.n_uma_race (history)
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_kyori_latest_5
+    feature_group: rolling_kyori
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: normalized.n_uma_race (history)
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_kyori_sd_5
+    feature_group: rolling_kyori
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: normalized.n_uma_race (history)
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+
+  # --- rolling_babacd (過去走馬場状態・target race 当日 sibababacd/dirtbabacd とは区別・HIGH #4) ---
+  - feature_name: rolling_babacd_mean_5
+    feature_group: rolling_babacd
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: normalized.n_uma_race (history)
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_babacd_latest_5
+    feature_group: rolling_babacd
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: normalized.n_uma_race (history)
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_babacd_sd_5
+    feature_group: rolling_babacd
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: normalized.n_uma_race (history)
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+
+  # --- rolling_jyocd (過去走出走競馬場) ---
+  - feature_name: rolling_jyocd_mean_5
+    feature_group: rolling_jyocd
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: normalized.n_uma_race (history)
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_jyocd_latest_5
+    feature_group: rolling_jyocd
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: normalized.n_uma_race (history)
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_jyocd_sd_5
+    feature_group: rolling_jyocd
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: normalized.n_uma_race (history)
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+
+  # --- rolling_days_since_prev (過去走間隔) ---
+  - feature_name: rolling_days_since_prev_mean_5
+    feature_group: rolling_days_since_prev
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: normalized.n_uma_race (history)
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_days_since_prev_latest_5
+    feature_group: rolling_days_since_prev
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: normalized.n_uma_race (history)
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_days_since_prev_sd_5
+    feature_group: rolling_days_since_prev
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: normalized.n_uma_race (history)
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+
+  # === 推定脚質 (1) — source_role: history_allowed_post_race ===
+  # 過去走 jyuni3c/jyuni4c のみ使用・当日 kyakusitukubun は使用しない（D-05）
+  - feature_name: estimated_running_style
+    feature_group: running_style
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: normalized.n_uma_race (history)
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
