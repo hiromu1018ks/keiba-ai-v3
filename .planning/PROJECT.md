@@ -16,12 +16,12 @@ JRA競馬データを用いて、各出走馬の**複勝払戻対象確率 `p_fu
 
 - [x] EveryDB2由来PostgreSQLデータの品質確認（主要テーブル・件数・日付範囲・NULL・重複・文字化け・コード異常）— Validated in Phase 1: Trust & Foundation（hybrid quality gate D-01、verdict=pass・BLOCK/INFO 分離）
 - [x] normalized層の初期ETL（型変換・コード変換・クラス正規化）— Validated in Phase 1: Trust & Foundation（全 varchar 明示キャスト + class_normalization.yaml 機械導出・raw 不変性 D-06 を REVOKE + fingerprint で実証）
+- [x] 複勝ラベル `fukusho_hit` の生成と払戻テーブル突合（発売開始時点ベース、`sales_start_entry_count` 取得・復元含む）— Validated in Phase 2: Fukusho Labels（2層 raw/validated label + D-04 4値 status・§10.5 6検査 BLOCK/INFO ゲート・>99.9% agreement 実測 100.0%・idempotent staging-swap・raw 不変・label.fukusho_label 554,267行）
 
 ### Active
 
 <!-- 現在のスコープ。要件定義書の Phase 1 を中心とする。すべて出荷検証まで仮説。 -->
 
-- [ ] 複勝ラベル `fukusho_hit` の生成と払戻テーブル突合（発売開始時点ベース、`sales_start_entry_count` 取得・復元含む）
 - [ ] as-of特徴量管理（`as_of_datetime` / `feature_cutoff_datetime` / `feature_availability` によるリーク防止）
 - [ ] 出馬表・馬番・枠番確定後モデル（Phase 1-A）による `p_fukusho_hit` 算出
 - [ ] 複勝EV計算（`EV_lower` / `EV_upper`）と推奨ランク算出
@@ -97,5 +97,7 @@ This document evolves at phase transitions and milestone boundaries.
 
 - **Phase 1: Trust & Foundation — Complete (2026-06-17).** Raw hybrid quality gate (verdict=pass) + normalized ETL（全 varchar 明示キャスト・staging-swap idempotent）+ class normalization（jyokencd5×gradecd×race_date 機械導出・コード連続性実証）+ リーク防止プリミティブ4種（pit_join / group_split / category_map / calibrator）を5層スキーマ上に bootstrap。raw read-only を REVOKE + raw_fingerprint md5 の二重保護で実証。76 テスト green・ruff clean。確定した基盤決定: psycopg3 pool + pydantic-settings 2ロール DSN、sklearn 1.9.0 は `cv='prefit'` 削除で `FrozenEstimator` prefit idiom 必須、`n_odds_tanpuku` が単複共用テーブル名（`n_odds_fukusho` は非存在）。Deferred debt: code review の Warning 9件（WR-02 トランザクション分離・WR-08 readonly_cur rollback 等・operational/infra・core value 非影響）。
 
+- **Phase 2: Fukusho Labels — Complete (2026-06-18).** 複勝ラベル生成ETL（`src/etl/fukusho_label.py` 1080行・2層 raw/validated label・D-04 4値 `label_validation_status`・D-03 §7.2 `is_model_eligible`・REVIEWS HIGH #1-#7 対応）+ §10.5 払戻突合ゲート（`src/etl/label_reconcile.py` 886行・6検査 BLOCK/INFO・>99.9% agreement 実測 **100.0%**・4063 held-out races・NULL-safe NOT EXISTS + LPAD zero-pad・tautology 回避の独立 HR payout 再構築）+ `label_spec.yaml`（D-07 Git管理）+ label スキーマ GRANT 拡張（reader+etl・REVIEWS HIGH #3 PUBLIC 不使用）。実DB: `label.fukusho_label` 554,267行・idempotent（2回実行 checksum 完全一致）・raw 不変（D-06）。130 テスト green・TDD RED→GREEN（02-02→02-03、27テスト）。実行中の W5 checkpoint は「実DB接続可能」と判断し continuation で自律実行 → live DB のみ暴露される schema bug を計8件検出・修正。Deferred debt: code review BLOCKER 5件は verifier 評估で WARNING/NOT-A-BUG（CR-01 drift INFO化は Phase 8 監査強化・CR-02 SQL injection は psycopg3 パラメータ化推奨・CR-04 raw 偽正例は §10.3 が validated を学習目標に明示・Phase 8 監査）・`label.fukusho_label.race_date` 全行 NULL → Phase 3 で feature_cutoff 用に設定。
+
 ---
-*Last updated: 2026-06-17 after Phase 1 complete*
+*Last updated: 2026-06-18 after Phase 2 complete*
