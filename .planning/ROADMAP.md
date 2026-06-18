@@ -94,16 +94,16 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 03-01-PLAN.md — Wave 1 基盤（features package + feature_availability.yaml 25エントリ拡充 + availability loader + RED テスト stub 集群 SC#1-#4/D-03/D-04/D-05/D-06/D-09）— FEAT-01/02
-- [ ] 03-02-PLAN.md — Wave 1 Phase 2 負債解消（label_race_date_backfill.py・staging-swap idempotent・cutoff 前提）— FEAT-01 前提
+- [ ] 03-01-PLAN.md — Wave 1 基盤（features package + feature_availability.yaml 25エントリ source_role taxonomy + cutoff_semantics strict_less_than + availability loader + assert_matrix_columns_registered + 5-row adversarial rolling builder + RED テスト stub 集群 SC#1-#4/D-03/D-04/D-05/D-06/D-09 + REVIEWS HIGH #1/#2/#3/#4/#5/#6）— FEAT-01/02
+- [ ] 03-02-PLAN.md — Wave 1 Phase 2 負債解消（label_race_date_backfill.py・staging-swap idempotent・cutoff 前提・MEDIUM #7 disposition 追加）— FEAT-01 前提
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 03-03-PLAN.md — Wave 2 feature builder 本体（builder.py + rolling.py 9系統×3軸 + running_style.py 推定脚質・pit_join_backward 消費・明示カラム SELECT・SC#1/#2 GREEN）— FEAT-01/02
+- [ ] 03-03-PLAN.md — Wave 2 feature builder 本体（builder.py + rolling.py 9系統×3軸 per-observation latest-K algorithm + running_style.py 推定脚質・明示カラム SELECT・target-obs/history taxonomy・出力カラム registry 検査・SC#1/#2 GREEN・REVIEWS HIGH #1/#2/#3/#4）— FEAT-01/02
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 03-04-PLAN.md — Wave 3 snapshot writer + category_map_consumer + CLI（PyArrow 決定論的書込・§12.4 metadata・SHA256 byte-repro・train窓fit/__UNSEEN__・SC#3/#4 GREEN）— FEAT-01/02
+- [ ] 03-04-PLAN.md — Wave 3 snapshot writer + category_map_consumer + CLI（PyArrow 決定論的書込・§12.4 metadata・SHA256 byte-repro scope=parquet bytes only・raw ID 列 drop・train窓fit/__UNSEEN__・SC#3/#4 GREEN・REVIEWS HIGH #5/#6 + MEDIUM #10）— FEAT-01/02
 
 ### Phase 4: Model & Prediction
 
