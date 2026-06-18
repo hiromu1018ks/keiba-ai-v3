@@ -1053,10 +1053,13 @@ def run_label_etl(
                 wcur, rows, _LABEL_INSERT_COLUMNS, reader_role=reader_role
             )
             # checksum（idempotent 実行確認用・HIGH #3）
+            # WR-07: row(r.*)::text は列順序依存で ALTER TABLE で checksum が変わる
+            # ため、_LABEL_INSERT_COLUMNS で列を明示して順序非依存にする。
+            cols_csv = ", ".join(_LABEL_INSERT_COLUMNS)
             wcur.execute(
-                "SELECT md5(string_agg(md5(row(r.*)::text), '' "
-                "ORDER BY year, jyocd, kaiji, nichiji, racenum, umaban, kettonum)) "
-                "FROM label.fukusho_label r"
+                f"SELECT md5(string_agg(md5(row({cols_csv})::text), '' "
+                f"ORDER BY year, jyocd, kaiji, nichiji, racenum, umaban, kettonum)) "
+                f"FROM label.fukusho_label"
             )
             checksum_row = wcur.fetchone()
             checksum = str(checksum_row[0]) if checksum_row and checksum_row[0] is not None else ""
