@@ -67,7 +67,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 02-01-PLAN.md — Wave 1 基盤（label_spec.yaml / GRANT 拡張 / search_path / run_apply_schema 再実行）— LABEL-01/02/03/04 前提
+- [x] 02-01-PLAN.md — Wave 1 基盤（label_spec.yaml / GRANT 拡張 / search_path / run_apply_schema 再実行）— LABEL-01/02/03/04 前提
 - [ ] 02-02-PLAN.md — Wave 1 unit test 集群（LABEL-01/02/04・合成 DataFrame・mock cursor・18テスト RED）— LABEL-01/02/04
 
 **Wave 2** *(blocked on Wave 1 completion)*
@@ -169,7 +169,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Trust & Foundation | 4/4 | Complete    | 2026-06-17 |
-| 2. Fukusho Labels | 0/TBD | Not started | - |
+| 2. Fukusho Labels | 1/4 | In Progress|  |
 | 3. As-of Features & Snapshots | 0/TBD | Not started | - |
 | 4. Model & Prediction | 0/TBD | Not started | - |
 | 5. EV & Backtest | 0/TBD | Not started | - |

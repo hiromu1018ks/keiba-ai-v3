@@ -17,10 +17,10 @@
 
 ### 複勝ラベル (LABEL)
 
-- [ ] **LABEL-01**: 着順由来の一次ラベル `fukusho_hit_raw` と、払戻テーブル突合後の確定ラベル `fukusho_hit_validated` を生成できる
-- [ ] **LABEL-02**: `sales_start_entry_count` を取得でき、直接項目がなければ出馬表確定時点の出走予定馬と取消/競走除外の発表時刻から復元でき、復元不能な場合は `label_validation_status = unresolved` として学習/評価対象から除外できる
-- [ ] **LABEL-03**: `fukusho_hit_validated` が払戻テーブル上の複勝払戻対象馬と整合し、突合検査（対象馬の存在/過不足・同着・取消除外馬の誤正例・中止馬の扱い・複勝発売なし混入）の結果を `label_validation_status` として保存できる
-- [ ] **LABEL-04**: 同着時は払戻テーブルに存在する全複勝対象馬を正例とし、出走取消/競走除外は予測対象外（仮想購入時は返還）、競走中止は原則学習に含めて不的中として扱える
+- [x] **LABEL-01**: 着順由来の一次ラベル `fukusho_hit_raw` と、払戻テーブル突合後の確定ラベル `fukusho_hit_validated` を生成できる
+- [x] **LABEL-02**: `sales_start_entry_count` を取得でき、直接項目がなければ出馬表確定時点の出走予定馬と取消/競走除外の発表時刻から復元でき、復元不能な場合は `label_validation_status = unresolved` として学習/評価対象から除外できる
+- [x] **LABEL-03**: `fukusho_hit_validated` が払戻テーブル上の複勝払戻対象馬と整合し、突合検査（対象馬の存在/過不足・同着・取消除外馬の誤正例・中止馬の扱い・複勝発売なし混入）の結果を `label_validation_status` として保存できる
+- [x] **LABEL-04**: 同着時は払戻テーブルに存在する全複勝対象馬を正例とし、出走取消/競走除外は予測対象外（仮想購入時は返還）、競走中止は原則学習に含めて不的中として扱える
 
 ### 特徴量・as-of (FEAT)
 
@@ -114,10 +114,10 @@
 | DATA-01 | Phase 1: Trust & Foundation | Complete |
 | DATA-02 | Phase 1: Trust & Foundation | Complete |
 | DATA-03 | Phase 1: Trust & Foundation | Complete |
-| LABEL-01 | Phase 2: Fukusho Labels | Pending |
-| LABEL-02 | Phase 2: Fukusho Labels | Pending |
-| LABEL-03 | Phase 2: Fukusho Labels | Pending |
-| LABEL-04 | Phase 2: Fukusho Labels | Pending |
+| LABEL-01 | Phase 2: Fukusho Labels | Complete |
+| LABEL-02 | Phase 2: Fukusho Labels | Complete |
+| LABEL-03 | Phase 2: Fukusho Labels | Complete |
+| LABEL-04 | Phase 2: Fukusho Labels | Complete |
 | FEAT-01 | Phase 3: As-of Features & Snapshots | Pending |
 | FEAT-02 | Phase 3: As-of Features & Snapshots | Pending |
 | MODL-01 | Phase 4: Model & Prediction | Pending |
