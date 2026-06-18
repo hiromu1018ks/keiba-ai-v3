@@ -118,11 +118,11 @@ _HARAI_SELECT_COLUMNS = [
     "fuseirituflag2",  # 複勝不成立フラグ
     "tokubaraiflag2",  # 複勝特払フラグ
     "henkanflag2",  # 複勝返還フラグ
-    "payfukusyounmaban1",  # 複勝的中馬番 slot1..5（同着で拡張）
-    "payfukusyounmaban2",
-    "payfukusyounmaban3",
-    "payfukusyounmaban4",
-    "payfukusyounmaban5",
+    "payfukusyoumaban1",  # 複勝的中馬番 slot1..5（同着で拡張）
+    "payfukusyoumaban2",
+    "payfukusyoumaban3",
+    "payfukusyoumaban4",
+    "payfukusyoumaban5",
 ]
 
 
@@ -482,7 +482,7 @@ def compute_is_model_eligible(row: pd.Series, *, spec: dict) -> tuple[bool, str 
 # ---------------------------------------------------------------------------
 # compute_fukusho_labels（合成 DataFrame / 実DB DataFrame 両方で deterministic）
 # ---------------------------------------------------------------------------
-_PAYOUT_COLS = [f"payfukusyounmaban{i}" for i in range(1, 6)]
+_PAYOUT_COLS = [f"payfukusyoumaban{i}" for i in range(1, 6)]
 _RACE_KEY = ["year", "jyocd", "kaiji", "nichiji", "racenum"]
 
 
@@ -509,7 +509,7 @@ def compute_fukusho_labels(
       - §19.1: label_generation_version
 
     Args:
-        hr_df: n_harai 1行/レース。``payfukusyounmaban1..5`` / ``torokutosu`` /
+        hr_df: n_harai 1行/レース。``payfukusyoumaban1..5`` / ``torokutosu`` /
             ``syussotosu`` / ``fuseirituflag2`` / ``tokubaraiflag2`` /
             ``datakubun``（HR 側）を含む。
         se_df: n_uma_race 1行/馬。``kakuteijyuni`` / ``bataijyu`` /

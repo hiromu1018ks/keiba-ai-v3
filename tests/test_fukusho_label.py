@@ -62,11 +62,11 @@ def _build_hr_row(**overrides) -> dict:
         "fuseirituflag2": "0",     # 複勝成立
         "tokubaraiflag2": "0",     # 複勝特払 無し
         "henkanflag2": "0",        # 複勝返還 無し
-        "payfukusyounmaban1": "01",
-        "payfukusyounmaban2": "02",
-        "payfukusyounmaban3": "03",
-        "payfukusyounmaban4": "",
-        "payfukusyounmaban5": "",
+        "payfukusyoumaban1": "01",
+        "payfukusyoumaban2": "02",
+        "payfukusyoumaban3": "03",
+        "payfukusyoumaban4": "",
+        "payfukusyoumaban5": "",
     }
     row.update(overrides)
     return row
@@ -189,7 +189,7 @@ def test_raw_vs_validated_basic_8_horses() -> None:
 def test_raw_vs_validated_basic_6_horses() -> None:
     """6頭レース・payout_places=2・KakuteiJyuni=1,2 が raw 勝利・PayFukusyoUmaban1..2 と整合。"""
     hr_df, se_df, race_df = _build_label_input_df(
-        6, hr_overrides={"torokutosu": "6", "syussotosu": "6", "payfukusyounmaban3": ""}
+        6, hr_overrides={"torokutosu": "6", "syussotosu": "6", "payfukusyoumaban3": ""}
     )
     spec = _load_label_spec()
     mod = _get_fukusho_label_module()
@@ -210,11 +210,11 @@ def test_drift_is_dead_heat_only() -> None:
     hr_df, se_df, race_df = _build_label_input_df(
         8,
         hr_overrides={
-            "payfukusyounmaban1": "01",
-            "payfukusyounmaban2": "02",
-            "payfukusyounmaban3": "03",
-            "payfukusyounmaban4": "04",
-            "payfukusyounmaban5": "",
+            "payfukusyoumaban1": "01",
+            "payfukusyoumaban2": "02",
+            "payfukusyoumaban3": "03",
+            "payfukusyoumaban4": "04",
+            "payfukusyoumaban5": "",
         },
     )
     spec = _load_label_spec()
@@ -266,8 +266,8 @@ def test_unresolved_triggers_hr_missing() -> None:
     hr_df = pd.DataFrame(columns=[
         "year", "monthday", "jyocd", "kaiji", "nichiji", "racenum", "datakubun",
         "torokutosu", "syussotosu", "fuseirituflag2", "tokubaraiflag2", "henkanflag2",
-        "payfukusyounmaban1", "payfukusyounmaban2", "payfukusyounmaban3",
-        "payfukusyounmaban4", "payfukusyounmaban5",
+        "payfukusyoumaban1", "payfukusyoumaban2", "payfukusyoumaban3",
+        "payfukusyoumaban4", "payfukusyoumaban5",
     ])
     _, se_df, race_df = _build_label_input_df(8)
     spec = _load_label_spec()
@@ -282,8 +282,8 @@ def test_no_fukusho_sale_under_5_horses() -> None:
     """TorokuTosu='4' のレースは複勝発売なし・payout_places=0・不適格（no_fukusho_sale）。"""
     hr_df, se_df, race_df = _build_label_input_df(
         4,
-        hr_overrides={"torokutosu": "4", "payfukusyounmaban1": "00",
-                      "payfukusyounmaban2": "", "payfukusyounmaban3": ""},
+        hr_overrides={"torokutosu": "4", "payfukusyoumaban1": "00",
+                      "payfukusyoumaban2": "", "payfukusyoumaban3": ""},
     )
     spec = _load_label_spec()
     mod = _get_fukusho_label_module()
@@ -426,11 +426,11 @@ def test_dead_heat_all_payout_positive() -> None:
     hr_df, se_df, race_df = _build_label_input_df(
         8,
         hr_overrides={
-            "payfukusyounmaban1": "01",
-            "payfukusyounmaban2": "02",
-            "payfukusyounmaban3": "03",
-            "payfukusyounmaban4": "04",
-            "payfukusyounmaban5": "",
+            "payfukusyoumaban1": "01",
+            "payfukusyoumaban2": "02",
+            "payfukusyoumaban3": "03",
+            "payfukusyoumaban4": "04",
+            "payfukusyoumaban5": "",
         },
     )
     spec = _load_label_spec()
@@ -552,9 +552,9 @@ def test_fuseiritu_flag2_unresolved() -> None:
         8,
         hr_overrides={
             "fuseirituflag2": "1",
-            "payfukusyounmaban1": "00",
-            "payfukusyounmaban2": "",
-            "payfukusyounmaban3": "",
+            "payfukusyoumaban1": "00",
+            "payfukusyoumaban2": "",
+            "payfukusyoumaban3": "",
         },
     )
     spec = _load_label_spec()
@@ -572,11 +572,11 @@ def test_tokubaraiflag2_with_payout_validated() -> None:
         hr_overrides={
             "tokubaraiflag2": "1",
             "fuseirituflag2": "0",
-            "payfukusyounmaban1": "01",
-            "payfukusyounmaban2": "02",
-            "payfukusyounmaban3": "03",
-            "payfukusyounmaban4": "",
-            "payfukusyounmaban5": "",
+            "payfukusyoumaban1": "01",
+            "payfukusyoumaban2": "02",
+            "payfukusyoumaban3": "03",
+            "payfukusyoumaban4": "",
+            "payfukusyoumaban5": "",
         },
     )
     spec = _load_label_spec()
@@ -596,11 +596,11 @@ def test_tokubaraiflag2_without_payout_unresolved() -> None:
         hr_overrides={
             "tokubaraiflag2": "1",
             "fuseirituflag2": "0",
-            "payfukusyounmaban1": "00",
-            "payfukusyounmaban2": "",
-            "payfukusyounmaban3": "",
-            "payfukusyounmaban4": "",
-            "payfukusyounmaban5": "",
+            "payfukusyoumaban1": "00",
+            "payfukusyoumaban2": "",
+            "payfukusyoumaban3": "",
+            "payfukusyoumaban4": "",
+            "payfukusyoumaban5": "",
         },
     )
     spec = _load_label_spec()
@@ -705,11 +705,11 @@ def test_dochachukubun_dead_heat_detection() -> None:
     hr_df, se_df, race_df = _build_label_input_df(
         8,
         hr_overrides={
-            "payfukusyounmaban1": "01",
-            "payfukusyounmaban2": "02",
-            "payfukusyounmaban3": "03",
-            "payfukusyounmaban4": "",
-            "payfukusyounmaban5": "",
+            "payfukusyoumaban1": "01",
+            "payfukusyoumaban2": "02",
+            "payfukusyoumaban3": "03",
+            "payfukusyoumaban4": "",
+            "payfukusyoumaban5": "",
         },
     )
     # umaban=2,3 を同着（DochacoTosu='1'）に設定・ただし payout slot4/5 は未使用
@@ -721,7 +721,7 @@ def test_dochachukubun_dead_heat_detection() -> None:
     mod = _get_fukusho_label_module()
     out = mod.compute_fukusho_labels(hr_df, se_df, race_df, spec=spec)
 
-    # payout slot4/5 が未使用（payfukusyounmaban4=''）なので dead_heat 判定ではない
+    # payout slot4/5 が未使用（payfukusyoumaban4=''）なので dead_heat 判定ではない
     # （payout-table authoritative・DochacoTosu='1' 単独では dead_heat にしない）
     assert (out["label_validation_status"] != "dead_heat").all() or (
         out["is_dead_heat"] == False
