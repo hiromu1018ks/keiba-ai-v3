@@ -14,6 +14,13 @@ cycles:
     plans_reviewed: [03-01-PLAN.md, 03-02-PLAN.md, 03-03-PLAN.md, 03-04-PLAN.md]
     plans_revision_head: 26fe3a1
     high_count: 3   # unresolved HIGHs remaining this cycle (see CYCLE_SUMMARY in Consensus)
+  - cycle: 3
+    reviewers: [codex]
+    reviewed_at: 2026-06-19T07:30:00Z
+    plans_reviewed: [03-01-PLAN.md, 03-02-PLAN.md, 03-03-PLAN.md, 03-04-PLAN.md]
+    plans_revision_head: cabfa9d
+    high_count: 0   # convergence achieved — all 6 cycle-1 HIGHs now CLOSED
+    status: APPROVED (convergence-loop final cycle, 0 HIGH remaining)
 ---
 
 # Cross-AI Plan Review — Phase 3
@@ -347,9 +354,160 @@ CYCLE_SUMMARY: current_high=3
 
 ---
 
-*Review methodology: Codex (OpenAI) invoked via `codex exec --ephemeral --skip-git-repo-check`
-on the full revised plan set + project context + requirements. Cycle-2 prompt
-additionally required an explicit CLOSED / PARTIALLY RESOLVED / STILL OPEN verdict
-per prior HIGH, with the exact mechanism + test justifying each verdict. The
-orchestrator independently verified each open/partial finding against the current
-plan source before recording it.*
+# CYCLE 3 (2026-06-19) — convergence-loop final cycle, re-review of revised plans (HEAD: cabfa9d)
+
+> The planner applied commit `7928b50` ("revise plans (CYCLE-2) — close HIGH #1/#2/#5")
+> followed by `cabfa9d` (mark phase planned) to address the 3 cycle-2 HIGHs:
+> per-observation `obs_id` rolling + two-observation adversarial test (#1), strict
+> `< feature_cutoff_datetime` normalized across all surfaces (#2), copy-not-rename
+> preserving `kettonum` (#5). This cycle is the **final** cycle of the 3-cycle
+> convergence loop. Its job is an independent verification — not a rubber stamp — that
+> the 3 cycle-2 HIGHs are NOW genuinely closed (mechanism + adversarial test that
+> would mechanically fail under the old buggy implementation), that the previously
+> closed HIGHs #3/#4/#6 and the 8-system/40-entry reconciliation did not regress,
+> and that the revisions did not introduce any NEW leakage HIGH.
+
+## Codex Review (Cycle 3)
+
+### Summary
+
+The 3 previously-open cycle-2 HIGHs are now genuinely closed in the revised current
+plans (HEAD `cabfa9d`). HIGH #1 has a real per-observation fan-out mechanism plus a
+two-observation boundary adversarial test; HIGH #2 is consistently normalized to strict
+`< feature_cutoff_datetime`; HIGH #5 now uses copy-not-rename and preserves `kettonum`
+through encoding. No regressions on the closed HIGH #3/#4/#6, and the 8-system/40-entry
+reconciliation is internally consistent. No NEW HIGH concerns were introduced by the
+revisions. The convergence loop has achieved its goal: **0 HIGHs remain**.
+
+### Per-Prior-HIGH Verdict (this cycle)
+
+- **HIGH #1 — CLOSED.**
+  Mechanism: `obs_id = list(zip(observations["race_nkey"], observations["kettonum"]))`;
+  expanded history is built (step 1b) by joining
+  `observations[["obs_id","kettonum","feature_cutoff_datetime"]]` to `history` on
+  `kettonum`; the strict `<` cutoff filter (step 2) is applied **after** fan-out as
+  `history_filtered = expanded[expanded["as_of_datetime"] < expanded["feature_cutoff_datetime"]]`;
+  latest-5 uses `sort_values(["obs_id","race_start_datetime"], ascending=[True,False]).groupby("obs_id").head(lookback)`.
+  Test: `test_two_observation_window_is_per_observation_not_per_horse` — obs_A cutoff
+  `2023-06-03`, obs_B cutoff `2023-06-10`, and a boundary row `obs_B_only_pre` with
+  `as_of="2023-06-05"` that must be excluded from obs_A (post its cutoff) and included
+  in obs_B (pre its cutoff).
+  Adversarial reasoning: a horse-grouped `groupby("kettonum").head(5)` implementation
+  would either share one window across both observations or fail to produce obs-specific
+  windows, so obs_A would be contaminated by the obs_B-only boundary row, or both
+  observations would collapse to the same aggregate. The cutoff is read per expanded row
+  (not once before expansion), which is what makes per-observation safety mechanical
+  rather than aspirational. This test would catch the old bug. **CLOSED.**
+
+- **HIGH #2 — CLOSED.**
+  Mechanism: `CUTOFF_SEMANTICS = {"comparison_operator": "strict_less_than", ...
+  "pit_filter": "history.as_of_datetime < observation.feature_cutoff_datetime"}`,
+  mirrored in YAML `cutoff_semantics` block; builder computes
+  `feature_cutoff_datetime = pd.to_datetime(race_date) - pd.Timedelta(days=1)`; rolling
+  filters with strict `<`; the cycle-2 must_have truth (line 30) was rewritten to the
+  canonical strict `< feature_cutoff_datetime` form and the deprecated `+ 1 day` form is
+  explicitly marked abolished.
+  Test: `test_cutoff_excludes_previous_day_race_strict_less_than`, where the
+  `previous_day_row` has `as_of_datetime == '2023-06-03'` exactly equal to
+  `feature_cutoff_datetime`.
+  Adversarial reasoning: an old `< feature_cutoff_datetime + 1 day` or
+  `<= feature_cutoff_datetime` implementation would include the equality row; strict `<`
+  excludes it. The only remaining `+ 1 day` mentions in the repo are in REVIEWS.md's own
+  archived cycle-1/2 history, which are not active rules. No active plan surface uses the
+  `+ 1 day` form. **CLOSED.**
+
+- **HIGH #5 — CLOSED.**
+  Mechanism: builder uses copy-not-rename —
+  `feature_matrix["horse_id"] = feature_matrix["kettonum"]`, plus analogous copies for
+  jockey/trainer/sire/bms. Category consumer defines
+  `_CATEGORY_COLUMNS = ("jockey_id","trainer_id","sire_id","bms_id","horse_id")` (exactly
+  5 elements, excludes `kettonum`), drops only `list(_CATEGORY_COLUMNS)`, and explicitly
+  states `kettonum` is preserved. Snapshot sort key remains
+  `_SNAPSHOT_SORT_KEYS = ("race_date","jyocd","racenum","kettonum")`.
+  Test: `test_apply_frozen_maps_preserves_kettonum_canonical_key`, asserting
+  `assert "kettonum" in result.columns and "horse_id" not in result.columns` after
+  `apply_frozen_category_maps`.
+  Adversarial reasoning: a destructive `rename(columns={"kettonum": "horse_id"})` would
+  remove `kettonum`, so this test would fail after encoding. No plan body now contains a
+  destructive `rename` of the live feature matrix. **CLOSED.**
+
+### Regression Check
+
+- **HIGH #3 — still CLOSED.** `assert_matrix_columns_registered(spec, output_columns)`
+  validates actual output columns, and the builder is required to call
+  `assert_matrix_columns_registered(spec, list(feature_matrix.columns))`. The revised
+  `_code` auto-whitelist (`{c + "_code" for c in _CATEGORY_COLUMNS}`) is limited to the
+  closed 5-tuple `_CATEGORY_COLUMNS`, so an arbitrary `evil_leak_code` column cannot pass
+  unless a future developer expands `_CATEGORY_COLUMNS`. This is a future-governance
+  surface, not a current leakage HIGH — flagged as LOW below.
+- **HIGH #4 — still CLOSED.** `TARGET_OBS_BANNED_COLUMNS` includes
+  `sibababacd`/`dirtbabacd`; `HISTORY_ALLOWED_POST_RACE_COLUMNS` includes `babacd`; the
+  disjointness startup assert is intact; the 3 tests
+  (`test_target_obs_banned_columns_not_in_registry_features`,
+  `test_history_allowed_babacd_rolling_present`, `test_banned_columns_not_selected`)
+  remain.
+- **HIGH #6 — still CLOSED.** SHA256 computed from `buf.getvalue().to_pybytes()` only;
+  manifest has `created_at_real` + `byte_reproducible_scope: "parquet_bytes_only"`; tests
+  `test_sha256_covers_parquet_bytes_only` and `test_manifest_created_at_varies_between_runs`.
+- **8-system / 40-entry reconciliation — consistent.** Both `_ROLLING_SYSTEMS_FOR_RESERVED`
+  (03-01) and `_ROLLING_SYSTEMS` (03-03) list the same 8 systems (`kakuteijyuni`,
+  `timediff`, `harontimel3`, `jyuni3c_jyuni4c`, `kyori`, `babacd`, `jyocd`,
+  `days_since_prev`). Count is internally consistent: 15 static + 8×3 rolling (24) + 1
+  running-style = 40 registry feature entries. The 8 `rolling_<system>_count_5` audit
+  columns are reserved non-feature columns, correctly excluded from the 40.
+
+### New Concerns (this cycle — none HIGH)
+
+- **MEDIUM — expanded-history dedup guard.** The expanded-history fan-out (HIGH #1 fix)
+  should explicitly deduplicate `observations` by `(race_nkey, kettonum)` and `history`
+  by its past-race natural key before aggregation. The builder has a canonical-key
+  uniqueness assert, but `rolling.py` itself does not state a `drop_duplicates` guard.
+  Duplicate history rows would inflate rolling aggregates — a reproducibility/data-quality
+  risk, not a direct leakage HIGH. Non-blocking; suggested as an implementation-time hardening.
+- **MEDIUM — previous-day feature-value drop.** Strict `< feature_cutoff_datetime` with
+  cutoff at previous-day midnight intentionally drops races whose `as_of_datetime` falls
+  on the previous calendar date. This is leak-safe, but it discards legitimately
+  available previous-day results that the (now-abolished) `+ 1 day` form would have
+  included. This is a feature-value regression risk, not a leakage blocker; the plan
+  knowingly chose this invariant for unambiguous leak-safety, which is the correct call
+  given the project's core value.
+- **LOW — `_code` auto-whitelist governance.** Safe today because `_CATEGORY_COLUMNS` is a
+  fixed 5-tuple, but future additions to `_CATEGORY_COLUMNS` would automatically bypass
+  the registry for `<col>_code`. Keep the exact-5-element test asserting
+  `_CATEGORY_COLUMNS == ("jockey_id","trainer_id","sire_id","bms_id","horse_id")`.
+- **LOW — tuple-valued `obs_id`.** A tuple-valued column is hashable and works in pandas
+  `groupby`, but an encoded string key (e.g. `f"{race_nkey}:{kettonum}"`) may be easier to
+  inspect/debug in Parquet snapshots. Not a blocker.
+
+### Action Items for Planner
+
+None required for HIGH. Suggested non-blocking hardening (may be deferred to execution):
+add an explicit `drop_duplicates` / uniqueness assertion on the expanded-history inputs
+in `rolling.py` (addresses the MEDIUM dedup concern).
+
+### Overall Verdict (Cycle 3)
+
+**APPROVE.** All 6 cycle-1 HIGHs are now genuinely closed with mechanical mechanisms and
+adversarial tests. No regressions. No NEW HIGH. The convergence loop has converged.
+
+### CYCLE_SUMMARY
+
+CYCLE_SUMMARY: current_high=0
+
+## Current HIGH Concerns
+
+None.
+
+---
+
+*Review methodology: Codex (OpenAI, gpt-5.5) invoked via
+`codex exec --ephemeral --dangerously-bypass-hook-trust --skip-git-repo-check` on the
+full revised plan set (HEAD cabfa9d) + project context + requirements. Cycle-3 prompt
+required an explicit CLOSED / PARTIALLY RESOLVED / STILL OPEN verdict per prior HIGH,
+with the exact mechanism + test + adversarial-input reasoning justifying each verdict,
+plus a regression check on the closed HIGH #3/#4/#6 and the 8-system/40-entry
+reconciliation, plus a scan for NEW leakage concerns introduced by the cycle-2
+revisions. The orchestrator independently verified the HIGH #1 fan-out-order claim
+(cutoff applied after expanded-history join, step 1b before step 2) and the
+two-observation boundary-row presence (`obs_B_only_pre`, as_of="2023-06-05") against the
+current plan source before recording APPROVE.*
