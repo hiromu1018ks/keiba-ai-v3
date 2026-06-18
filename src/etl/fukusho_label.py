@@ -711,28 +711,20 @@ def compute_fukusho_labels(
     )
 
     # --- is_dead_heat（payout-table authoritative・MEDIUM #2: DochacoTosu は参考値）---
-    # WR-04 (iteration 3): ``fukusho_payout_places`` を ``payout_count`` と等価にした結果、
-    # ``payout_count > fukusho_payout_places`` は常に False になる。同着検出は JRA 規則の
-    # 理論枠（5-7頭→2・8+頭→3）を ``syussotosu_i`` から算出し、HR がそれを超えて slot4/5 を
-    # 使用した場合（``payout_count > jra_expected_max``）に dead_heat と判定する。これは
-    # spec の本来の意図「HR PayFukusyoUmaban slot4/5 使用が唯一の権威ある同着検出」を維持。
-    def _jra_expected_max(t: Any) -> int:
-        """JRA 規則の理論払戻対象頭数を返す（5-7頭→2・8+頭→3・それ以外は0）。
-
-        ``syussotosu_i``（実際出走頭数）を用いる。dead_heat 検出の比較基準としてのみ使用。
-        """
-        if t is None or _is_na(t):
-            return 0
-        try:
-            ti = int(float(t))
-        except (TypeError, ValueError):
-            return 0
-        if ti >= 8:
-            return int(spec["payout_places_rules"]["places_8_or_more_horses"])
-        if min_torokutosu <= ti <= 7:
-            return int(spec["payout_places_rules"]["places_5_to_7_horses"])
-        return 0
-
+    # WR-04 (iteration 4): ``fukusho_payout_places`` を ``payout_count`` と等価にした結果、
+    # ``payout_count > fukusho_payout_places`` は常に False になるため、同着検出は
+    # ``payout_count`` と JRA 規則の標準払戻対象頭数（``syussotosu_i`` ベース・5-7頭→2・
+    # 8+頭→3）の比較で行う。HR が標準枠を超えて slot4/5 を使用した場合
+    # （``payout_count > standard``）に dead_heat と判定する。これは spec の本来の意図
+    # 「HR PayFukusyoUmaban slot4/5 使用が唯一の権威ある同着検出」を維持。
+    #
+    # iteration 3 false positive 修正（実DB 検証）: ``syussotosu < 5``（完走4頭以下）の
+    # レース（例: 2022/07 R8・発走後中止で完走4頭・2頭払い）は JRA 標準枠が0になるが、
+    # ``payout_count=2 > 0`` で常に dead_heat 扱いになる false positive があった
+    # （実DB で dead_heat が 1656→1661・+5馬・全て payout_count=2/syussotosu=4）。
+    # ``syussotosu < 5`` は複勝発売なし/不成立の可能性が高く dead_heat 判定から除外し、
+    # 標準払戻対象頭数の比較のみで判定する（保護）。真の dead_heat
+    # （payout_count=3/syussotosu=6-7・payout_count>=4/syussotosu>=8）は維持される。
     def _is_dh(r: pd.Series) -> bool:
         pc = r.get("payout_count", 0)
         syus = r.get("syussotosu_i")
@@ -745,10 +737,23 @@ def compute_fukusho_labels(
             pc_i = int(pc)
         except (TypeError, ValueError):
             return False
-        if pc_i <= 0:
+        if syus is None or _is_na(syus):
             return False
-        # JRA 理論枠を超えて slot4/5 が使用されていれば dead_heat
-        return pc_i > _jra_expected_max(syus)
+        try:
+            syus_i = int(float(syus))
+        except (TypeError, ValueError):
+            return False
+        # JRA 複勝の標準払戻対象頭数（発走時頭数を syussotosu で近似）。
+        # payout_count がこれを超えていれば同着拡張（slot4/5 使用）= dead_heat。
+        if syus_i >= 8:
+            standard = int(spec["payout_places_rules"]["places_8_or_more_horses"])
+        elif min_torokutosu <= syus_i <= 7:
+            standard = int(spec["payout_places_rules"]["places_5_to_7_horses"])
+        else:
+            # syussotosu < 5（完走4頭以下）は複勝発売なし/不成立扱い。
+            # dead_heat 判定から除外（R8 相当の false positive 防止）。
+            return False
+        return pc_i > standard
 
     merged["is_dead_heat"] = merged.apply(_is_dh, axis=1)
 

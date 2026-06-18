@@ -545,6 +545,129 @@ def test_is_dh_handles_hr_missing_payout_count_nan() -> None:
     assert (out["is_dead_heat"] == False).all()  # noqa: E712
 
 
+def test_is_dh_false_positive_protect_syussotosu_under_5() -> None:
+    """iteration 4 regression: syussotosu < 5（完走4頭以下）のレースで payout_count=2
+    が偽の dead_heat にならないこと（2022/07 R8 相当・発走後中止）。
+
+    iteration 3 で ``_is_dh`` を ``payout_count > JRA 理論枠(syussotosu ベース)`` に変更した際、
+    ``syussotosu < 5`` では JRA 理論枠=0 になるため ``payout_count(2) > 0`` で常に
+    dead_heat 扱いになる false positive があった（実DB で dead_heat 1656→1661・+5馬・
+    全て payout_count=2/syussotosu=4）。本テストは R8 相当（完走4頭・2頭払い）が
+    dead_heat にならないことを検証する。
+
+    iteration 4 で ``syussotosu < 5`` は dead_heat 判定から除外（保護）するよう修正した。
+    """
+    spec = _load_label_spec()
+    mod = _get_fukusho_label_module()
+    # R8 相当: 登録8頭・完走4頭（発走後中止で4頭完走）・HR 払戻2頭
+    # HR 扉戻 ['01','02']・payout_count=2・syussotosu=4
+    hr_df, se_df, race_df = _build_label_input_df(
+        8,
+        hr_overrides={
+            "torokutosu": "8",
+            "syussotosu": "4",  # 完走4頭（発走後中止）
+            "payfukusyoumaban1": "01",
+            "payfukusyoumaban2": "02",
+            "payfukusyoumaban3": "00",
+            "payfukusyoumaban4": "",
+            "payfukusyoumaban5": "",
+        },
+    )
+    out = mod.compute_fukusho_labels(hr_df, se_df, race_df, spec=spec)
+    # iteration 4: syussotosu=4 < 5 は dead_heat 判定から除外 → is_dead_heat=False
+    assert (out["is_dead_heat"] == False).all(), (
+        "iteration 4: syussotosu=4（完走4頭以下・発走後中止・R8 相当）で payout_count=2 は"
+        "偽の dead_heat になってはならない（JRA 理論枠=0 で payout_count > 0 になる"
+        "false positive を防止・syussotosu < 5 は保護）。"
+    )
+    # dead_heat status にも分類されない
+    assert not (out["label_validation_status"] == "dead_heat").any(), (
+        "iteration 4: R8 相当レースの label_validation_status が dead_heat になってはならない。"
+    )
+
+
+def test_is_dh_true_slot4_used_syussotosu_8_plus() -> None:
+    """iteration 4 regression: syussotosu >= 8 で payout_count=4（slot4 使用）は真の dead_heat。
+
+    8頭以上の通常枠=3・payout_count=4 > 3 で slot4 が使用された真の同着拡張。
+    iteration 3 と同様に True を維持する（回帰なし）。
+    """
+    spec = _load_label_spec()
+    mod = _get_fukusho_label_module()
+    # 10頭立て・HR 扉戻 ['01','02','03','04']（slot4 使用・payout_count=4）
+    hr_df, se_df, race_df = _build_label_input_df(
+        10,
+        hr_overrides={
+            "torokutosu": "10",
+            "syussotosu": "10",
+            "payfukusyoumaban1": "01",
+            "payfukusyoumaban2": "02",
+            "payfukusyoumaban3": "03",
+            "payfukusyoumaban4": "04",
+            "payfukusyoumaban5": "",
+        },
+    )
+    out = mod.compute_fukusho_labels(hr_df, se_df, race_df, spec=spec)
+    # syussotosu=10 >= 8 → 標準3・payout_count=4 > 3 → True（slot4 使用 = 真の dead_heat）
+    assert (out["is_dead_heat"] == True).all()  # noqa: E712
+    assert (out["label_validation_status"] == "dead_heat").all()
+
+
+def test_is_dh_true_payout_count_3_syussotosu_6() -> None:
+    """iteration 4 regression: syussotosu=6（5-7頭）で payout_count=3 は真の dead_heat。
+
+    5-7頭の標準枠=2・payout_count=3 > 2 で slot3 の同着拡張（3着同着）。
+    iteration 3 と同様に True を維持する（回帰なし）。
+    """
+    spec = _load_label_spec()
+    mod = _get_fukusho_label_module()
+    # 6頭立て・HR 扉戻 ['01','02','03']（3着同着・payout_count=3 > 標準2）
+    hr_df, se_df, race_df = _build_label_input_df(
+        6,
+        hr_overrides={
+            "torokutosu": "6",
+            "syussotosu": "6",
+            "payfukusyoumaban1": "01",
+            "payfukusyoumaban2": "02",
+            "payfukusyoumaban3": "03",
+            "payfukusyoumaban4": "",
+            "payfukusyoumaban5": "",
+        },
+    )
+    out = mod.compute_fukusho_labels(hr_df, se_df, race_df, spec=spec)
+    # syussotosu=6（5-7頭）→ 標準2・payout_count=3 > 2 → True（3着同着拡張）
+    assert (out["is_dead_heat"] == True).all()  # noqa: E712
+    assert (out["label_validation_status"] == "dead_heat").all()
+
+
+def test_is_dh_false_payout_count_3_syussotosu_10() -> None:
+    """iteration 4 regression: syussotosu=10（8頭以上）・payout_count=3（標準枠=3）は
+    dead_heat ではない。
+
+    8頭以上の標準枠=3・payout_count=3 は標準枠内（> ではない）なので dead_heat=False。
+    通常の3頭払いレースは dead_heat にならない（iteration 3 と同様）。
+    """
+    spec = _load_label_spec()
+    mod = _get_fukusho_label_module()
+    # 10頭立て・HR 扉戻 ['01','02','03']（標準3頭払い・payout_count=3 = 標準3）
+    hr_df, se_df, race_df = _build_label_input_df(
+        10,
+        hr_overrides={
+            "torokutosu": "10",
+            "syussotosu": "10",
+            "payfukusyoumaban1": "01",
+            "payfukusyoumaban2": "02",
+            "payfukusyoumaban3": "03",
+            "payfukusyoumaban4": "",
+            "payfukusyoumaban5": "",
+        },
+    )
+    out = mod.compute_fukusho_labels(hr_df, se_df, race_df, spec=spec)
+    # syussotosu=10 >= 8 → 標準3・payout_count=3 ≯ 3 → False（通常の3頭払い）
+    assert (out["is_dead_heat"] == False).all()  # noqa: E712
+    assert not (out["label_validation_status"] == "dead_heat").any()
+
+
 def test_canonicalize_markers_raw_string_form() -> None:
     """REVIEWS HIGH #5: raw varchar 表現で marker 判定が正しいこと。
 
