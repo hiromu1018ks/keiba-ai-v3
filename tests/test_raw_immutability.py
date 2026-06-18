@@ -67,6 +67,60 @@ def test_raw_unchanged_after_etl(pg_pool, write_pool, readonly_cur) -> None:  # 
 
 
 @pytest.mark.requires_db
+def test_raw_unchanged_after_label_etl(pg_pool, write_pool, readonly_cur) -> None:  # noqa: ANN001
+    """label ETL 追加後の raw 不変性拡張（SC#2 / D-06 / Plan 02-03 / REVIEWS HIGH #3）。
+
+    Phase 2 の ``src.etl.fukusho_label.run_label_etl`` が raw(``public.n_*``) に一切
+    書込まないことを直接証明する。HIGH #3 の reader role 明示 GRANT 再発行（PUBLIC 不使用）
+    後も raw は不変であることを併せて検証する。
+    """
+    from src.etl.fukusho_label import run_label_etl
+    from src.etl.raw_fingerprint import (
+        assert_raw_unchanged,
+        compute_raw_fingerprint,
+    )
+
+    before = compute_raw_fingerprint(readonly_cur)
+    readonly_cur.connection.rollback()
+
+    # label ETL 実行（HIGH #6: write_pool = ETL ロール・raw には SELECT のみ）
+    run_label_etl(pg_pool, write_pool)
+
+    after = compute_raw_fingerprint(readonly_cur)
+    readonly_cur.connection.rollback()
+
+    assert_raw_unchanged(before, after)
+
+
+@pytest.mark.requires_db
+def test_label_etl_idempotent(pg_pool, write_pool) -> None:  # noqa: ANN001
+    """REVIEWS HIGH #3 対応: staging-swap idempotency の直接検証。
+
+    ``run_label_etl`` を2回連続実行し:
+      - ``rows_inserted`` が完全一致すること（staging-swap で行重複しない）
+      - ``checksum`` が完全一致すること（INCLUDING ALL で PK/インデックス継承・
+        RENAME 後に reader role 明示 GRANT を再発行・``TO PUBLIC`` 不使用）
+      - 2回目も ``raw_touched=False`` であること（raw には触れない）
+
+    これにより staging-swap が PK/インデックス/GRANT/コメントを保存したまま再実行で
+    同一結果になることを保証する（HIGH #3・§19.1 再現性）。
+    """
+    from src.etl.fukusho_label import run_label_etl
+
+    result1 = run_label_etl(pg_pool, write_pool)
+    result2 = run_label_etl(pg_pool, write_pool)
+
+    assert result1["rows_inserted"] == result2["rows_inserted"], (
+        f"idempotent violation (rows_inserted): "
+        f"{result1['rows_inserted']} != {result2['rows_inserted']}"
+    )
+    assert result1["checksum"] == result2["checksum"], (
+        f"idempotent checksum violation: {result1['checksum']} != {result2['checksum']}"
+    )
+    assert result2["raw_touched"] is False, "raw_touched=True on run #2 (D-06 violation)"
+
+
+@pytest.mark.requires_db
 def test_raw_role_has_no_update_grant_public(readonly_cur) -> None:  # noqa: ANN001
     """HIGH #4 直接検証: ``public`` と ``raw_everydb2`` の両方で UPDATE/DELETE/TRUNCATE 権限が
     現在のユーザ（keiba_readonly）に無いことを DB カタログから検証。
