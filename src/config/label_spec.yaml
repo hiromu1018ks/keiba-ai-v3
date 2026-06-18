@@ -31,27 +31,29 @@ status_values: ["validated", "inferred", "dead_heat", "unresolved"]
 
 # ===========================================================================
 # D-01 厳格: 複勝払戻対象数ルール（label 境界そのもの・学習除外対象）
-# WR-04（iteration 2）: 払戻対象頭数（places）は `syussotosu`（実際出走頭数）ベースで決定。
-# 取消・除外で `syussotosu < torokutosu` となるレースでは払戻対象頭数が減る
-# （例: 登録8頭でも取消1頭で実7頭出走 → 2頭払い・2着まで）。
-# `torokutosu`（登録頭数）は `is_fukusho_sale_available`（複勝発売の有無・出馬表発表時
-# 決定）と `sales_start_entry_count` 代理値として使用。
-# 実DB観測で 7件の validated drift のうち 5件は torokutosu ベース3頭払い計算が原因で
-# 正しくは2頭払い（HR の '00' は正当）と判明したため、syussotosu ベースに訂正した。
-# 旧 Pitfall 3「torokutosu のみで決定」は撤回（02-RESEARCH.md Pitfall 3 は将来更新予定）。
+# WR-04（iteration 3・最終）: 払戻対象頭数（places）は **HR `PayFukusyoUmaban` の実際の払戻
+# 馬番数（`payout_count` = 非`'00'` slot 数）** で決定（spec note の本来の意図・D-01 厳格）。
+# `torokutosu`（登録）/`syussotosu`（完走）は代理値で、発走前取消・発走後中止レースで実際の
+# 払戻馬番数と一致しないため `payout_places` 計算には不使用。`torokutosu` は
+# `is_fukusho_sale_available`（発売の有無・出馬表発表時決定）と `sales_start_entry_count`
+# 代理値としてのみ使用。`places_5_to_7_horses`(2)/`places_8_or_more_horses`(3) は JRA 規則の
+# 参考値（実計算は HR 払戻馬番数を使用）。同着拡張で payout_count が 4-5 になる場合は
+# HR 観測事実に従う。
+# 実DB観測で torokutosu → syussotosu → payout_count と3回検証し payout_count が唯一の正解
+# と判明（iteration 1/2 の torokutosu/syussotosu ベースはいずれも不完全・旧 Pitfall 3 は撤回）。
 # ===========================================================================
 payout_places_rules:
   min_torokutosu_for_fukusho_sale: 5  # 5頭未満は複勝発売なし（§7.3）・torokutosu ベース
-  places_5_to_7_horses: 2
-  places_8_or_more_horses: 3
+  places_5_to_7_horses: 2  # JRA 規則の参考値（実計算は HR 払戻馬番数 payout_count を使用）
+  places_8_or_more_horses: 3  # JRA 規則の参考値（同上）
   no_sale_marker_value: 0
   note: |
-    払戻対象頭数（places）は `syussotosu`（実際出走頭数）ベースで決定（WR-04 iteration 2）。
-    `torokutosu`（登録頭数）は `is_fukusho_sale_available`（発売の有無・出馬表発表時決定）と
-    `sales_start_entry_count` 代理値として使用。取消・除外により `syussotosu < torokutosu`
-    となるレースでは払戻対象頭数が減る（例: 登録8頭でも実7頭出走→2頭払い）。
-    旧「境界は HR PayFukusyoUmaban/FuseirituFlag2 の観測事実で最終確定・torokutosu のみ使用」
-    （Pitfall 3）は撤回: 実DB観測で 7件 validated drift の 5件が torokutosu ベース誤判定と判明。
+    **払戻対象頭数は HR `PayFukusyoUmaban` の実際の払戻馬番数（`payout_count` = 非`'00'`数）
+    で決定（D-01 厳格・spec note の本来の意図）。** `torokutosu`/`syussotosu` は代理値・
+    `payout_places` 計算には不使用（torokutosu は `is_fukusho_sale_available` と
+    `sales_start_entry_count` の代理のみ）。`places_5_to_7_horses`(2)/
+    `places_8_or_more_horses`(3) は JRA 規則の参考値（実計算は HR 払戻馬番数を使用）。
+    同着拡張で payout_count が4-5になる場合は HR 観測事実に従う。
 
 # ===========================================================================
 # D-01 寛容: sales_start_entry_count 復元（補助メタデータ・適格性フィルタ用）

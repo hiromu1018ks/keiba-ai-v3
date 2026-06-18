@@ -10,13 +10,17 @@
       unresolved）の判定は HR/SE の観測事実のみで行う（推測なし・silent fallback 禁止・D-13）。
   - **Pitfall 1:** 実カラム名は ``timediff``（EveryDB2 マニュアルの ``TimeDIFN`` ではない）。
       ``bataijyu``（``bataiju`` ではない）。本モジュールは両者を実カラム名で SELECT する。
-  - **WR-04 修正:** ``fukusho_payout_places`` 境界は ``syussotosu``（実際出走頭数・取消/除外
-      反映後）ベースで決定する。登録8頭でも取消1頭で実7頭出走なら **2頭払い（2着まで）** が
-      正しく、3着馬は払戻対象外。``torokutosu``（登録頭数＝出馬表発表時）は
-      ``is_fukusho_sale_available``（複勝発売の有無・出馬表発表時決定）と
-      ``sales_start_entry_count`` 代理値としてのみ使用。実DB観測で 7件の validated drift は
-      5件が ``torokutosu`` ベース誤判定（3頭払い計算だったが正しくは2頭払い）によることが
-      判明したため、``syussotosu`` ベースに訂正した（iteration 2・旧 Pitfall 3 は撤回）。
+  - **WR-04 修正（iteration 3・最終）:** ``fukusho_payout_places`` は **HR ``PayFukusyoUmaban``
+      の実際の払戻馬番数（``payout_count`` = 非``'00'`` slot 数）** で決定する（D-01 厳格・
+      spec note の本来の意図）。``torokutosu``（登録）/``syussotosu``（完走）は代理値であり、
+      発走前取消・発走後中止レースで実際の払戻馬番数と一致しないため ``payout_places`` 計算に
+      は不使用。``torokutosu`` は ``is_fukusho_sale_available``（複勝発売の有無・出馬表発表時
+      決定）と ``sales_start_entry_count`` 代理値としてのみ使用。``places_5_to_7_horses``(2)/
+      ``places_8_or_more_horses``(3) は JRA 規則の参考値（実計算は HR 払戻馬番数を使用・
+      同着拡張で ``payout_count`` が 4-5 になる場合は HR 観測事実に従う）。実DB観測で
+      ``torokutosu``→``syussotosu``→``payout_count`` と3回検証し、``payout_count`` が唯一の
+      正解と判明した（iteration 1/2 の ``torokutosu``/``syussotosu`` ベースはいずれも不完全・
+      旧 Pitfall 3 は撤回）。
   - **REVIEWS HIGH #1:** ``label.fukusho_label`` は ``sales_start_entry_count_confidence``
       （='inferred'）と ``sales_start_entry_count_source``（='torokutosu_proxy'）を
       ``label_validation_status`` から独立した varchar(16) NOT NULL カラムとして持つ。
@@ -418,18 +422,13 @@ def classify_status(row: pd.Series, *, spec: dict) -> str:
     if torokutosu_i is None or _is_na(torokutosu_i):
         return "unresolved"
 
-    # 5. 同着（payout_count > fukusho_payout_places AND payout_places > 0・payout-table authoritative）
-    payout_places = row.get("fukusho_payout_places")
-    payout_count = int(row.get("payout_count", 0) or 0)
+    # 5. 同着（is_dead_heat flag・payout-table authoritative・MEDIUM #2: DochacoTosu は参考値）
+    # WR-04 (iteration 3): ``fukusho_payout_places`` を ``payout_count`` と等価にしたため、
+    # ``payout_count > fukusho_payout_places`` は常に False。``is_dead_heat`` flag は
+    # ``_is_dh`` で ``payout_count > JRA 理論枠(syussotosu ベース)`` で算出されるため、
+    # ここでは flag のみを参照する。
     is_dead_heat = bool(row.get("is_dead_heat", False))
     if is_dead_heat:
-        return "dead_heat"
-    if (
-        payout_places is not None
-        and not _is_na(payout_places)
-        and int(payout_places) > 0
-        and payout_count > int(payout_places)
-    ):
         return "dead_heat"
 
     # 6. 速報（HR DataKubun='1'）は inferred — 本DBでは発生しないが将来更新に備え保持（D-13）
@@ -543,8 +542,9 @@ def compute_fukusho_labels(
     spec = spec if spec is not None else load_label_spec()
     payout_rules = spec["payout_places_rules"]
     min_torokutosu = int(payout_rules["min_torokutosu_for_fukusho_sale"])
-    places_5_7 = int(payout_rules["places_5_to_7_horses"])
-    places_8plus = int(payout_rules["places_8_or_more_horses"])
+    # WR-04 (iteration 3): places_5_to_7_horses / places_8_or_more_horses は参考値のため
+    # payout_places 計算には不使用（実計算は HR 払戻馬番数 payout_count を使用）。spec 上は
+    # JRA 規則の参考値として保持する。
     no_sale = int(payout_rules["no_sale_marker_value"])
     source_confidence = spec["sales_start_entry_count"]["source_confidence"]
     label_version = spec["label_generation_version"]
@@ -638,38 +638,25 @@ def compute_fukusho_labels(
             merged[required] = pd.NA
     merged = _canonicalize_markers(merged, spec=spec)
 
-    # --- fukusho_payout_places（syussotosu ベース・WR-04 修正）---
-    # WR-04（iteration 2）: 払戻対象頭数は「実際出走頭数（syussotosu）」で決まる。
-    # 取消・除外で syussotosu < torokutosu となるレースでは払戻対象頭数が減る
-    # （例: 登録8頭でも取消1頭で実7頭出走 → 2頭払い・2着まで）。
-    # 旧 Pitfall 3（torokutosu ベース）は実DB観測で誤りと判明（7件 validated drift
-    # のうち5件は torokutosu ベース3頭払い計算が原因）。is_fukusho_sale_available
-    # （発売の有無・出馬表発表時決定）と sales_start_entry_count 代理値は引き続き
-    # torokutosu を使用する（下記）。
-    def _payout_places(t: Any) -> int:
-        if t is None or _is_na(t):
-            return no_sale
-        # CR-03: pd.NA / 異常値（空文字・英字混じり）経由の TypeError/ValueError を
-        # ガードする。pd.NA は _is_na で捕捉されるが、Int64 nullable dtype 等で
-        # 残存した場合の int(pd.NA) TypeError を try/except で回収し no_sale にする。
-        try:
-            ti = int(float(t))
-        except (TypeError, ValueError):
-            return no_sale
-        if ti >= 8:
-            return places_8plus
-        if min_torokutosu <= ti <= 7:
-            return places_5_7
-        return no_sale
-
-    merged["fukusho_payout_places"] = merged["syussotosu_i"].map(_payout_places)
+    # --- fukusho_payout_places（HR 払戻馬番数 payout_count ベース・WR-04 iteration 3 最終）---
+    # WR-04（iteration 3・最終）: 払戻対象頭数は **HR ``PayFukusyoUmaban`` の実際の払戻馬番数
+    # （``payout_count`` = 非``'00'`` slot 数）** で決定する（D-01 厳格・spec note の本来の意図）。
+    # ``torokutosu``（登録・出馬表発表時）/``syussotosu``（完走）は代理値に過ぎず、
+    # 発走前取消・発走後中止レースで実際の払戻馬番数と一致しないため ``payout_places`` 計算
+    # には不使用。実DB観測で 5件の発走前取消レース（torokutosu=8 でも HR 払戻2頭）・
+    # 2022/07 R8 の発走後中止レース（syussotosu=4 でも HR 払戻2頭）の双方で torokutosu /
+    # syussotosu が誤るが payout_count は唯一正しいことが判明した。
+    # ``places_5_to_7_horses``(2) / ``places_8_or_more_horses``(3) は JRA 規則の参考値で
+    # 実計算には不使用（同着拡張で payout_count が 4-5 になる場合は HR 観測事実に従う）。
+    # HR merge が left join で HR 欠損行（unresolved）では ``payout_count`` が NaN になる
+    # ため ``fillna(0)`` で ``no_sale_marker_value`` に正規化する（D-13 silent fallback 禁止）。
+    merged["fukusho_payout_places"] = merged["payout_count"].fillna(no_sale).astype(int)
 
     # --- is_fukusho_sale_available: torokutosu >= 5 AND fuseirituflag2 != '1' ---
-    # WR-04（iteration 2）: 複勝発売の有無は「出馬表発表時（登録時）」に決まるため
+    # WR-04（iteration 3）: 複勝発売の有無は「出馬表発表時（登録時）」に決まるため
     # torokutosu（= sales_start_entry_count 代理値）ベースのまま変更しない。
-    # 発売あり（torokutosu >= 5）だが当日取消で syussotosu < 5 になる境界では、
-    # payout_places が 0（不成立）になるが is_fukusho_sale_available=True のまま残る。
-    # これは「発売はあったが対象頭数に満たず不成立」の正当な状態。
+    # 発売あり（torokutosu >= 5）だが HR 払戻が無い（payout_places=0・不成立）場合でも
+    # is_fukusho_sale_available=True は正当（「発売されたが不成立」の正当な状態）。
     fuseiritu = (
         merged["fuseirituflag2"].map(_safe_str)
         if "fuseirituflag2" in merged.columns
@@ -724,27 +711,44 @@ def compute_fukusho_labels(
     )
 
     # --- is_dead_heat（payout-table authoritative・MEDIUM #2: DochacoTosu は参考値）---
-    def _is_dh(r: pd.Series) -> bool:
-        pp = r["fukusho_payout_places"]
-        pc = r.get("payout_count", 0)
-        # CR-03: pd.NA / 異常値経由の TypeError/ValueError をガード。
-        # pp は _payout_places の戻り値（常に int）だが、pc は HR merge が left join
-        # で HR 欠損行では NaN になる経路があるため _is_na で保護し、更に try/except
-        # で予期せぬ型変換例外を回収する。
-        if pp is None or _is_na(pp):
-            return False
+    # WR-04 (iteration 3): ``fukusho_payout_places`` を ``payout_count`` と等価にした結果、
+    # ``payout_count > fukusho_payout_places`` は常に False になる。同着検出は JRA 規則の
+    # 理論枠（5-7頭→2・8+頭→3）を ``syussotosu_i`` から算出し、HR がそれを超えて slot4/5 を
+    # 使用した場合（``payout_count > jra_expected_max``）に dead_heat と判定する。これは
+    # spec の本来の意図「HR PayFukusyoUmaban slot4/5 使用が唯一の権威ある同着検出」を維持。
+    def _jra_expected_max(t: Any) -> int:
+        """JRA 規則の理論払戻対象頭数を返す（5-7頭→2・8+頭→3・それ以外は0）。
+
+        ``syussotosu_i``（実際出走頭数）を用いる。dead_heat 検出の比較基準としてのみ使用。
+        """
+        if t is None or _is_na(t):
+            return 0
         try:
-            pp_i = int(pp)
+            ti = int(float(t))
         except (TypeError, ValueError):
-            return False
-        if pp_i <= 0:
-            return False
+            return 0
+        if ti >= 8:
+            return int(spec["payout_places_rules"]["places_8_or_more_horses"])
+        if min_torokutosu <= ti <= 7:
+            return int(spec["payout_places_rules"]["places_5_to_7_horses"])
+        return 0
+
+    def _is_dh(r: pd.Series) -> bool:
+        pc = r.get("payout_count", 0)
+        syus = r.get("syussotosu_i")
+        # CR-03: pd.NA / 異常値経由の TypeError/ValueError をガード。
+        # pc は HR merge が left join で HR 欠損行では NaN になる経路があるため _is_na で保護し、
+        # 更に try/except で予期せぬ型変換例外を回収する。
         if pc is None or _is_na(pc):
             return False
         try:
-            return int(pc) > pp_i
+            pc_i = int(pc)
         except (TypeError, ValueError):
             return False
+        if pc_i <= 0:
+            return False
+        # JRA 理論枠を超えて slot4/5 が使用されていれば dead_heat
+        return pc_i > _jra_expected_max(syus)
 
     merged["is_dead_heat"] = merged.apply(_is_dh, axis=1)
 
