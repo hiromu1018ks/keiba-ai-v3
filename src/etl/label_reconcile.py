@@ -53,7 +53,7 @@ from typing import Any
 import pandas as pd
 from psycopg import Cursor
 
-from src.etl.filters import PROJECT_WINDOW_FILTER
+from src.etl.filters import PROJECT_WINDOW_FILTER, project_window_filter
 from src.etl.fukusho_label import load_label_spec
 from src.etl.quality_gate import CheckResult
 
@@ -94,11 +94,10 @@ def _valid_ineligibility_reasons() -> frozenset[str]:
 UNRESOLVED_THRESHOLD: float = 0.01
 
 # JOIN 用に ``label.fukusho_label`` 側（alias ``l``）で修飾した PROJECT_WINDOW_FILTER。
-# Rule 1 (live schema): JOIN クエリでは ``jyocd`` / ``year`` が複数テーブルに存在し
-# ambiguous になるため、単一テーブル SELECT には ``PROJECT_WINDOW_FILTER`` を使い、
-# JOIN には ``_LABEL_WINDOW_FILTER`` を使う（l.year は int・l.jyocd は varchar で元の
-# filter の ``year::int >= 2015`` / ``jyocd BETWEEN '01' AND '10'`` と整合）。
-_LABEL_WINDOW_FILTER = "l.jyocd BETWEEN '01' AND '10' AND l.year::int >= 2015"
+# CR-06: ``_LABEL_WINDOW_FILTER`` を廃止し ``filters.project_window_filter("l")`` を
+# 使用する（filters.py を単一ソースに）。``label.fukusho_label.year`` は int だが
+# ``year::int`` は Postgres の暗黙キャストで ``int::int`` となり無害。
+_LABEL_WINDOW_FILTER = project_window_filter("l")
 
 
 # ---------------------------------------------------------------------------

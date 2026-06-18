@@ -36,4 +36,28 @@ JRA_FILTER = "jyocd BETWEEN '01' AND '10'"
 PROJECT_WINDOW_FILTER = "jyocd BETWEEN '01' AND '10' AND year::int >= 2015"
 
 
-__all__ = ["JRA_FILTER", "PROJECT_WINDOW_FILTER"]
+def project_window_filter(alias: str = "") -> str:
+    """PROJECT_WINDOW_FILTER を alias 修飾で返す（CR-06 JOIN クエリ用）。
+
+    JOIN クエリで ``year`` / ``jyocd`` が複数テーブルに現れ ambiguous になる
+    場合に ``alias`` を付けて修飾したフィルタを返す。alias が空の場合は
+    PROJECT_WINDOW_FILTER と同一の文字列を返す。
+
+    Args:
+        alias: テーブル alias（例: ``"l"`` / ``"hr"``）。空文字なら無修飾。
+
+    Returns:
+        ``"{alias}.jyocd BETWEEN '01' AND '10' AND {alias}.year::int >= 2015"``
+        （alias="" の場合は ``PROJECT_WINDOW_FILTER`` と同一）
+
+    Note:
+        本 helper は単一ソース原則を守るための JOIN クエリ用 API。
+        単一テーブル SELECT には無修飾 ``PROJECT_WINDOW_FILTER`` を使う。
+        ``label.fukusho_label.year`` は ``int``（varchar でない）だが、
+        ``year::int`` は Postgres の暗黙キャストで ``int::int`` となり無害。
+    """
+    p = f"{alias}." if alias else ""
+    return f"{p}jyocd BETWEEN '01' AND '10' AND {p}year::int >= 2015"
+
+
+__all__ = ["JRA_FILTER", "PROJECT_WINDOW_FILTER", "project_window_filter"]
