@@ -169,7 +169,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Trust & Foundation | 4/4 | Complete    | 2026-06-17 |
-| 2. Fukusho Labels | 4/4 | Complete   | 2026-06-18 |
+| 2. Fukusho Labels | 4/4 | Complete    | 2026-06-18 |
 | 3. As-of Features & Snapshots | 0/TBD | Not started | - |
 | 4. Model & Prediction | 0/TBD | Not started | - |
 | 5. EV & Backtest | 0/TBD | Not started | - |
