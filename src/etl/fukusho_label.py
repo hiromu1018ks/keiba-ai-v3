@@ -1014,12 +1014,10 @@ def run_label_etl(
     """
     if settings is None:
         settings = Settings()
-    reader_role = getattr(settings, "db_reader_role", None) or "keiba_readonly"
-    if not getattr(settings, "db_reader_role", None):
-        logger.warning(
-            "Settings.db_reader_role が未設定のため default 'keiba_readonly' を使用します "
-            "（HIGH #3: reader ロール明示 GRANT）"
-        )
+    # WR-09: Settings.db_reader_role は ``str = \"keiba_readonly\"``（settings.py:46）で
+    # getattr は常に非 None を返すため、未設定警告を発火できないデッドロジックを削除。
+    # 明示的に settings.db_reader_role を使用する（HIGH #3 reader ロール明示 GRANT 用）。
+    reader_role = settings.db_reader_role
 
     # --- READ（readonly pool）---
     with read_pool.connection() as conn:
@@ -1027,6 +1025,10 @@ def run_label_etl(
             hr_df = _select_raw_harai(cur)
             se_df = _select_se_state(cur)
             race_df = _select_race_meta(cur)
+        # WR-08: SELECT only だが明示的に rollback し read transaction を確実に閉じる
+        # （psycopg_pool は context manager 抜けで自動 rollback するが、明示することで
+        # 後続する write_pool の staging-swap とのロック衝突を構造的に防ぐ）。
+        conn.rollback()
 
     # --- TRANSFORM ---
     label_df = compute_fukusho_labels(hr_df, se_df, race_df)
