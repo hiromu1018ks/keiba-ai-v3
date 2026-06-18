@@ -62,9 +62,8 @@ def main() -> int:
             "raw fingerprint before label ETL: row_counts=%s",
             {k: v for k, v in before["row_count"].items()},
         )
-        # readonly transaction を閉じる（ETL の raw SELECT とロック衝突回避）
-        with read_pool.connection() as conn:
-            conn.rollback()
+        # WR-11: 直前の with ブロック抜けで psycopg_pool が自動 rollback するため、
+        # 明示的な2回目 connection 取得 + rollback は不要（デッドコード削除）。
 
         # --- ETL 1回目実行 ---
         result1 = run_label_etl(read_pool, write_pool, settings=settings)
