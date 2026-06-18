@@ -696,24 +696,26 @@ def _compute_race_level_agreement(
     # HR payout set を race 単位で取得（ホールドアウト対象のみ）
     # race_key → set of zero-padded umaban from PayFukusyoUmaban1..5
     # Rule 1 (live schema): hr.year/kaiji/racenum は varchar・rk の year/kaiji/racenum は
-    # label 由来 int のため ``::int`` で比較。jyocd/nichiji は両側 varchar・rk も varchar だが
-    # SQL リテラルとして '' で囲む必要がある（format が quote しないため手動で囲む）。
-    where_race_keys = " OR ".join(
-        f"(hr.year::int={rk[0]} AND hr.jyocd='{rk[1]}' AND hr.kaiji::int={rk[2]} AND hr.nichiji='{rk[3]}' AND hr.racenum::int={rk[4]})"
-        for rk in held_out_list
-    )
-    # ↑ race_key を直接 SQL に展開（int/varchar 混在だが PostgreSQL が暗黙キャストする）。
-    # psycopg3 のパラメータ埋め込みで安全に構築すべきだが、held_out_list は DB から取得した
-    # PK 値（SQL injection source ではない）のため展開方式で可読性を優先する。
+    # label 由来 int のため ``::int`` で比較。jyocd/nichiji は両側 varchar。
+    # CR-02: psycopg3 パラメータ化 + UNNEST で set-based 比較に変更（defense-in-depth・
+    # jyocd/nichiji が varchar で EveryDB2 データ品質に依存するため文字列展開を廃止）。
+    years = [rk[0] for rk in held_out_list]
+    jyocds = [rk[1] for rk in held_out_list]
+    kaijis = [rk[2] for rk in held_out_list]
+    nichijis = [rk[3] for rk in held_out_list]
+    racenums = [rk[4] for rk in held_out_list]
     hr_sql = f"""
         SELECT year, jyocd, kaiji, nichiji, racenum,
                payfukusyoumaban1, payfukusyoumaban2, payfukusyoumaban3,
                payfukusyoumaban4, payfukusyoumaban5
         FROM public.n_harai hr
         WHERE {PROJECT_WINDOW_FILTER}
-          AND ({where_race_keys})
+          AND (hr.year::int, hr.jyocd, hr.kaiji::int, hr.nichiji, hr.racenum::int)
+              IN (SELECT * FROM unnest(
+                      %s::int[], %s::text[], %s::int[], %s::text[], %s::int[]
+                  ) AS t(year, jyocd, kaiji, nichiji, racenum))
     """
-    cur.execute(hr_sql)
+    cur.execute(hr_sql, (years, jyocds, kaijis, nichijis, racenums))
     hr_rows = cur.fetchall()
 
     hr_payout_sets: dict[tuple, set[str]] = {}
