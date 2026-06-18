@@ -63,17 +63,31 @@ logger = logging.getLogger(__name__)
 # 定数
 # ---------------------------------------------------------------------------
 
-# 不適格理由コード（label_spec.yaml ineligibility_reason_codes と同一集合）。
+# 不適格理由コード（label_spec.yaml ineligibility_reason_codes から load）。
 # HIGH #6: _check_dead_loss_not_excluded はこの正当理由リストに入っていない行のみ passed=False とする。
-_VALID_INELIGIBILITY_REASONS: tuple[str, ...] = (
-    "obstacle",
-    "newcomer",
-    "no_fukusho_sale",
-    "unresolved",
-    "race_or_horse_cancelled",
-    "class_below_minimum",
-    "status_not_eligible",
-)
+# WR-03: ハードコード tuple を廃止し label_spec.yaml から frozenset で構築（D-07 単一の正・D-13 維持）。
+# キャッシュ: 初回呼出で spec を load し frozenset を構築・2回目以降はキャッシュを返す。
+_VALID_INELIGIBILITY_REASONS_CACHE: frozenset[str] | None = None
+
+
+def _valid_ineligibility_reasons() -> frozenset[str]:
+    """``label_spec.yaml`` の ``ineligibility_reason_codes`` から frozenset を構築して返す（WR-03）。
+
+    spec にキーが無い場合は ValueError で fail-fast する（D-13 silent fallback 禁止）。
+    同一内容を label_reconcile.py にハードコードしていた二重管理を解消。
+    """
+    global _VALID_INELIGIBILITY_REASONS_CACHE
+    if _VALID_INELIGIBILITY_REASONS_CACHE is not None:
+        return _VALID_INELIGIBILITY_REASONS_CACHE
+    spec = load_label_spec()
+    codes = spec.get("ineligibility_reason_codes")
+    if not isinstance(codes, list) or not codes:
+        raise ValueError(
+            "label_spec.yaml.ineligibility_reason_codes が未設定または空です "
+            "(D-13 silent fallback 禁止・WR-03)"
+        )
+    _VALID_INELIGIBILITY_REASONS_CACHE = frozenset(str(c) for c in codes)
+    return _VALID_INELIGIBILITY_REASONS_CACHE
 
 # W3 / SC#3: unresolved 割合の監視閾値（1%）。超過時は threshold_exceeded フラグを立てる
 # （verdict には影響しない・D-02 一貫・参考レポート）。
@@ -372,8 +386,9 @@ def _check_dead_loss_not_excluded(cur: Cursor) -> CheckResult:
     SQL 制約: ``is_dead_loss=true AND is_model_eligible=false AND
     (ineligibility_reason IS NULL OR ineligibility_reason NOT IN (...正当理由...))``
     """
-    # 正当理由リストを SQL IN 句用に構築（ハードコードで安全性確保・D-13）
-    valid_reasons_sql = ", ".join(f"'{r}'" for r in _VALID_INELIGIBILITY_REASONS)
+    # 正当理由リストを SQL IN 句用に構築（WR-03: label_spec.yaml から load・D-13 維持）
+    valid_reasons = sorted(_valid_ineligibility_reasons())
+    valid_reasons_sql = ", ".join(f"'{r}'" for r in valid_reasons)
     sql = f"""
         SELECT count(*) FROM label.fukusho_label
         WHERE {PROJECT_WINDOW_FILTER}
@@ -391,7 +406,7 @@ def _check_dead_loss_not_excluded(cur: Cursor) -> CheckResult:
             "count": cnt,
             "sample_size": None,
             "method": "dead_loss_only_constrained",
-            "excluded_reasons_list": list(_VALID_INELIGIBILITY_REASONS),
+            "excluded_reasons_list": sorted(_valid_ineligibility_reasons()),
             "description": (
                 "競走中止馬（is_dead_loss=true）が正当理由（obstacle/newcomer/...）なしに"
                 "除外された件数。HIGH #6: dead_loss_only 制約。"
