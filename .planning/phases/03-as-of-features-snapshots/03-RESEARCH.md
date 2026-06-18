@@ -647,14 +647,14 @@ features:
 - `trackcd`/`coursekubuncd` を raw から直接 SELECT するか、`normalized` 層に追加するか（D-06 raw read-only に合致する範囲で raw SELECT も可）
 - `snapshots/` 配下の manifest YAML を git 管理するか（Parquet バイナリは `.gitignore` 必須）
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **`trackcd` 等の未収録カラムの扱い** — `normalized.n_race` には `trackcd`/`coursekubuncd`/`sibababacd`/`dirtbabacd`/`tenkocd` が収録されていない（Phase 1 ETL が RA 110フィールドから主要15程度に絞った）。Phase 3 は (a) `public.n_race` から readonly で直接 SELECT（D-06 raw read-only 許容範囲）するか、(b) `src/etl/normalize.py` を拡張して normalized 層に追加するか。
+1. **`trackcd` 等の未収録カラムの扱い** — `RESOLVED:` (a) raw_everydb2 VIEW から readonly SELECT を採用（下記 Recommendation 参照・feature_availability.yaml の `source_table: raw_everydb2.n_race` で明示・D-06 raw read-only 許容範囲）。**元の question:** `normalized.n_race` には `trackcd`/`coursekubuncd`/`sibababacd`/`dirtbabacd`/`tenkocd` が収録されていない（Phase 1 ETL が RA 110フィールドから主要15程度に絞った）。Phase 3 は (a) `public.n_race` から readonly で直接 SELECT（D-06 raw read-only 許容範囲）するか、(b) `src/etl/normalize.py` を拡張して normalized 層に追加するか。
    - **What we know:** Phase 1 SC#2 は「raw を直接加工せず normalized を別テーブルで生成」を求めた。readonly SELECT は加工ではない。`raw_everydb2` VIEW 層が既に SELECT 用意（`schema.py` の `RAW_VIEW_TABLES`）。
    - **What's unclear:** normalized 層の typed/cast 済データと raw varchar を混ぜる手間。`trackcd` は varchar のまま扱える（カテゴリ feature）。
    - **Recommendation:** **(a) raw_everydb2 VIEW から readonly SELECT**。`src/etl/filters.project_window_filter('r')` で JRA フィルタを適用。normalized 拡張は Phase 1 ETL 契約（staging-swap idempotent）を再実行する手間で、Phase 3 スコープを広げる。feature_availability.yaml には `source_table: raw_everydb2.n_race` と明示（監査可能）。但し `sibababacd`/`dirtbabacd` は禁止カラム（race_day_morning/post_race_only・馬場状態）なので、feature matrix には入らない点は allowlist が保護。
 
-2. **`ijyocd` 異常区分 5（1件のみ）の扱い** — 実 DB で ijyocd='5' は 2024年に1件のみ。EveryDB2 マニュアルでは明確に定義されない稀ケース。
+2. **`ijyocd` 異常区分 5（1件のみ）の扱い** — `RESOLVED:` feature 構築では「異常区分=0（正常）以外は過去走から除外」で運用（下記 Recommendation 参照・1件の影響は無視可能・allowlist には関与しない）。**元の question:** 実 DB で ijyocd='5' は 2024年に1件のみ。EveryDB2 マニュアルでは明確に定義されない稀ケース。
    - **Recommendation:** feature 構築では「異常区分=0（正常）以外は過去走から除外」で運用。1件の影響は無視できる。allowlist には関与しない。
 
 ## Environment Availability
