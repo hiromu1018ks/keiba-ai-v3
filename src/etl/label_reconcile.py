@@ -448,29 +448,34 @@ def _check_no_fukusho_sale_not_in_training(cur: Cursor) -> CheckResult:
 # ---------------------------------------------------------------------------
 def _check_raw_validated_drift(cur: Cursor) -> CheckResult:
     """HIGH #2 独立 cross-check: ``fukusho_hit_raw``（KakuteiJyuni-based・HR と独立ソース）と
-    ``fukusho_hit_validated`` の drift を報告（INFO・量化レポート）。
+    ``fukusho_hit_validated`` の drift を ``label_validation_status`` 別に分類して報告する。
 
-    **REVIEWS HIGH #2 核心:** この検査は HR payout set と ``fukusho_hit_validated`` を比較する
-    ``_check_payout_precision`` / ``_check_payout_recall``（BLOCK）だけでは「HR-derived label を
-    HR に逆 JOIN する tautology」になるため、``fukusho_hit_raw``（SE ``KakuteiJyuni``-based・HR と
-    独立のソース）との drift を独立に検査する。
+    **CR-01 精密化（ユーザー承認済み・実DB 確認に基づく）:**
 
-    **Rule 1 (live DB discovery, see SUMMARY):** Plan 02-04 の元設計は「drift 行は全て dead_heat
-    status であるべき = BLOCK」と想定していたが、実DB（554,267 行）では drift は以下の
-    D-04-legitimate なケースでも正当に発生する:
-      - ``dead_heat``: payout set が理論対象数を超えて拡張（slot4/5 使用）→ raw と valid が正当に乖離
-      - ``unresolved`` (race_cancelled): レース全体中止で KakuteiJyuni が無い馬が HR payout slot に
-        含まれる場合 → raw=0 / valid=1 が正当に乖離（D-04: outcome 非確定で unresolved 隔離済み）
-      - ``validated``: SE と HR の源泉データ不一致（SE kakuteijyuni と HR PayFukusyoUmaban が
-        矛盾）。label は D-04 で HR payout を権威として正しく採用している（``fukusho_hit_validated``
-        は HR と一致・precision/recall BLOCK 検査で保証済み）。これは ETL bug ではなく source data
-        quality issue → INFO レポートが適切。
+    drift を ``label_validation_status`` で分類し、severity を切替える:
 
-    従って本検査は **severity='info'** で drift の量と status 別内訳を報告し、label 自体の正当性は
-    precision/recall BLOCK 検査（label↔HR 直接照合）が保証する。D-02 一貫: 構造的欠陥=BLOCK
-    （precision/recall）・量化ドリフト=INFO（drift）。
+      - drift かつ ``label_validation_status IN ('unresolved', 'dead_heat')`` → ``severity='info'``
+        * unresolved (race_cancelled): KakuteiJyuni が無い馬が HR payout slot に含まれる等
+          （D-04-legitimate・6af3b00 判断を尊重）
+        * dead_heat: payout set が slot4/5 に拡張（D-04-legitimate）
+      - drift かつ ``label_validation_status IN ('validated', 'inferred')`` → ``severity='block'``
+        * validated/inferred での drift は SE ``KakuteiJyuni`` と HR ``PayFukusyoUmaban`` が
+          矛盾する genuine な誤りを意味し、label が間違っている可能性がある。precision/recall
+          検査（label↔HR 直接 JOIN）は「HR-derived label を HR と比較する tautology」であるため
+          これを検知できず、SE との独立 cross-check だけが検知経路になる（HIGH #2 核心）。
+
+    **REVIEWS HIGH #2 核心（再掲）:** ``_check_payout_precision`` / ``_check_payout_recall`` は
+    ``fukusho_hit_validated`` を HR payout と JOIN して比較する tautology であるため、HR payout
+    自身の誤り（例: ``payfukusyoumaban3`` の入力ミス）を検知できない。SE ``KakuteiJyuni`` と
+    の cross-check だけが独立ソースによる検証になる。
+
+    **運用上の注意:** 本修正により実DB の既知7件の validated drift が BLOCK で捕捉され、
+    LABEL-03 gate が fail する。これは想定通り（genuine な矛盾の検知）。既知7件の運用対応
+    （許容リスト等）は別タスク（REVIEW-FIX.md 参照）。
     """
     columns: dict[str, Any] = {}
+    # CR-01: BLOCK 対象 drift（validated/inferred status の drift）
+    block_drift_statuses = ("validated", "inferred")
     try:
         # drift 総行数
         cur.execute(
@@ -495,6 +500,20 @@ def _check_raw_validated_drift(cur: Cursor) -> CheckResult:
         non_dead_heat_drift_count = int(cur.fetchone()[0])
         columns["non_dead_heat_drift_count"] = non_dead_heat_drift_count
 
+        # CR-01: validated/inferred status での drift（genuine な矛盾 = BLOCK 対象）
+        block_status_sql = ", ".join(f"'{s}'" for s in block_drift_statuses)
+        cur.execute(
+            f"""
+            SELECT count(*) FROM label.fukusho_label
+            WHERE {PROJECT_WINDOW_FILTER}
+              AND fukusho_hit_raw != fukusho_hit_validated
+              AND label_validation_status IN ({block_status_sql})
+            """
+        )
+        serious_drift_count = int(cur.fetchone()[0])
+        columns["serious_drift_count"] = serious_drift_count
+        columns["serious_drift_statuses"] = list(block_drift_statuses)
+
         # drift 行の status 別内訳（root-cause 分析用）
         cur.execute(
             f"""
@@ -507,19 +526,25 @@ def _check_raw_validated_drift(cur: Cursor) -> CheckResult:
         )
         status_breakdown = {str(r[0]): int(r[1]) for r in cur.fetchall()}
         columns["drift_status_breakdown"] = status_breakdown
-        columns["method"] = "independent_drift_classification"
+        columns["method"] = "status_aware_drift_classification"
         columns["description"] = (
             "fukusho_hit_raw と fukusho_hit_validated の drift 行数と status 別内訳。"
-            "HIGH #2 独立 cross-check（tautology 回避）。severity=info・label 正当性は "
-            "precision/recall BLOCK 検査が保証。"
+            "CR-01: validated/inferred status の drift を BLOCK（genuine な矛盾）、"
+            "unresolved/dead_heat status の drift を INFO（D-04-legitimate）に分類。"
+            "HIGH #2 独立 cross-check（tautology 回避）。"
         )
     except Exception as exc:  # noqa: BLE001
         columns["error"] = str(exc)
+        serious_drift_count = 0  # クエリ失敗時は安全側に倒す（verdict へ影響しない）
 
+    # CR-01: severity と passed を serious_drift_count で切替
+    # - validated/inferred drift > 0 → severity='block', passed=False（genuine な矛盾検知）
+    # - それ以外（drift 無し or unresolved/dead_heat drift のみ）→ severity='info', passed=True
+    is_block = serious_drift_count > 0
     return CheckResult(
         name="raw_validated_drift",
-        passed=True,
-        severity="info",
+        passed=not is_block,
+        severity="block" if is_block else "info",
         detail=columns,
     )
 
