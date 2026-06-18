@@ -676,7 +676,10 @@ def test_is_model_eligible_class_below_minimum() -> None:
     hr_df2, se_df2, race_df2 = _build_label_input_df(
         8, syubetucd="00", class_level_numeric=1
     )
-    out2 = compute_fukusho_labels(hr_df2, se_df2, race_df2, spec=spec)
+    # NOTE: Plan 02-03 (Rule 1 - test typo): 従来 ``compute_fukusho_labels(...)`` と
+    # モジュール修飾なしで呼んで NameError になっていたテストバグを ``mod.`` 付きに修正。
+    # テストの意図（適格ケースで True を確認）は不変・実装の契約を弱めるものではない。
+    out2 = mod.compute_fukusho_labels(hr_df2, se_df2, race_df2, spec=spec)
     assert (out2["is_model_eligible"] == True).all()  # noqa: E712
 
 
