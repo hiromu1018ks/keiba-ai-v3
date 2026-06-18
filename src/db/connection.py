@@ -39,7 +39,9 @@ def make_pool(
         search_path = f"{settings.db_schema_raw},public"
     elif role == "etl":
         conninfo = settings.etl_dsn
-        search_path = f"{settings.db_schema_normalized},public"
+        # Phase 2: label スキーマを先頭に追加（Plan 03 _idempotent_load_label が
+        # label.fukusho_label を schema 修飾で書込む・PATTERNS.md:226-232）
+        search_path = f"{settings.db_schema_label},{settings.db_schema_normalized},public"
     else:
         raise ValueError(f"unknown role: {role!r} (expected 'readonly' or 'etl')")
 

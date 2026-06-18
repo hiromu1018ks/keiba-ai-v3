@@ -83,6 +83,11 @@ GRANT SELECT ON ALL TABLES IN SCHEMA normalized TO {reader};
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO {reader};
 ALTER DEFAULT PRIVILEGES IN SCHEMA raw_everydb2 GRANT SELECT ON TABLES TO {reader};
 ALTER DEFAULT PRIVILEGES IN SCHEMA normalized GRANT SELECT ON TABLES TO {reader};
+-- Phase 2 label schema: reader ロール明示付与（REVIEWS HIGH #3: 汎用ロールへの付与は一切しない）
+-- 下流 Phase 3-5 の readonly ロールが label.fukusho_label を schema 修飾 SELECT するため（T-02-03）
+GRANT USAGE ON SCHEMA label TO {reader};
+GRANT SELECT ON ALL TABLES IN SCHEMA label TO {reader};
+ALTER DEFAULT PRIVILEGES IN SCHEMA label GRANT SELECT ON TABLES TO {reader};
 """
 
 GRANT_ETL_SQL = """
@@ -94,6 +99,12 @@ GRANT SELECT ON ALL TABLES IN SCHEMA raw_everydb2 TO {etl};
 -- normalized スキーマに対する書込権限（HIGH #6）
 GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA normalized TO {etl};
 ALTER DEFAULT PRIVILEGES IN SCHEMA normalized
+    GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON TABLES TO {etl};
+-- Phase 2 label schema: ETL ロールに label スキーマの USAGE+CREATE+書込を付与（Pitfall 6）
+-- staging-table-swap idempotent load が新規 _staging テーブル作成に CREATE を必要とする
+GRANT USAGE, CREATE ON SCHEMA label TO {etl};
+GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA label TO {etl};
+ALTER DEFAULT PRIVILEGES IN SCHEMA label
     GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON TABLES TO {etl};
 """
 

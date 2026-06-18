@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     db_port: int = 5432
     db_schema_raw: str = "public"
     db_schema_normalized: str = "normalized"
+    # Phase 2 label schema（db_schema_raw / db_schema_normalized と対称）
+    db_schema_label: str = "label"
+    # REVIEWS HIGH #3 支援: Plan 03 _idempotent_load_label が staging RENAME 後に
+    # GRANT SELECT ON label.fukusho_label TO {reader_role} を発行する際のロール名。
+    # TO PUBLIC ではなく明示的 reader ロール付与をコード上でも保証。
+    # デフォルト値は .env の KEIBA_DB_USER と一致すること（本プロジェクトでは keiba_readonly）。
+    db_reader_role: str = "keiba_readonly"
 
     # === normalized 書込ロール（REVIEWS HIGH #6） ===
     etl_db_user: str
