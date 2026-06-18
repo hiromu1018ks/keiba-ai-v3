@@ -211,6 +211,16 @@ def _select_se_state(read_cur: Cursor) -> pd.DataFrame:
         f"SELECT {tcols} FROM public.n_uma_race "
         f"WHERE {PROJECT_WINDOW_FILTER} AND datakubun IN ('7', '9')"
     )
+    # WR-05: 両 SELECT が同一フィルタ（PROJECT_WINDOW_FILTER + datakubun IN ('7','9')）
+    # を持つことを直接 assert する。片側だけ退化（'9' が落ちる等）で merge 後に
+    # timediff が NaN になる silent data loss を構造的に防止する。
+    _required_filter = f"WHERE {PROJECT_WINDOW_FILTER} AND datakubun IN ('7', '9')"
+    assert _required_filter in sql, (
+        f"WR-05: _SE_SELECT 側 SQL が期待フィルタを欠く: {sql!r}"
+    )
+    assert _required_filter in tsql, (
+        f"WR-05: _SE_TIMEDIFF_SELECT 側 SQL が期待フィルタを欠く: {tsql!r}"
+    )
     read_cur.execute(tsql)
     trows = read_cur.fetchall()
     timediff_df = pd.DataFrame(trows, columns=_SE_TIMEDIFF_SELECT_COLUMNS)

@@ -772,3 +772,29 @@ def test_select_se_state_no_row_multiplication_on_timediff_merge() -> None:
     assert has_length_check, (
         "merge 前後の行数一致 assertion が存在しない（HIGH #2 row-multiplication 防止）"
     )
+
+
+def test_select_se_state_both_selects_share_filter_assertion() -> None:
+    """WR-05 regression: _select_se_state が両 SELECT のフィルタ一致を直接 assert する。
+
+    基本 SELECT と timediff SELECT が共に ``datakubun IN ('7', '9')`` を持つことを
+    コード内で直接 assert する。片側だけフィルタが退化した場合（例: timediff 側だけ
+    ``'9'`` が落ちる）に silent data loss になるのを構造的に防止する。
+    """
+    mod = _get_fukusho_label_module()
+    src = inspect.getsource(mod._select_se_state)
+
+    # WR-05: 両 SELECT の SQL に同一フィルタ文字列が現れることを直接 assert する
+    # コードが含まれること。``_required_filter`` 系の assert 文の存在を検証する。
+    # 緩い表現（PROJECT_WINDOW_FILTER + datakubun IN ('7', '9') 系の記述）で検出。
+    filter_assertion_patterns = [
+        # assert ... in sql / assert ... in tsql 形式
+        r"assert\s+[^)]*\bin\s+(sql|tsql)\b",
+        # 両 SELECT で同一 ``datakubun IN ('7', '9')`` を再利用
+        r"['\"]datakubun\s+IN\s*\(\s*['\"]7['\"]\s*,\s*['\"]9['\"]\s*\)",
+    ]
+    matched = [p for p in filter_assertion_patterns if re.search(p, src, re.IGNORECASE)]
+    assert matched, (
+        "WR-05: _select_se_state が両 SELECT のフィルタ一致を直接 assert していない。"
+        f"マッチしたパターン: {matched}"
+    )
