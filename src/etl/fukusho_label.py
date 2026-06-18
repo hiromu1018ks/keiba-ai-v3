@@ -899,12 +899,15 @@ def _idempotent_load_label(
         f"INSERT INTO label.fukusho_label_staging ({cols_sql}) VALUES ({placeholders})",
         rows,
     )
-    # CR-04(c): executemany rowcount 検証
-    actual = write_cur.rowcount if write_cur.rowcount is not None else len(rows)
+    # WR-06: psycopg3 executemany の rowcount は pipeline mode / PG バージョンで
+    # PQcmdTuples の挙動が変わるため信用できない。INSERT 後に SELECT count(*) で
+    # staging テーブルの実際の行数を検証する（CR-04 rowcount verification の後継）。
+    write_cur.execute("SELECT count(*) FROM label.fukusho_label_staging")
+    actual = int(write_cur.fetchone()[0])
     if actual != len(rows):
         raise RuntimeError(
-            f"_idempotent_load_label: executemany inserted {actual}, "
-            f"expected {len(rows)} (CR-04 rowcount verification)"
+            f"_idempotent_load_label: staging table has {actual} rows, "
+            f"expected {len(rows)} (WR-06 rowcount verification via SELECT count(*))"
         )
 
     # atomic swap: DROP existing → RENAME staging → table
