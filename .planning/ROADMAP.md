@@ -90,7 +90,20 @@ Plans:
   3. A developer can write a Parquet snapshot whose embedded metadata block contains `dataset_version`, `feature_snapshot_id`, `label_generation_version`, `feature_cutoff_datetime`, `prediction_timing`, and train/val period bounds — and re-reading the snapshot reproduces identical bytes (immutability verified by hash)
   4. Frozen category maps are fit on the training window only, persisted alongside the snapshot, and applied to val/test with unknown IDs mapping to `__UNSEEN__` (not NaN)
 
-**Plans**: TBD
+**Plans**: 4 plans in 3 waves
+Plans:
+**Wave 1**
+
+- [ ] 03-01-PLAN.md — Wave 1 基盤（features package + feature_availability.yaml 25エントリ拡充 + availability loader + RED テスト stub 集群 SC#1-#4/D-03/D-04/D-05/D-06/D-09）— FEAT-01/02
+- [ ] 03-02-PLAN.md — Wave 1 Phase 2 負債解消（label_race_date_backfill.py・staging-swap idempotent・cutoff 前提）— FEAT-01 前提
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 03-03-PLAN.md — Wave 2 feature builder 本体（builder.py + rolling.py 9系統×3軸 + running_style.py 推定脚質・pit_join_backward 消費・明示カラム SELECT・SC#1/#2 GREEN）— FEAT-01/02
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 03-04-PLAN.md — Wave 3 snapshot writer + category_map_consumer + CLI（PyArrow 決定論的書込・§12.4 metadata・SHA256 byte-repro・train窓fit/__UNSEEN__・SC#3/#4 GREEN）— FEAT-01/02
 
 ### Phase 4: Model & Prediction
 
@@ -170,7 +183,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 |-------|----------------|--------|-----------|
 | 1. Trust & Foundation | 4/4 | Complete    | 2026-06-17 |
 | 2. Fukusho Labels | 4/4 | Complete    | 2026-06-18 |
-| 3. As-of Features & Snapshots | 0/TBD | Not started | - |
+| 3. As-of Features & Snapshots | 0/4 | Not started | - |
 | 4. Model & Prediction | 0/TBD | Not started | - |
 | 5. EV & Backtest | 0/TBD | Not started | - |
 | 6. Evaluation & Calibration Gates | 0/TBD | Not started | - |
