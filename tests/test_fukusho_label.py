@@ -307,6 +307,77 @@ def test_payout_places_uses_torokutosu_not_syussotosu() -> None:
     assert (out["fukusho_payout_places"] == 3).all()
 
 
+def test_payout_places_and_is_dh_handle_pd_na_and_abnormal_values() -> None:
+    """CR-03 regression: torokutosu が pd.NA / np.float64(nan) / 空文字 / 英字混じりの場合に
+    TypeError を起こさず no_sale に正規化されること。
+
+    _payout_places の int() 変換で pd.NA が TypeError になる経路（Int64 nullable dtype
+    等で発生し得る）と異常 varchar 値（pd.to_numeric → nan）の両方をガードする。
+    仕様境界（payout_places_rules）は変更しない。
+    """
+    spec = _load_label_spec()
+    mod = _get_fukusho_label_module()
+    no_sale = int(spec["payout_places_rules"]["no_sale_marker_value"])
+
+    # 4パターンの異常 torokutosu 値を1レースずつ作り、それぞれの fukusho_payout_places
+    # が no_sale になることを検証する。SE 側は正常马（8頭）で固定し HR 側の torokutosu
+    # のみ変える。
+    abnormal_values = [
+        pd.NA,                  # pandas NA・str(pd.NA)='<NA>' で TypeError 経路
+        np.float64("nan"),      # numpy nan・_is_na で捕捉される経路
+        "",                     # 空文字・pd.to_numeric(errors='coerce') → nan
+        "abc",                  # 英字混じり・pd.to_numeric(errors='coerce') → nan
+    ]
+    for bad in abnormal_values:
+        hr_df, se_df, race_df = _build_label_input_df(8, hr_overrides={"torokutosu": bad})
+        # pd.NA は dict 経由で DataFrame に入ると object dtype になる。
+        # compute_fukusho_labels 内の pd.to_numeric(errors='coerce') が nan を返し、
+        # _payout_places の _is_na 分岐 / try-except 分岐で no_sale になる。
+        out = mod.compute_fukusho_labels(hr_df, se_df, race_df, spec=spec)
+        assert (out["fukusho_payout_places"] == no_sale).all(), (
+            f"CR-03: torokutosu={bad!r} で fukusho_payout_places が no_sale({no_sale}) "
+            f"でない行がある: {out['fukusho_payout_places'].tolist()}"
+        )
+        # is_dead_heat も TypeError を起こさず False になること（payout_places <= 0 で早期 False）
+        assert (out["is_dead_heat"] == False).all()  # noqa: E712
+
+
+def test_is_dh_handles_hr_missing_payout_count_nan() -> None:
+    """CR-03 regression: HR merge が left join で HR 欠損行の payout_count が NaN に
+    なる経路で _is_dh が TypeError を起こさず False を返すこと。
+
+    SE 行が存在するが HR 側にレースが無い（unresolved）ケースを模倣し、
+    payout_count が NaN でも is_dead_heat=False になることを検証する。
+    """
+    spec = _load_label_spec()
+    mod = _get_fukusho_label_module()
+    # HR を空（payout_count が NaN になる）にするため空 DataFrame を渡す
+    # （test_unresolved_triggers_hr_missing と同等のシナリオ）。
+    se_df = pd.DataFrame([_build_se_row(u) for u in range(1, 9)])
+    # HR 列だけ定義された空 DataFrame（compute_fukusho_labels が merge で left join し、
+    # HR 系列が NaN になる）
+    hr_df = pd.DataFrame(
+        columns=[
+            "year", "monthday", "jyocd", "kaiji", "nichiji", "racenum", "datakubun",
+            "torokutosu", "syussotosu", "fuseirituflag2", "tokubaraiflag2", "henkanflag2",
+            "payfukusyoumaban1", "payfukusyoumaban2", "payfukusyoumaban3",
+            "payfukusyoumaban4", "payfukusyoumaban5",
+        ]
+    )
+    race_df = pd.DataFrame(
+        [
+            {
+                "year": "2023", "jyocd": "05", "kaiji": "01", "nichiji": "01",
+                "racenum": "01", "syubetucd": "00", "class_level_numeric": 2,
+            }
+        ]
+    )
+    out = mod.compute_fukusho_labels(hr_df, se_df, race_df, spec=spec)
+    # HR 欠損行では is_dead_heat が TypeError で crash せず False になる
+    assert "is_dead_heat" in out.columns
+    assert (out["is_dead_heat"] == False).all()  # noqa: E712
+
+
 def test_canonicalize_markers_raw_string_form() -> None:
     """REVIEWS HIGH #5: raw varchar 表現で marker 判定が正しいこと。
 

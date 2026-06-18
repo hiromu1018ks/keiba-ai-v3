@@ -637,7 +637,13 @@ def compute_fukusho_labels(
     def _payout_places(t: Any) -> int:
         if t is None or _is_na(t):
             return no_sale
-        ti = int(t)
+        # CR-03: pd.NA / 異常値（空文字・英字混じり）経由の TypeError/ValueError を
+        # ガードする。pd.NA は _is_na で捕捉されるが、Int64 nullable dtype 等で
+        # 残存した場合の int(pd.NA) TypeError を try/except で回収し no_sale にする。
+        try:
+            ti = int(float(t))
+        except (TypeError, ValueError):
+            return no_sale
         if ti >= 8:
             return places_8plus
         if min_torokutosu <= ti <= 7:
@@ -704,11 +710,24 @@ def compute_fukusho_labels(
     def _is_dh(r: pd.Series) -> bool:
         pp = r["fukusho_payout_places"]
         pc = r.get("payout_count", 0)
-        if pp is None or _is_na(pp) or int(pp) <= 0:
+        # CR-03: pd.NA / 異常値経由の TypeError/ValueError をガード。
+        # pp は _payout_places の戻り値（常に int）だが、pc は HR merge が left join
+        # で HR 欠損行では NaN になる経路があるため _is_na で保護し、更に try/except
+        # で予期せぬ型変換例外を回収する。
+        if pp is None or _is_na(pp):
+            return False
+        try:
+            pp_i = int(pp)
+        except (TypeError, ValueError):
+            return False
+        if pp_i <= 0:
             return False
         if pc is None or _is_na(pc):
             return False
-        return int(pc) > int(pp)
+        try:
+            return int(pc) > pp_i
+        except (TypeError, ValueError):
+            return False
 
     merged["is_dead_heat"] = merged.apply(_is_dh, axis=1)
 
