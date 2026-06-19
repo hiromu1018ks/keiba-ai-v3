@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 03.1
 current_phase_name: timediff-babacd-rolling-restoration
-status: executing
-stopped_at: Phase 03.1 context gathered
-last_updated: "2026-06-19T09:12:51.091Z"
+status: phase_complete
+stopped_at: Phase 03.1 complete (all 4 plans executed)
+last_updated: "2026-06-19T10:30:00.000Z"
 last_activity: 2026-06-19
-last_activity_desc: Phase 03.1 execution started
+last_activity_desc: Phase 03.1 Plan 04 complete (live-DB snapshot rebuild + SC#1-4 実証)
 progress:
   total_phases: 9
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 17
-  completed_plans: 16
-  percent: 33
+  completed_plans: 17
+  percent: 35
 ---
 
 # Project State
@@ -28,12 +28,12 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 
 ## Current Position
 
-Phase: 03.1 (timediff-babacd-rolling-restoration) — EXECUTING
-Plan: 4 of 4
-Status: Ready to execute
-Last activity: 2026-06-19 — Phase 03.1 execution started
+Phase: 03.1 (timediff-babacd-rolling-restoration) — COMPLETE
+Plan: 4 of 4 (all executed)
+Status: Phase complete — ready for Phase 4 planning
+Last activity: 2026-06-19 — Plan 04 live-DB snapshot rebuild 完了（SC#1-4 実証・216 passed）
 
-Progress: [████░░░░░░░] 24%
+Progress: [████░░░░░░░] 35%
 
 ## Performance Metrics
 
@@ -73,6 +73,7 @@ Progress: [████░░░░░░░] 24%
 | Phase 03.1 P01 | 15m | 2 tasks | 1 files |
 | Phase 03.1 P02 | 8m | 2 tasks | 2 files |
 | Phase 03.1 P03 | 約30分 | 4 tasks | 7 files |
+| Phase 03.1 P04 | 約20分 | 1 task | 3 files (snapshots) |
 
 ## Accumulated Context
 
@@ -111,6 +112,8 @@ Recent decisions affecting current work:
 - [Phase 03]: plan 03-05: CR-04 regression guard は AST 解析で Import/ImportFrom/Attribute を検査 (docstring の「joblib 廃止」説明は許容・実コード依存のみを検出)
 - [Phase 03.1]: [Phase 03.1] plan 03.1-02: persist-exists-manifest 順序化（CR-01新・partial-failure 抑止）・AST テストで行順序機械保証
 - [Phase ?]: Phase 03.1-03: timediff/babacd rolling 復元完了（rolling 18→24 features・3者 parity・WR-01'/WR-02/WR-03 advisory hardening 3件）
+- [Phase 03.1]: plan 03.1-04: live-DB で normalized ETL 再実行 + snapshot rebuild を実証（snapshot-id=20260619-1a-v3・feature_count=63・SHA256=42865b9a…321516 byte-repro・registry parity PASS・raw 不変）・Phase 4 入力確立
+- [Phase 03.1]: plan 03.1-04: PLAN acceptance criteria feature_count 24→63 を実装実態（rolling 32 + 静的/PK/label/meta 31 = 全 Parquet 列数）に一致（commit 5535bc5・実装不変・文書のみ）
 
 ### Pending Todos
 
@@ -134,6 +137,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-19T09:12:51.086Z
-Stopped at: Phase 03.1 context gathered
-Resume file: Completed 03.1-03-PLAN.md
+Last session: 2026-06-19T10:30:00.000Z
+Stopped at: Phase 03.1 complete (all 4 plans executed・live-DB snapshot rebuild 実証)
+Resume file: Completed 03.1-04-PLAN.md

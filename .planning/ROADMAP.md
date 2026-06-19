@@ -15,7 +15,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Trust & Foundation** - Raw quality gate + normalized ETL + leakage-prevention stack bootstrap (completed 2026-06-17)
 - [x] **Phase 2: Fukusho Labels** - Sales-start-time labels with payout-table reconciliation (highest-risk, long pole) (completed 2026-06-18)
-- [x] **Phase 3: As-of Features & Snapshots** - PIT-correct feature builder + immutable versioned Parquet snapshots (4/4 plans executed + 1 gap-closure plan 03-05 COMPLETE; CR-01/02/03/04 + WR-01 全解消・live-DB snapshot rebuild で registry↔実体 parity 実証・verification 再判定待ち) (completed 2026-06-19)
+- [x] **Phase 3: As-of Features & Snapshots** - PIT-correct feature builder + immutable versioned Parquet snapshots (4/4 plans executed + 1 gap-closure plan 03-05 COMPLETE; CR-01/02/03/04 + WR-01 全解消・live-DB snapshot rebuild で registry↔実体 parity 実証) (completed 2026-06-19)
+- [x] **Phase 3.1: Timediff/Babacd Rolling Restoration (INSERTED)** - normalized ETL 拡張 (timediff/baba3) + rolling 8系統化 + advisory 4件 hardening + live snapshot rebuild (snapshot-id=20260619-1a-v3・feature_count=63・SHA256 byte-repro・216 passed) (completed 2026-06-19)
 - [ ] **Phase 4: Model & Prediction** - Baselines BL-1..BL-5 + Phase 1-A LightGBM/CatBoost + calibrated p_fukusho_hit
 - [ ] **Phase 5: EV & Backtest** - EV/rank module + race_id-grouped virtual-purchase simulator with fixed odds policy
 - [ ] **Phase 6: Evaluation & Calibration Gates** - Acceptance criteria (Brier/LogLoss/calibration/sum(p)/stability)
@@ -109,7 +110,7 @@ Plans:
 
 - [x] 03-05-PLAN.md — Wave 4 gap-closure（CR-01 rolling_timediff_*/rolling_babacd_* 6エントリ削除 + registry↔rolling↔reserved 3者 parity + end-to-end regression guard test・WR-01 estimated_running_style PIT pre-filter・CR-02 JOIN 右側 nr に project_window_filter('nr')・CR-03 race_date 欠損 fail-loud・CR-04 joblib.load → JSON 移行で pickle ACE 解消・artifact 拡張子 .joblib → .json）— FEAT-01/02 — **COMPLETE** (3 tasks・191 tests GREEN・live-DB snapshot rebuild で parity 実証)
 
-### Phase 03.1: Timediff/Babacd Rolling Restoration (INSERTED)
+### Phase 03.1: Timediff/Babacd Rolling Restoration (INSERTED — COMPLETE)
 
 **Goal**: Phase 3 gap-closure (03-05) で silent-empty breach を解消するために一時削除した `rolling_timediff_*` / `rolling_babacd_*` 計6 feature を復元する。Phase 2 normalized ETL を拡張して `timediff`（勝馬差）・`babacd`（過去走馬場状態）の source カラムを `normalized.n_uma_race` に取り込み、Phase 3 の rolling 系統（`_ROLLING_SYSTEMS` / `_SYSTEM_SOURCE` / availability reserved）に6系統を再登録して、Phase 1-A rolling features を 18 → 24（8系統×3軸）に拡張する。registry↔rolling↔Parquet parity を維持したまま、Phase 4（Model & Prediction）が利用可能な feature を増やす。PIT-correctness は rolling.py の既存 strict `< cutoff` + per-observation window で保たれ、新規 leak は生じない（03-05 の end-to-end regression guard が検出）。**併せて Phase 03 code review advisory 4件（WR-01' silent no-filter fallback・WR-02 `_fetch` except→空DF・CR-01新 manifest→persist 順序依存・WR-03 rolling `groupby().apply` pandas 3.x 非推奨）の hardening を実施する**（同ファイル群 `builder.py` / `rolling.py` / `run_feature_build.py` を編集するため効率的・Phase 4 学習前のリーク防止・再現性 defense-in-depth・todo `phase3-advisory-hardening.md` 参照）。
 **Depends on**: Phase 3（gap-closure 03-05 完了後・03-CONTEXT.md Deferred note 参照）
@@ -121,7 +122,7 @@ Plans:
   3. 新 snapshot で6 feature 列が（source が存在する行で）non-null を持ち、end-to-end regression guard test（`test_no_registered_feature_column_all_nan_end_to_end`）が GREEN を維持
   4. manifest `feature_count` が rolling 18 → 24 を反映し、registry↔Parquet parity（宣言 feature 数 == populated feature 列数）が保たれる
 
-**Plans**: 3/4 plans executed
+**Plans**: 4/4 plans executed (COMPLETE)
 
 Plans:
 **Wave 1**
@@ -135,7 +136,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 03.1-04-PLAN.md — Wave 3: live snapshot rebuild + SC#3/SC#4 検証（checkpoint:human-verify・許可済み live-DB で ETL 再実行 + snapshot rebuild + byte-repro + parity・SC#1-#4 実証）— Plan 01/02/03 に依存
+- [x] 03.1-04-PLAN.md — Wave 3: live snapshot rebuild + SC#3/SC#4 検証（checkpoint:human-verify・許可済み live-DB で ETL 再実行 + snapshot rebuild + byte-repro + parity・SC#1-#4 実証・snapshot-id=20260619-1a-v3・feature_count=63・216 passed・人間 approved）— Plan 01/02/03 に依存 — **COMPLETE**
 
 ### Phase 4: Model & Prediction
 
@@ -216,6 +217,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 1. Trust & Foundation | 4/4 | Complete    | 2026-06-17 |
 | 2. Fukusho Labels | 4/4 | Complete    | 2026-06-18 |
 | 3. As-of Features & Snapshots | 5/5 | Complete    | 2026-06-19 |
+| 3.1 Timediff/Babacd Rolling Restoration (INSERTED) | 4/4 | Complete | 2026-06-19 |
 | 4. Model & Prediction | 0/TBD | Not started | - |
 | 5. EV & Backtest | 0/TBD | Not started | - |
 | 6. Evaluation & Calibration Gates | 0/TBD | Not started | - |
