@@ -72,6 +72,11 @@ _RACE_COLUMNS = [
     "jyokencd5 varchar(3)",
     "gradecd varchar(1)",
     "syubetucd varchar(2)",
+    # Phase 03.1 Plan 01 (D-01): 芝・ダート馬場コード baba3 は raw varchar pass-through。
+    # babacd 派生（芝/ダート分岐）は後続 Plan 03 builder 側で trackcd 分岐から構築。
+    "sibababacd varchar(1)",
+    "dirtbabacd varchar(1)",
+    "trackcd varchar(2)",
     "hondai text",
     # クラス正規化結果（DATA-03）
     "class_code_normalized varchar(3)",
@@ -174,6 +179,9 @@ _RACE_SELECT_COLUMNS = [
     "jyokencd5",
     "gradecd",
     "syubetucd",
+    "sibababacd",
+    "dirtbabacd",
+    "trackcd",
     "hondai",
 ]
 
@@ -462,6 +470,9 @@ _NORMALIZED_COLUMNS = {
         "jyokencd5",
         "gradecd",
         "syubetucd",
+        "sibababacd",
+        "dirtbabacd",
+        "trackcd",
         "hondai",
         "class_code_normalized",
         "class_name_normalized",
