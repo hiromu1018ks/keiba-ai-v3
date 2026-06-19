@@ -2,9 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
+current_phase: 03.1
 status: verifying
-stopped_at: "Plan 03-05 complete (gap-closure: CR-01/02/03/04 + WR-01・全 features テスト GREEN・live-DB snapshot rebuild で parity 実証)"
-last_updated: "2026-06-19T05:14:31.640Z"
+stopped_at: Phase 03.1 context gathered
+last_updated: "2026-06-19T06:30:39.947Z"
 last_activity: 2026-06-19
 progress:
   total_phases: 9
@@ -124,6 +125,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-19T04:45:00.000Z
-Stopped at: Plan 03-05 complete (gap-closure: CR-01/02/03/04 + WR-01・全 features テスト GREEN・live-DB snapshot rebuild で parity 実証)
-Resume file: Phase 3 verification 再判定 (must-have #1 PARTIAL→VERIFIED) → Phase 4 (model) 計画 or Phase 3.1 (Timediff/Babacd Restoration) 計画
+Last session: 2026-06-19T06:30:39.942Z
+Stopped at: Phase 03.1 context gathered
+Resume file: .planning/phases/03.1-timediff-babacd-rolling-restoration/03.1-CONTEXT.md
