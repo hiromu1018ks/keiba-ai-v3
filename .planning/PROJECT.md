@@ -17,12 +17,12 @@ JRA競馬データを用いて、各出走馬の**複勝払戻対象確率 `p_fu
 - [x] EveryDB2由来PostgreSQLデータの品質確認（主要テーブル・件数・日付範囲・NULL・重複・文字化け・コード異常）— Validated in Phase 1: Trust & Foundation（hybrid quality gate D-01、verdict=pass・BLOCK/INFO 分離）
 - [x] normalized層の初期ETL（型変換・コード変換・クラス正規化）— Validated in Phase 1: Trust & Foundation（全 varchar 明示キャスト + class_normalization.yaml 機械導出・raw 不変性 D-06 を REVOKE + fingerprint で実証）
 - [x] 複勝ラベル `fukusho_hit` の生成と払戻テーブル突合（発売開始時点ベース、`sales_start_entry_count` 取得・復元含む）— Validated in Phase 2: Fukusho Labels（2層 raw/validated label + D-04 4値 status・§10.5 6検査 BLOCK/INFO ゲート・>99.9% agreement 実測 100.0%・idempotent staging-swap・raw 不変・label.fukusho_label 554,267行）
+- [x] as-of特徴量管理（`as_of_datetime` / `feature_cutoff_datetime` / `feature_availability` によるリーク防止）— Validated in Phase 3: As-of Features & Snapshots（PIT-correct feature builder + 不変 versioned Parquet・3者 registry parity・WR-01 PIT pre-filter on estimated_running_style・CR-02 JOIN 両側 filter・CR-03 race_date fail-loud・CR-04 joblib→JSON・live snapshot 554,267行 byte-reproducible・verification passed 4/4）
 
 ### Active
 
 <!-- 現在のスコープ。要件定義書の Phase 1 を中心とする。すべて出荷検証まで仮説。 -->
 
-- [ ] as-of特徴量管理（`as_of_datetime` / `feature_cutoff_datetime` / `feature_availability` によるリーク防止）
 - [ ] 出馬表・馬番・枠番確定後モデル（Phase 1-A）による `p_fukusho_hit` 算出
 - [ ] 複勝EV計算（`EV_lower` / `EV_upper`）と推奨ランク算出
 - [ ] 固定ルール仮想購入バックテスト（race_id単位・時系列順、返還・競走中止の扱いを含む回収率再現）
@@ -99,5 +99,7 @@ This document evolves at phase transitions and milestone boundaries.
 
 - **Phase 2: Fukusho Labels — Complete (2026-06-18).** 複勝ラベル生成ETL（`src/etl/fukusho_label.py` 1080行・2層 raw/validated label・D-04 4値 `label_validation_status`・D-03 §7.2 `is_model_eligible`・REVIEWS HIGH #1-#7 対応）+ §10.5 払戻突合ゲート（`src/etl/label_reconcile.py` 886行・6検査 BLOCK/INFO・>99.9% agreement 実測 **100.0%**・4063 held-out races・NULL-safe NOT EXISTS + LPAD zero-pad・tautology 回避の独立 HR payout 再構築）+ `label_spec.yaml`（D-07 Git管理）+ label スキーマ GRANT 拡張（reader+etl・REVIEWS HIGH #3 PUBLIC 不使用）。実DB: `label.fukusho_label` 554,267行・idempotent（2回実行 checksum 完全一致）・raw 不変（D-06）。130 テスト green・TDD RED→GREEN（02-02→02-03、27テスト）。実行中の W5 checkpoint は「実DB接続可能」と判断し continuation で自律実行 → live DB のみ暴露される schema bug を計8件検出・修正。Deferred debt: code review BLOCKER 5件は verifier 評估で WARNING/NOT-A-BUG（CR-01 drift INFO化は Phase 8 監査強化・CR-02 SQL injection は psycopg3 パラメータ化推奨・CR-04 raw 偽正例は §10.3 が validated を学習目標に明示・Phase 8 監査）・`label.fukusho_label.race_date` 全行 NULL → Phase 3 で feature_cutoff 用に設定。
 
+- **Phase 3: As-of Features & Snapshots — Complete (2026-06-19).** PIT-correct feature builder（rolling 6系統×3軸=18 + static + running_style・`merge_asof(direction='backward')` 相当の per-observation latest-K algorithm）+ 不変 versioned Parquet snapshot（§12.4 metadata・byte-reproducible）+ frozen category map（`__UNSEEN__`/`__MISSING__` sentinel・training-window-only fit）。5 plans（03-01〜04 + gap-closure 03-05）。03-05 で CR-01（silent-empty rolling 6列 timediff/babacd 削除 + 3者 registry parity + end-to-end regression guard）・WR-01（estimated_running_style PIT pre-filter・look-ahead leak 解消）・CR-02（JOIN 両側 project_window_filter）・CR-03（race_date 欠損 fail-loud）・CR-04（joblib/pickle → JSON・ACE 解消）を閉鎖。live snapshot v2: 554,267行 × 55列・SHA256 一致・CR-01 parity 実証（登録列 0列が 100% null）。191 テスト green。verification passed 4/4 must-haves。Deferred debt: code re-review の advisory 4件（CR-01-new manifest→persist 順序依存・WR-01' silent no-filter fallback・WR-02 _fetch except→空DF・WR-03 rolling groupby().apply pandas 3.x 非推奨）は現 SC 非破壊だが Phase 4 学習開始前 hardening を強く推奨。Phase 3.1（挿入済み）が timediff/babacd 6 feature 再登録 + IN-01 整理を担う。
+
 ---
-*Last updated: 2026-06-18 after Phase 2 complete*
+*Last updated: 2026-06-19 after Phase 3 complete*
