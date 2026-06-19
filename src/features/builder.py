@@ -254,7 +254,9 @@ def build_feature_matrix(
     4b. **CYCLE-2 HIGH #5 (COPY-NOT-RENAME)**: 抽象名 ``horse_id``/``jockey_id``/``trainer_id``/
         ``sire_id``/``bms_id`` を copy で追加（``kettonum``/``kisyucode`` 等の元列は保持）。
     5. rolling features 統合（``build_rolling_features`` 経由・per-observation latest-K・HIGH #1）。
-    6. 推定脚質（``estimate_running_style``・過去走 jyuni3c/jyuni4c のみ・D-05）。
+    6. 推定脚質（``estimate_running_style``・過去走 jyuni3c/jyuni4c のみ・**cutoff 以前の過去走のみ**
+       （rolling と同一 PIT pre-filter・``as_of_datetime < feature_cutoff_datetime``・strict ``<``）・
+       当日不使用・D-05・WR-01 fix）。
     7. **§13.2 metadata stamp**: 全行に ``feature_snapshot_id`` / ``feature_availability_version``
        / ``label_generation_version`` / ``prediction_timing`` の定数列を付与。
     8. canonical key 検証: ``(race_nkey, kettonum)`` 一意性。
@@ -328,10 +330,35 @@ def build_feature_matrix(
         feature_matrix = pd.concat([fm_reset, rolling_reset], axis=1)
 
     # --- Step 6: 推定脚質（過去走 jyuni3c/jyuni4c のみ・当日不使用・D-05） ---
+    # WR-01 (03-05 gap-closure): rolling と同一の PIT pre-filter
+    # （history.as_of_datetime < obs.feature_cutoff_datetime・per-observation・strict <）
+    # を groupby(kettonum) 前に適用し、cutoff 後の過去走が推定脚質に混入しないようにする。
+    # registry は strict `< cutoff` を宣言（feature_availability.yaml L355-361）し、本実装が一致。
     if len(history) > 0 and "kettonum" in history.columns and len(feature_matrix) > 0:
+        obs_keys_style = feature_matrix[["kettonum", "feature_cutoff_datetime"]].copy()
+        expanded_style = history.merge(
+            obs_keys_style, on="kettonum", how="inner", suffixes=("", "_obs")
+        )
+        if "feature_cutoff_datetime_obs" in expanded_style.columns:
+            expanded_style["feature_cutoff_datetime"] = expanded_style[
+                "feature_cutoff_datetime_obs"
+            ]
+            expanded_style = expanded_style.drop(columns=["feature_cutoff_datetime_obs"])
+        # PIT pre-filter: cutoff 以前の過去走のみ（rolling.py L193-195 と同一の strict < idiom）
+        if "as_of_datetime" in expanded_style.columns:
+            pit_filtered_style = expanded_style[
+                expanded_style["as_of_datetime"]
+                < expanded_style["feature_cutoff_datetime"]
+            ].copy()
+        else:
+            pit_filtered_style = expanded_style
         style_map: dict[Any, str] = {}
-        for kn, group in history.groupby("kettonum"):
-            rows = group[["jyuni3c", "jyuni4c"]].to_dict(orient="records") if len(group) > 0 else []
+        for kn, group in pit_filtered_style.groupby("kettonum"):
+            rows = (
+                group[["jyuni3c", "jyuni4c"]].to_dict(orient="records")
+                if len(group) > 0
+                else []
+            )
             style_map[kn] = estimate_running_style(rows)
         feature_matrix["estimated_running_style"] = (
             feature_matrix["kettonum"].map(style_map).fillna("__MISSING__")
@@ -379,7 +406,8 @@ def _fetch_feature_sources(read_pool: ConnectionPool) -> pd.DataFrame:
     """observations + bloodline を readonly で SELECT し統合（明示カラム）。
 
     normalized.n_uma_race / normalized.n_race / public.n_uma から ``project_window_filter``
-    で JRA フィルタを適用（CR-06）。明示カラムのみ（ワイルドカード SELECT 禁止・Pitfall 1）。
+    で JRA フィルタを適用（CR-06: JOIN 両側に ``project_window_filter`` を付与・03-05 CR-02 fix
+    で label_race_date_backfill.py と対称）。明示カラムのみ（ワイルドカード SELECT 禁止・Pitfall 1）。
     DB に存在しない derived 列（race_nkey / as_of_datetime）は ``_construct_derived_columns``
     で pandas 側で構築する（BUG A fix・PIT 意味不変）。
 
@@ -394,7 +422,9 @@ def _fetch_feature_sources(read_pool: ConnectionPool) -> pd.DataFrame:
                     f"SELECT {obs_cols} FROM normalized.n_uma_race ur "
                     f"JOIN normalized.n_race nr ON (ur.year=nr.year AND ur.jyocd=nr.jyocd "
                     f"AND ur.kaiji=nr.kaiji AND ur.nichiji=nr.nichiji AND ur.racenum=nr.racenum) "
-                    f"WHERE {project_window_filter('ur')}"
+                    # CR-06 / CR-02 (03-05): JOIN 両側に project_window_filter を適用
+                    # （label_race_date_backfill.py と対称・JRA 10場 + year>=2015 単一ソース）。
+                    f"WHERE {project_window_filter('ur')} AND {project_window_filter('nr')}"
                 )
                 # n_uma.kettonum は varchar・n_uma_race.kettonum は integer なので
                 # join key 型を揃えるため cast（live-DB 整合・Rule 3 blocking fix）。
@@ -442,7 +472,9 @@ def _fetch_history(read_pool: ConnectionPool) -> pd.DataFrame:
                     f"SELECT {cols} FROM normalized.n_uma_race ur "
                     f"JOIN normalized.n_race nr ON (ur.year=nr.year AND ur.jyocd=nr.jyocd "
                     f"AND ur.kaiji=nr.kaiji AND ur.nichiji=nr.nichiji AND ur.racenum=nr.racenum) "
-                    f"WHERE {project_window_filter('ur')}"
+                    # CR-06 / CR-02 (03-05): JOIN 両側に project_window_filter を適用
+                    # （label_race_date_backfill.py と対称）。
+                    f"WHERE {project_window_filter('ur')} AND {project_window_filter('nr')}"
                 )
                 cur.execute(sql)
                 rows = cur.fetchall()

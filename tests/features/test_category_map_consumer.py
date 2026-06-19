@@ -91,3 +91,35 @@ def test_apply_frozen_maps_no_raw_id_in_output_schema():
     assert set(cmc._CATEGORY_COLUMNS) == expected_category_columns, (
         f"_CATEGORY_COLUMNS が期待と不一致: {cmc._CATEGORY_COLUMNS}"
     )
+
+
+# ---------------------------------------------------------------------------
+# CR-03 (03-05 gap-closure): race_date 欠損 frame fail-loud
+# ---------------------------------------------------------------------------
+def test_build_frozen_maps_raises_on_missing_race_date():
+    """``race_date`` 列を持たない合成 DataFrame を ``build_frozen_category_maps`` に渡すと
+    ``ValueError`` が raise されること（silent all-train fallback に fall しない・D-13 fail-loud・
+    CR-03 regression guard）を assert。エラーメッセージに ``race_date`` が含まれること。
+    """
+    cmc = _get_category_map_consumer()
+    # race_date 列を持たない frame（将来の refactor で誤って渡される可能性のある形状）
+    fm_no_race_date = pd.DataFrame({
+        "horse_id": ["H1", "H2"],
+        "jockey_id": ["J1", "J2"],
+        "trainer_id": ["T1", "T2"],
+        "sire_id": ["S1", "S2"],
+        "bms_id": ["B1", "B2"],
+    })
+    with pytest.raises(ValueError, match="race_date"):
+        cmc.build_frozen_category_maps(fm_no_race_date)
+    # CR-03 で silent fallback comment が削除されたことも回帰防止
+    src = inspect.getsource(cmc.build_frozen_category_maps)
+    assert "全行を train 扱い" not in src, (
+        "silent all-train fallback comment が残存（CR-03 違反・D-13 fail-loud に反する）"
+    )
+    assert "unit test の合成" not in src, (
+        "silent all-train fallback comment が残存（CR-03 違反）"
+    )
+    assert "raise ValueError" in src and "race_date" in src, (
+        "race_date 欠損で ValueError を raise しない（CR-03 違反）"
+    )

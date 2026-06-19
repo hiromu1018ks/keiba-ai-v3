@@ -238,3 +238,28 @@ def test_no_timediff_babacd_in_registry_or_rolling():
     assert leaked == [], (
         f"registry に rolling_timediff_* / rolling_babacd_* が残存: {leaked} (CR-01 違反)"
     )
+
+
+# ---------------------------------------------------------------------------
+# CR-02 (03-05 gap-closure): JOIN 両側 project_window_filter 回帰防止
+# ---------------------------------------------------------------------------
+def test_fetch_history_and_feature_sources_filter_both_join_sides():
+    """_fetch_feature_sources と _fetch_history の両方の source に
+    ``project_window_filter('nr')`` が含まれることを assert（CR-02 / CR-06 契約・
+    label_race_date_backfill.py と対称）。
+    """
+    builder = _get_builder()
+    src_features = inspect.getsource(builder._fetch_feature_sources)
+    src_history = inspect.getsource(builder._fetch_history)
+    assert "project_window_filter('ur')" in src_features, (
+        "_fetch_feature_sources に project_window_filter('ur') が無い"
+    )
+    assert "project_window_filter('ur')" in src_history, (
+        "_fetch_history に project_window_filter('ur') が無い"
+    )
+    assert "project_window_filter('nr')" in src_features, (
+        "_fetch_feature_sources に project_window_filter('nr') が無い（CR-02 違反・JOIN 右側未 filter）"
+    )
+    assert "project_window_filter('nr')" in src_history, (
+        "_fetch_history に project_window_filter('nr') が無い（CR-02 違反・JOIN 右側未 filter）"
+    )

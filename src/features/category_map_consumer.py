@@ -160,6 +160,11 @@ def build_frozen_category_maps(
         ``train_mask = feature_matrix["race_date"].between(train_window[0], train_window[1])``
         絶対に val/test 行を fit に渡さない（test 構成リーク）。
 
+    **race_date 必須** (CR-03 / 03-05 gap-closure / D-13 fail-loud):
+        ``race_date`` 列が欠損する frame は ``ValueError`` を raise する
+        （silent all-train fallback を禁止・将来の refactor で val/test 行が fit に
+        混入する潜伏 leak を防止）。
+
     Parameters
     ----------
     feature_matrix : pd.DataFrame
@@ -171,18 +176,22 @@ def build_frozen_category_maps(
     -------
     dict[str, FrozenCategoryMap]
         各 ``_CATEGORY_COLUMNS`` カラムの frozen map。
+
+    Raises
+    ------
+    ValueError
+        ``race_date`` 列が欠損している場合（CR-03 fail-loud・D-13 silent fallback 禁止）。
     """
+    # --- CR-03 (03-05): race_date 欠損 frame は fail-loud（ValueError） ---
+    if "race_date" not in feature_matrix.columns:
+        raise ValueError(
+            "build_frozen_category_maps: feature_matrix に race_date 列が無い "
+            "(train 窓 mask を計算できない・Pitfall 3.4 / §14.3 / D-13 fail-loud・"
+            "03-05 CR-03 fix)"
+        )
     # --- train 窓 mask (D-09・race_date で train period filter・Pitfall 3.4) ---
-    race_date_col = (
-        pd.to_datetime(feature_matrix["race_date"])
-        if "race_date" in feature_matrix.columns
-        else None
-    )
-    if race_date_col is not None:
-        train_mask = race_date_col.between(train_window[0], train_window[1])
-    else:
-        # race_date が無い場合は全行を train 扱い（unit test の合成 DataFrame 向け）。
-        train_mask = pd.Series([True] * len(feature_matrix))
+    race_date_col = pd.to_datetime(feature_matrix["race_date"])
+    train_mask = race_date_col.between(train_window[0], train_window[1])
 
     maps: dict[str, FrozenCategoryMap] = {}
     for col in _CATEGORY_COLUMNS:
