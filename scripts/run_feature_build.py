@@ -13,8 +13,11 @@ manifest YAML + frozen category map artifact を生成する。
   4. ``build_frozen_category_maps`` (train 窓 D-09 で fit) → ``apply_frozen_category_maps``
      で raw ID をコード化（REVIEWS HIGH #5 / CYCLE-2 HIGH #5）
   5. ``write_snapshot`` を **2回呼出**し SHA256 が完全一致することを assert（SC#3 byte-reproducibility）
-  6. ``write_manifest`` で manifest YAML を書出（sha256 / §12.4 metadata / category_map_artifact）
-  7. ``persist_category_maps`` で frozen category map を JSON（byte-reproducible・CR-04・pickle ACE 解消）で永続化
+  6. ``persist_category_maps`` で frozen category map を JSON（byte-reproducible・CR-04・pickle ACE 解消）で永続化
+  7. ``persist`` 成功を ``exists()`` assert で確認後、``write_manifest`` で manifest YAML を書出（sha256 / §12.4 metadata / category_map_artifact）
+
+順序は persist→manifest（CR-01新・Pitfall 5）。persist が失敗（例外）すると manifest 書出に到達せず、
+SHA256 一致の「完成済」manifest だけが残り category map artifact が欠損する partial-failure 状態を防止する。
 
 Usage::
 
@@ -198,11 +201,27 @@ def main(argv: list[str] | None = None) -> int:
         )
         logger.info("byte-reproducibility verify: PASS (SC#3・Pitfall 3.5)")
 
-        # --- Step 5: manifest YAML 書出 (sha256 / §12.4 metadata / category_map_artifact) ---
+        # --- Step 5: frozen category map artifact 永続化 (JSON・CR-04 pickle ACE 解消) ---
+        # CR-01新・Pitfall 5: persist → exists assert → manifest の順序。
+        # persist が失敗（例外）すると manifest 書出に到達せず、SHA256 一致の「完成済」manifest
+        # だけが残り category map artifact が欠損する partial-failure 状態を防止する。
         parquet_path = _SNAPSHOTS_DIR / f"feature_matrix_{args.snapshot_id}.parquet"
         manifest_path = _SNAPSHOTS_DIR / f"feature_matrix_{args.snapshot_id}.manifest.yaml"
+        # category_map_artifact は repo-root 相対（CWD 非依存）: "snapshots/category_map_<id>.json"
         category_map_artifact = f"snapshots/category_map_{args.snapshot_id}.json"
+        category_map_path = _SNAPSHOTS_DIR / f"category_map_{args.snapshot_id}.json"
 
+        persist_category_maps(frozen_maps, category_map_path)
+        logger.info("category map artifact written: %s", category_map_path)
+
+        # CR-01新: persist 成功をディスク上の存在で機械保証（例外なら manifest 書出前に停止）
+        assert category_map_path.exists(), (
+            "persist_category_maps が category map artifact を書けなかった "
+            "(CR-01新・再現性破壊防止・partial-failure 抑止)"
+        )
+
+        # --- Step 6: manifest YAML 書出 (sha256 / §12.4 metadata / category_map_artifact) ---
+        # persist が成功した場合のみ到達。category_map_artifact は repo-root 相対で CWD に依存しない。
         write_manifest(
             manifest_path,
             snapshot_id=args.snapshot_id,
@@ -222,11 +241,6 @@ def main(argv: list[str] | None = None) -> int:
             created_at_fixed=created_at_fixed,
         )
         logger.info("manifest written: %s", manifest_path)
-
-        # --- Step 6: frozen category map artifact 永続化 (JSON・CR-04 pickle ACE 解消) ---
-        category_map_path = _SNAPSHOTS_DIR / f"category_map_{args.snapshot_id}.json"
-        persist_category_maps(frozen_maps, category_map_path)
-        logger.info("category map artifact written: %s", category_map_path)
 
         logger.info(
             "feature build complete: raw_touched=False sha256=%s row_count=%d "
