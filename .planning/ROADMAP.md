@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Trust & Foundation** - Raw quality gate + normalized ETL + leakage-prevention stack bootstrap (completed 2026-06-17)
 - [x] **Phase 2: Fukusho Labels** - Sales-start-time labels with payout-table reconciliation (highest-risk, long pole) (completed 2026-06-18)
-- [ ] **Phase 3: As-of Features & Snapshots** - PIT-correct feature builder + immutable versioned Parquet snapshots (4/4 plans executed; verification gaps_found — CR-01 silent-empty-features + CR-02/03/04 debt; gap-closure pending)
+- [ ] **Phase 3: As-of Features & Snapshots** - PIT-correct feature builder + immutable versioned Parquet snapshots (4/4 plans executed + 1 gap-closure plan 03-05; verification gaps_found — CR-01 silent-empty-features + CR-02/03/04 debt; gap-closure plan 03-05 ready)
 - [ ] **Phase 4: Model & Prediction** - Baselines BL-1..BL-5 + Phase 1-A LightGBM/CatBoost + calibrated p_fukusho_hit
 - [ ] **Phase 5: EV & Backtest** - EV/rank module + race_id-grouped virtual-purchase simulator with fixed odds policy
 - [ ] **Phase 6: Evaluation & Calibration Gates** - Acceptance criteria (Brier/LogLoss/calibration/sum(p)/stability)
@@ -63,7 +63,7 @@ Plans:
   3. `sales_start_entry_count` is populated on every eligible race — either from a direct column OR restored from entry-list + 取消/競走除外 announcement timestamps, with the `unresolved` fraction reported and the `unresolved` rows excluded from training/evaluation
   4. Dead-heat races label ALL payout-table 複勝対象 horses as positive; 取消/除外 horses are prediction-excluded (and refund-handled later); 競走中止 horses remain in-training and are labeled `fukusho_hit=0` (no exclusion) — verified by a unit test that constructs each scenario and asserts the label
 
-**Plans**: 4 plans in 3 waves
+**Plans**: 5 plans in 4 waves (4 original + 1 gap-closure)
 Plans:
 **Wave 1**
 
@@ -90,7 +90,7 @@ Plans:
   3. A developer can write a Parquet snapshot whose embedded metadata block contains `dataset_version`, `feature_snapshot_id`, `label_generation_version`, `feature_cutoff_datetime`, `prediction_timing`, and train/val period bounds — and re-reading the snapshot reproduces identical bytes (immutability verified by hash)
   4. Frozen category maps are fit on the training window only, persisted alongside the snapshot, and applied to val/test with unknown IDs mapping to `__UNSEEN__` (not NaN)
 
-**Plans**: 4 plans in 3 waves
+**Plans**: 5 plans in 4 waves (4 original + 1 gap-closure)
 Plans:
 **Wave 1**
 
@@ -104,6 +104,10 @@ Plans:
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [x] 03-04-PLAN.md — Wave 3 snapshot writer + category_map_consumer + CLI（PyArrow 決定論的書込・§12.4 metadata・SHA256 byte-repro scope=parquet bytes only・raw ID 列 drop・train窓fit/__UNSEEN__・SC#3/#4 GREEN・REVIEWS HIGH #5/#6 + MEDIUM #10）— FEAT-01/02
+
+**Wave 4** *(gap-closure — blocked on Wave 3 completion)*
+
+- [ ] 03-05-PLAN.md — Wave 4 gap-closure（CR-01 rolling_timediff_*/rolling_babacd_* 6エントリ削除 + registry↔rolling↔reserved 3者 parity + end-to-end regression guard test・WR-01 estimated_running_style PIT pre-filter・CR-02 JOIN 右側 nr に project_window_filter('nr')・CR-03 race_date 欠損 fail-loud・CR-04 joblib.load → JSON 移行で pickle ACE 解消・artifact 拡張子 .joblib → .json）— FEAT-01/02
 
 ### Phase 4: Model & Prediction
 
