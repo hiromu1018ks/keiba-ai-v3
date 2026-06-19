@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Plan 03-05 complete (gap-closure: CR-01/02/03/04 + WR-01・全 features テスト GREEN・live-DB snapshot rebuild で parity 実証)
-last_updated: "2026-06-19T04:45:00.000Z"
-last_activity: 2026-06-19 -- Phase 03 gap-closure 03-05 complete
+status: verifying
+stopped_at: "Plan 03-05 complete (gap-closure: CR-01/02/03/04 + WR-01・全 features テスト GREEN・live-DB snapshot rebuild で parity 実証)"
+last_updated: "2026-06-19T05:14:31.640Z"
+last_activity: 2026-06-19
 progress:
   total_phases: 9
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 13
   completed_plans: 13
-  percent: 24
+  percent: 33
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 
 ## Current Position
 
-Phase: 03 (as-of-features-snapshots) — gap-closure 03-05 COMPLETE (Phase 3 verification 再判定待ち)
-Plan: 5 of 5 (Phase 3 全 plan 完了)
+Phase: 03.1
+Plan: Not started
 Status: Phase 03 gap-closure 完了・verification で must-have #1 PARTIAL→VERIFIED 判定待ち
-Last activity: 2026-06-19 -- 03-05 gap-closure (CR-01/02/03/04 + WR-01) 完了
+Last activity: 2026-06-19
 
 Progress: [████░░░░░░░] 24%
 
@@ -36,7 +36,7 @@ Progress: [████░░░░░░░] 24%
 
 **Velocity:**
 
-- Total plans completed: 8
+- Total plans completed: 13
 - Average duration: — min
 - Total execution time: 0.0 hours
 
@@ -46,6 +46,7 @@ Progress: [████░░░░░░░] 24%
 |-------|-------|-------|----------|
 | 01 | 4 | - | - |
 | 02 | 4 | - | - |
+| 03 | 5 | - | - |
 
 **Recent Trend:**
 
