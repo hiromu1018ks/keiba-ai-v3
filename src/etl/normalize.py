@@ -131,6 +131,9 @@ _UMA_RACE_COLUMNS = [
     "dochakukubun varchar(1)",
     "kyakusitukubun varchar(1)",
     "dmkubun varchar(1)",
+    # Phase 03.1 Plan 01 (D-03): 勝馬差 timediff は raw varchar pass-through。
+    # cast は後続 Plan 03 builder 側で sentinel 0000/9999 判定付きで実施（Pitfall 1）。
+    "timediff varchar(4)",
 ]
 
 
@@ -228,6 +231,7 @@ _UMA_RACE_SELECT_COLUMNS = [
     "dochakukubun",
     "kyakusitukubun",
     "dmkubun",
+    "timediff",
 ]
 
 
@@ -513,6 +517,7 @@ _NORMALIZED_COLUMNS = {
         "dochakukubun",
         "kyakusitukubun",
         "dmkubun",
+        "timediff",
     ],
 }
 
