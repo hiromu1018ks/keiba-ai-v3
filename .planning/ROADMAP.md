@@ -109,6 +109,24 @@ Plans:
 
 - [ ] 03-05-PLAN.md — Wave 4 gap-closure（CR-01 rolling_timediff_*/rolling_babacd_* 6エントリ削除 + registry↔rolling↔reserved 3者 parity + end-to-end regression guard test・WR-01 estimated_running_style PIT pre-filter・CR-02 JOIN 右側 nr に project_window_filter('nr')・CR-03 race_date 欠損 fail-loud・CR-04 joblib.load → JSON 移行で pickle ACE 解消・artifact 拡張子 .joblib → .json）— FEAT-01/02
 
+### Phase 03.1: Timediff/Babacd Rolling Restoration (INSERTED)
+
+**Goal**: Phase 3 gap-closure (03-05) で silent-empty breach を解消するために一時削除した `rolling_timediff_*` / `rolling_babacd_*` 計6 feature を復元する。Phase 2 normalized ETL を拡張して `timediff`（勝馬差）・`babacd`（過去走馬場状態）の source カラムを `normalized.n_uma_race` に取り込み、Phase 3 の rolling 系統（`_ROLLING_SYSTEMS` / `_SYSTEM_SOURCE` / availability reserved）に6系統を再登録して、Phase 1-A rolling features を 18 → 24（8系統×3軸）に拡張する。registry↔rolling↔Parquet parity を維持したまま、Phase 4（Model & Prediction）が利用可能な feature を増やす。PIT-correctness は rolling.py の既存 strict `< cutoff` + per-observation window で保たれ、新規 leak は生じない（03-05 の end-to-end regression guard が検出）。
+**Depends on**: Phase 3（gap-closure 03-05 完了後・03-CONTEXT.md Deferred note 参照）
+**Requirements**: FEAT-01
+**Success Criteria** (what must be TRUE):
+
+  1. `normalized.n_uma_race` に `timediff` / `babacd` カラムが存在し、Phase 2 の staging-swap idempotent ETL で `raw_everydb2` から機械的に取り込まれる（§19.1 再現性・raw 不変性維持）
+  2. `rolling_timediff_{mean,latest,sd}_5` / `rolling_babacd_{mean,latest,sd}_5` の6 feature が `feature_availability.yaml`（registry）・`rolling.py::_ROLLING_SYSTEMS`/`_SYSTEM_SOURCE`・`availability.py::_ROLLING_SYSTEMS_FOR_RESERVED` の三者で再登録され、3者 parity test（`test_registry_rolling_systems_match_rolling_impl`）が GREEN
+  3. 新 snapshot で6 feature 列が（source が存在する行で）non-null を持ち、end-to-end regression guard test（`test_no_registered_feature_column_all_nan_end_to_end`）が GREEN を維持
+  4. manifest `feature_count` が rolling 18 → 24 を反映し、registry↔Parquet parity（宣言 feature 数 == populated feature 列数）が保たれる
+
+**Plans**: TBD
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 03.1 to break down)
+
 ### Phase 4: Model & Prediction
 
 **Goal**: A calibrated `p_fukusho_hit` estimate produced from odds-free Phase 1-A features, where the model adds measurable value over simple baselines and the market reference, with full reproducibility

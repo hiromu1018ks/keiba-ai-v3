@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: gaps_found
-stopped_at: Phase 03 gap-closure plan 03-05 PLANNED (CR-01 delete + deferred re-registration / WR-01 + CR-02/CR-03/CR-04 fixes) — ready to execute
-last_updated: "2026-06-19T03:59:56.000Z"
-last_activity: 2026-06-19 -- Phase 03 gap-closure plan 03-05 created (planner + plan-checker VERIFICATION PASSED; FEAT-01/02 covered; CR-01/WR-01/CR-02/CR-03/CR-04 targeted)
+stopped_at: Phase 03 gap-closure plan 03-05 PLANNED (CR-01 delete + deferred re-registration / WR-01 + CR-02/CR-03/CR-04 fixes) — ready to execute; Phase 03.1 (Timediff/Babacd Restoration) INSERTED before Phase 4
+last_updated: "2026-06-19T04:05:00.000Z"
+last_activity: 2026-06-19 -- Phase 03.1 inserted (Timediff/Babacd Rolling Restoration — source restoration for the 6 features 03-05 deletes); gap-closure plan 03-05 ready to execute
 progress:
   total_phases: 8
   completed_phases: 2
@@ -105,6 +105,10 @@ None yet.
 - Phase 2 research flag: `sales_start_entry_count` restoration logic and payout-table schema cannot be specified without inspecting actual EveryDB2/JRA-VAN columns — likely needs `/gsd-plan-phase --research-phase 2`
 - Phase 3 research flag: `available_from_timing` mapping depends on exact JRA-VAN data-availability timings — likely needs `/gsd-plan-phase --research-phase 3`
 - Phase 5 sub-spike: odds-snapshot timing granularity in EveryDB2 gates the candidate `odds_snapshot_policy` set
+
+### Roadmap Evolution
+
+- Phase 3.1 (Timediff/Babacd Rolling Restoration) inserted after Phase 3 (URGENT): Phase 2 ETL source extension (timediff/babacd → normalized.n_uma_race) + Phase 3 rolling re-registration of the 6 features deleted in gap-closure 03-05 (CR-01). Planned via /gsd-plan-phase 03.1 after Phase 3 gap-closure (03-05) completes.
 
 ## Deferred Items
 
