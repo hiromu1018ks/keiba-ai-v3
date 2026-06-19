@@ -49,7 +49,7 @@ from psycopg.sql import SQL, Identifier
 from psycopg_pool import ConnectionPool
 
 from src.etl.filters import project_window_filter
-from src.etl.fukusho_label import _LABEL_INSERT_COLUMNS
+from src.etl.fukusho_label import LABEL_INSERT_COLUMNS  # WR-11: public API
 from src.etl.raw_fingerprint import assert_raw_unchanged, compute_raw_fingerprint
 
 logger = logging.getLogger(__name__)
@@ -118,19 +118,24 @@ def _idempotent_backfill_label(
         )
 
     # staging を INCLUDING ALL で作成（PK / インデックス / NOT NULL / コメント継承）
+    # WR-11 (03-REVIEW): CREATE TABLE IF NOT EXISTS は既存 staging がある場合に schema を
+    # 更新しないため、fukusho_label 側で列追加されると古い schema が残る schema drift が
+    # 生じる。DROP TABLE IF EXISTS → CREATE TABLE の順で常に新規作成し、常に最新 schema を
+    # 継承する（TRUNCATE は不要・DROP 済みなので）。
+    write_cur.execute("DROP TABLE IF EXISTS label.fukusho_label_staging")
     write_cur.execute(
-        "CREATE TABLE IF NOT EXISTS label.fukusho_label_staging "
+        "CREATE TABLE label.fukusho_label_staging "
         "(LIKE label.fukusho_label INCLUDING ALL)"
     )
-    write_cur.execute("TRUNCATE label.fukusho_label_staging")
 
     # INSERT SELECT with JOIN: race_date を normalized.n_race から取得
-    # 列リストは既存 label.fukusho_label の全列（_LABEL_INSERT_COLUMNS・race_date 含む）。
+    # 列リストは既存 label.fukusho_label の全列（LABEL_INSERT_COLUMNS・race_date 含む）。
     # SELECT 側は cols_list と完全に同一順序で、race_date 位置だけ nr.race_date で差し替え。
     # ※ INSERT col[i] ← SELECT expr[i] の位置完全整列・positional mismatch 回避。
-    #    race_date は _LABEL_INSERT_COLUMNS の index 7 に含まれるが、SELECT 側では
+    #    race_date は LABEL_INSERT_COLUMNS の index 7 に含まれるが、SELECT 側では
     #    nr.race_date で差し替えるため fl.race_date は選択しない（末尾 append しない）。
-    cols_list = list(_LABEL_INSERT_COLUMNS)
+    # WR-11 (03-REVIEW): public API へ移行（旧 _LABEL_INSERT_COLUMNS は後方互換 alias）。
+    cols_list = list(LABEL_INSERT_COLUMNS)
     insert_cols_sql = ", ".join(cols_list)
     select_cols_sql = ", ".join(
         "nr.race_date" if c == "race_date" else f"fl.{c}" for c in cols_list

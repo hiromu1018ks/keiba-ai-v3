@@ -911,7 +911,12 @@ _LABEL_TABLE_COLUMNS = [
     "label_generation_version varchar(16) NOT NULL",
 ]
 
-_LABEL_INSERT_COLUMNS = [c.split()[0] for c in _LABEL_TABLE_COLUMNS]
+# WR-11 (03-REVIEW): private prefix を外して public API に昇格。
+# ``src.etl.label_race_date_backfill`` が INSERT 列順序を参照するため、cross-module で
+# private import する設計負債を解消。末尾の ``_LABEL_INSERT_COLUMNS`` alias は既存 import の
+# 後方互換用（非推奨・将来削除候補）。
+LABEL_INSERT_COLUMNS = [c.split()[0] for c in _LABEL_TABLE_COLUMNS]
+_LABEL_INSERT_COLUMNS = LABEL_INSERT_COLUMNS  # 後方互換 alias（非推奨・WR-11）
 
 
 def _create_label_table(write_cur: Cursor, *, reader_role: str) -> None:

@@ -195,9 +195,16 @@ def test_backfill_rowcount_verify() -> None:
     assert "SELECT count(*) FROM label.fukusho_label_staging" in executed_sql, (
         "staging INSERT 後に SELECT count(*) で rowcount verify が必要（WR-06）"
     )
-    # 不一致のため atomic swap (DROP/RENAME) は発行されない
-    assert "DROP TABLE" not in executed_sql.upper(), (
-        "rowcount 不一致時は swap 前に raise するべき（WR-06）"
+    # 不一致のため atomic swap は発行されない（WR-06）。
+    # WR-11: staging 準備用の ``DROP TABLE IF EXISTS label.fukusho_label_staging`` は
+    # 発行されてよい（schema drift 回避のため常に新規作成）。本検査は **本体 swap 用の**
+    # ``DROP TABLE IF EXISTS label.fukusho_label``（staging でない）が発行されないこと
+    # を検証する（rowcount 不一致で swap 前に raise する契約）。
+    assert "DROP TABLE IF EXISTS label.fukusho_label " not in executed_sql, (
+        "rowcount 不一致時は swap 前に raise するべき・本体の DROP TABLE が発行された (WR-06)"
+    )
+    assert "ALTER TABLE label.fukusho_label_staging RENAME TO fukusho_label" not in executed_sql, (
+        "rowcount 不一致時は swap 前に raise するべき・RENAME が発行された (WR-06)"
     )
 
 

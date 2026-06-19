@@ -254,13 +254,22 @@ def persist_category_maps(
     JSON-serialisable dict に変換できる。
 
     artifact 拡張子は ``.json``（従来 pickle binary から移行・CR-04）。
+
+    WR-10 (03-REVIEW): atomic write（tmp file + ``os.replace``）で書込む。``Path.write_text``
+    は atomic でなく、書込中のプロセス kill / disk full / 権限エラーで partial / 空 /
+    破損 JSON が残るリスクがある。tmp file に書いてから atomic rename することで
+    partial-failure を抑止する（CR-01新・Pitfall 5 の意図と整合）。
     """
-    Path(artifact_path).parent.mkdir(parents=True, exist_ok=True)
+    import os
+
+    artifact = Path(artifact_path)
+    artifact.parent.mkdir(parents=True, exist_ok=True)
     serialisable = {col: dict(m.items()) for col, m in maps.items()}
-    Path(artifact_path).write_text(
-        json.dumps(serialisable, sort_keys=True, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    payload = json.dumps(serialisable, sort_keys=True, ensure_ascii=False)
+    # tmp file は同一 filesystem 上に置く（os.replace は同一 filesystem のみ atomic 保证）。
+    tmp_path = artifact.with_suffix(artifact.suffix + ".tmp")
+    tmp_path.write_text(payload, encoding="utf-8")
+    os.replace(tmp_path, artifact)
 
 
 def load_category_maps(artifact_path: str | Path) -> dict[str, FrozenCategoryMap]:
