@@ -1,4 +1,7 @@
-"""過去走 rolling feature 構築（Phase 3 Plan 03-03 Task 1 / D-03/D-04/D-13 / REVIEWS HIGH #1/#2/#4）.
+"""過去走 rolling feature 構築（Phase 3 Plan 03-03 Task 1 / D-03/D-04/D-13）.
+
+REVIEWS HIGH #1 (per-observation latest-K algorithm) / HIGH #2 (strict < cutoff) /
+HIGH #4 (babacd history-allowed vs sibababacd/dirtbababd target-obs-banned) 対応。
 
 8系統 × 3軸 (mean / latest / sd) + count 軸の rolling feature を構築する。
 ``rolling_kakuteijyuni / rolling_timediff / rolling_harontimel3 / rolling_jyuni3c_jyuni4c /
@@ -29,7 +32,6 @@ from __future__ import annotations
 
 import pandas as pd
 
-from src.features.availability import CUTOFF_SEMANTICS
 from src.utils.category_map import MISSING
 
 # ---------------------------------------------------------------------------
@@ -92,8 +94,8 @@ def build_rolling_features(
         （厳格 ``<``・CUTOFF_SEMANTICS["pit_filter"] と整合・``<=`` でない）。
     3. **per-observation latest-K window（HIGH #1・CYCLE-2: ``obs_id`` 単位）** —
         ``sort_values(["obs_id","race_start_datetime"], ascending=[True,False])
-        .groupby("obs_id").head(lookback)`` で observation 毎に直近5走を取得。
-        horse key での groupby は cross-observation leak を起こすため**使わない**（CYCLE-2 HIGH #1）。
+        でソート後 ``.groupby("obs_id").head(lookback)`` で observation 毎に直近5走を取得。
+        horse key での groupby は cross-observation leak を起こすため**使わない**（HIGH #1）。
     4. **3軸集約（D-04）** — mean / latest / sd / count。5走未満 sentinel（D-13）。
     5. **8系統全てに3軸 + count 適用**。``jyuni3c_jyuni4c`` は両コーナー平均から rolling。
 
@@ -142,9 +144,13 @@ def build_rolling_features(
     # さもなくば DataFrame index から生成（テスト用単一 obs 等で race_nkey が無い場合）。
     if "obs_id" not in result.columns:
         if "race_nkey" in result.columns:
-            result["obs_id"] = list(zip(result["race_nkey"].tolist(), result["kettonum"].tolist()))
+            result["obs_id"] = list(
+                zip(result["race_nkey"].tolist(), result["kettonum"].tolist(), strict=False)
+            )
         else:
-            result["obs_id"] = list(zip(result.index.tolist(), result["kettonum"].tolist()))
+            result["obs_id"] = list(
+                zip(result.index.tolist(), result["kettonum"].tolist(), strict=False)
+            )
 
     # rolling 出力列を object dtype で初期化（数値と __MISSING__ sentinel 文字列が混在・
     # silent fill 禁止・D-13）。pandas が str dtype を推論して数値代入を拒否するのを避ける。
@@ -233,7 +239,7 @@ def build_rolling_features(
             recent_sys.groupby("obs_id")["_sys_value"].std(ddof=1).to_dict()
         )
 
-        for idx, obs_id in zip(result.index, result["obs_id"]):
+        for idx, obs_id in zip(result.index, result["obs_id"], strict=False):
             n = count_per_obs.get(obs_id, 0)
             mean_col = f"rolling_{system}_mean_5"
             latest_col = f"rolling_{system}_latest_5"

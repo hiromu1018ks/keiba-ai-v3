@@ -14,7 +14,8 @@ D-05 / Pitfall 3.2 の要点:
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from src.utils.category_map import MISSING
 
@@ -102,7 +103,7 @@ def estimate_running_style(history_rows: Iterable[dict[str, Any]] | Any) -> str:
 
 def estimate_running_style_batch(
     history_by_horse: Any,
-) -> "pd.Series":  # noqa: F821 (pandas import below for type only)
+) -> pd.Series:  # noqa: F821 (pandas import below for type only)
     """groupby 適用用 vectorized 版（builder で ``history.groupby("kettonum").apply(...)``）。
 
     各グループ（1馬の過去走 DataFrame）に ``estimate_running_style`` を適用し、
@@ -121,7 +122,7 @@ def estimate_running_style_batch(
     """
     import pandas as pd
 
-    def _per_group(group: "pd.DataFrame") -> str:  # noqa: F821
+    def _per_group(group: pd.DataFrame) -> str:  # noqa: F821
         rows = group[["jyuni3c", "jyuni4c"]].to_dict(orient="records") if len(group) > 0 else []
         return estimate_running_style(rows)
 
