@@ -30,6 +30,7 @@ import logging
 from typing import Any
 
 import pandas as pd
+import psycopg.errors
 from psycopg_pool import ConnectionPool
 
 import numpy as np
@@ -219,19 +220,30 @@ def _construct_derived_columns(
     if "race_start_datetime" in result.columns and "as_of_datetime" not in result.columns:
         result["as_of_datetime"] = pd.to_datetime(result["race_start_datetime"])
     # days_since_prev: kettonum 毎に race_date 昇順で diff(days)。history rolling source 専用。
+    # WR-02 (03-REVIEW) docstring 明記: 本値は「全 history 上の前走（window 外含む）」からの
+    # 日数であり、rolling window 内で再計算されるものではない。rolling 側で latest 軸は
+    # window 内の最新1件を取るが、その最新走の days_since_prev 値は window 外の前走を基準に
+    # している場合がある（リークではなく定義上の挙動・PIT filter 適用後も各 history 行の
+    # 「前走日数」として意味は保つ）。
+    # WR-09 (03-REVIEW): index の重複リスクを排除するため reset_index(drop=True) してから
+    # 計算し、元の index に整列し直す（壊れやすい .loc[ordered.index] lookup を廃止）。
     if (
         with_days_since_prev
         and "kettonum" in result.columns
         and "race_date" in result.columns
         and "days_since_prev" not in result.columns
     ):
-        rd = pd.to_datetime(result["race_date"])
-        ordered = result.sort_values(["kettonum", "race_date"]).copy()
-        ordered["_rd"] = rd.loc[ordered.index]
+        original_index = result.index
+        result = result.reset_index(drop=True)
+        result["_rd_dt"] = pd.to_datetime(result["race_date"])
+        ordered = result.sort_values(["kettonum", "race_date"])
         ordered["days_since_prev"] = (
-            ordered.groupby("kettonum")["_rd"].diff().dt.total_seconds() / 86400.0
+            ordered.groupby("kettonum")["_rd_dt"].diff().dt.total_seconds() / 86400.0
         )
-        result["days_since_prev"] = ordered["days_since_prev"].reindex(result.index)
+        # sort_index で元の result 順序に戻す（reset_index 済みなので 0..N-1）
+        result["days_since_prev"] = ordered.sort_index()["days_since_prev"].values
+        result = result.drop(columns=["_rd_dt"])
+        result.index = original_index
 
     # Phase 3.1 (Plan 03 Task 1): timediff parse (varchar4 → real秒・sentinel 0000/9999 → NaN)
     # raw format: "sNNN"（s="+"/"-"、NNN=3桁・NNN/10 秒）・例 "+001"→0.1秒・"-020"→-2.0秒。
@@ -552,8 +564,15 @@ def _fetch_feature_sources(read_pool: ConnectionPool) -> pd.DataFrame:
         if len(obs_df) > 0 and len(blood_df) > 0:
             obs_df = obs_df.merge(blood_df, on="kettonum", how="left")
         return obs_df
-    except Exception as exc:  # noqa: BLE001 - unit test / DB 未接続時は空 frame で安全フォールバック
-        logger.warning("feature source fetch failed (returning empty frame): %s", exc)
+    except (
+        psycopg.errors.OperationalError,
+        psycopg.errors.InterfaceError,
+        ConnectionError,
+    ) as exc:
+        # WR-01 (03-REVIEW): DB 接続関連例外のみ空 frame で安全フォールバック
+        # （unit test の DB 未接続・本番 DB 一時障害）。想定外例外（MemoryError /
+        # ProgrammingError / RuntimeError 等）は re-raise して WR-02 fail-loud に伝播させる。
+        logger.warning("feature source fetch failed (DB unavailable, returning empty frame): %s", exc)
         return pd.DataFrame(columns=_OBS_SELECT_COLUMN_NAMES)
 
 
@@ -582,8 +601,15 @@ def _fetch_history(read_pool: ConnectionPool) -> pd.DataFrame:
             return pd.DataFrame(columns=_HISTORY_SELECT_COLUMN_NAMES)
         hist_df = pd.DataFrame(rows, columns=_HISTORY_SELECT_COLUMN_NAMES)
         return _construct_derived_columns(hist_df, with_days_since_prev=True)
-    except Exception as exc:  # noqa: BLE001 - DB 未接続時は空 frame
-        logger.warning("history fetch failed (returning empty frame): %s", exc)
+    except (
+        psycopg.errors.OperationalError,
+        psycopg.errors.InterfaceError,
+        ConnectionError,
+    ) as exc:
+        # WR-01 (03-REVIEW): DB 接続関連例外のみ空 frame で安全フォールバック
+        # （unit test の DB 未接続・本番 DB 一時障害）。想定外例外は re-raise して
+        # 呼出側の WR-02 fail-loud / 上位ログ層に伝播させる。
+        logger.warning("history fetch failed (DB unavailable, returning empty frame): %s", exc)
         return pd.DataFrame(columns=_HISTORY_SELECT_COLUMN_NAMES)
 
 
