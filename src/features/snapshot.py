@@ -42,6 +42,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import yaml
 
+from src.utils.category_map import MISSING
+
 # ---------------------------------------------------------------------------
 # canonical row order (Pitfall 3.5)
 # ---------------------------------------------------------------------------
@@ -72,6 +74,32 @@ _BYTE_REPRODUCIBLE_SCOPE = "parquet_bytes_only"
 # しまうため、schema の created_at キーはこの deterministic 定数で埋め、§12.4 の
 # 「キー存在要件」を満たしつつ Parquet SHA256 を created_at 引数から独立させる。
 _DETERMINISTIC_CREATED_AT = "deterministic-by-design-parquet-bytes-only"
+
+
+def _coerce_rolling_columns_for_parquet(df: pd.DataFrame) -> pd.DataFrame:
+    """rolling 出力の object dtype 列（数値 + ``__MISSING__`` sentinel 混在）を nullable
+    Float64 に統一する（live-DB 整合・Parquet 直列化 fix）。
+
+    rolling.py の D-13 契約は未観測/5走未満を ``__MISSING__`` sentinel で表現し、出力列は
+    object dtype（数値と文字列が混在）になる。PyArrow は混在 object 列を直列化できない
+    (ArrowTypeError)。snapshot 境界で ``__MISSING__`` を NaN に置換し Float64 に統一する。
+    これにより Parquet 出力が成功し、byte-reproducibility も維持される（決定論的 cast）。
+
+    rolling 内部契約（object + sentinel）は不変・本関数は Parquet 出力前の直列化変換のみ。
+    """
+    result = df.copy()
+    for col in result.columns:
+        if not col.startswith("rolling_"):
+            continue
+        series = result[col]
+        if series.dtype != object:
+            continue
+        # __MISSING__ sentinel を NaN に置換し数値化。非 sentinel 値が既に数値の場合は
+        # to_numeric で float64 化（pandas nullable Float64 で NaN を表現）。
+        non_sentinel_mask = series.ne(MISSING)
+        coerced = pd.to_numeric(series.where(non_sentinel_mask), errors="coerce")
+        result[col] = coerced.astype("Float64")
+    return result
 
 
 def write_snapshot(
@@ -135,6 +163,14 @@ def write_snapshot(
         df_sorted = df.sort_values(available_sort_keys).reset_index(drop=True)
     else:
         df_sorted = df.reset_index(drop=True)
+
+    # --- rolling object 列の数値化（live-DB 整合・Parquet 直列化 fix） ---
+    # rolling.py の D-13 契約は object dtype + ``__MISSING__`` sentinel で未観測/5走未満を
+    # 表現するが、PyArrow は数値と文字列が混在する object 列を直列化できない
+    # (ArrowTypeError: Expected bytes, got a 'float' object)。snapshot 境界で sentinel を
+    # NaN に置換し nullable Float64 に統一する（rolling 内部契約は不変・Parquet 出力のみ変換）。
+    # 既に数値の列は Float64 変換で等価・byte-reproducibility は維持（決定論的 cast）。
+    df_sorted = _coerce_rolling_columns_for_parquet(df_sorted)
 
     # --- §12.4 metadata 構築 (9 keys) ---
     # REVIEWS HIGH #6: Parquet SHA256 はデータ内容のみに依存させるため、run 毎に変化し得る

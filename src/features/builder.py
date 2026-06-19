@@ -159,13 +159,16 @@ def make_race_nkey(
     )
 
 
-def _construct_derived_columns(df: pd.DataFrame) -> pd.DataFrame:
+def _construct_derived_columns(
+    df: pd.DataFrame, *, with_days_since_prev: bool = False
+) -> pd.DataFrame:
     """DB に存在しない derived 列を pandas で構築する（observations / history 共通）。
 
     - ``race_nkey``: ``make_race_nkey(year, jyocd, kaiji, nichiji, racenum)``。
     - ``as_of_datetime``: ``race_start_datetime``（=レース発走時刻・PIT 基準時刻）。
     - ``days_since_prev``: 同一 kettonum 内の前走 race_date からの日数差（rolling source）。
-      history のみ意味を持つ・observations では NaN のまま（rolling は history 側で消費）。
+      **history のみ**意味を持つ（observations では構築しない・matrix に出力しない）。
+      ``with_days_since_prev=True`` のときのみ構築。
 
     リーク不変量: 全て過去情報のみから導出。cutoff / PIT filter は別途 rolling 側で
     strict ``<`` で適用される。
@@ -184,9 +187,10 @@ def _construct_derived_columns(df: pd.DataFrame) -> pd.DataFrame:
         )
     if "race_start_datetime" in result.columns and "as_of_datetime" not in result.columns:
         result["as_of_datetime"] = pd.to_datetime(result["race_start_datetime"])
-    # days_since_prev: kettonum 毎に race_date 昇順で diff(days)。history rolling source。
+    # days_since_prev: kettonum 毎に race_date 昇順で diff(days)。history rolling source 専用。
     if (
-        "kettonum" in result.columns
+        with_days_since_prev
+        and "kettonum" in result.columns
         and "race_date" in result.columns
         and "days_since_prev" not in result.columns
     ):
@@ -385,16 +389,18 @@ def _fetch_feature_sources(read_pool: ConnectionPool) -> pd.DataFrame:
         with read_pool.connection() as conn:
             with conn.cursor() as cur:
                 obs_cols = ", ".join(_OBS_DB_SELECT_COLUMNS)
-                blood_cols = ", ".join(_BLOODLINE_COLUMNS)
                 obs_sql = (
                     f"SELECT {obs_cols} FROM normalized.n_uma_race ur "
                     f"JOIN normalized.n_race nr ON (ur.year=nr.year AND ur.jyocd=nr.jyocd "
                     f"AND ur.kaiji=nr.kaiji AND ur.nichiji=nr.nichiji AND ur.racenum=nr.racenum) "
                     f"WHERE {project_window_filter('ur')}"
                 )
+                # n_uma.kettonum は varchar・n_uma_race.kettonum は integer なので
+                # join key 型を揃えるため cast（live-DB 整合・Rule 3 blocking fix）。
                 blood_sql = (
-                    f"SELECT {blood_cols} FROM public.n_uma "
-                    f"WHERE kettonum IS NOT NULL"
+                    "SELECT kettonum::int AS kettonum, ketto3infohansyokunum1, "
+                    "ketto3infohansyokunum2 FROM public.n_uma "
+                    "WHERE kettonum IS NOT NULL AND kettonum ~ '^[0-9]+$'"
                 )
                 cur.execute(obs_sql)
                 obs_rows = cur.fetchall()
@@ -442,7 +448,7 @@ def _fetch_history(read_pool: ConnectionPool) -> pd.DataFrame:
         if not rows:
             return pd.DataFrame(columns=_HISTORY_SELECT_COLUMN_NAMES)
         hist_df = pd.DataFrame(rows, columns=_HISTORY_SELECT_COLUMN_NAMES)
-        return _construct_derived_columns(hist_df)
+        return _construct_derived_columns(hist_df, with_days_since_prev=True)
     except Exception as exc:  # noqa: BLE001 - DB 未接続時は空 frame
         logger.warning("history fetch failed (returning empty frame): %s", exc)
         return pd.DataFrame(columns=_HISTORY_SELECT_COLUMN_NAMES)
