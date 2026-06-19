@@ -38,6 +38,7 @@ from psycopg.errors import Error as PsycopgError  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.db.connection import make_pool  # noqa: E402
 from src.etl.label_race_date_backfill import backfill_label_race_date  # noqa: E402
+from src.etl.raw_fingerprint import compute_raw_fingerprint  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -58,6 +59,18 @@ def main() -> int:
     etl_pool = make_pool(settings, role="etl")
 
     try:
+        # WR-07 (03-REVIEW): スクリプト全体での raw 不変性を検証するため、
+        # backfill 呼出前に1回 raw fingerprint を取得する。各 backfill run 内部でも
+        # before/after を取得しているが、1回目と2回目の間に別プロセスが raw を変更した
+        # 場合を検出するには「スクリプト全体の最初と最後」の比較が必要。
+        with read_pool.connection() as conn:
+            with conn.cursor() as read_cur:
+                script_wide_before = compute_raw_fingerprint(read_cur)
+        logger.info(
+            "raw fingerprint before script-wide verify: row_counts=%s",
+            {k: v for k, v in script_wide_before["row_count"].items()},
+        )
+
         # --- backfill 1回目実行 ---
         result1 = backfill_label_race_date(read_pool, etl_pool)
         logger.info(
@@ -78,6 +91,19 @@ def main() -> int:
             result2["non_null_race_date_count"],
             result2["raw_touched"],
             result2["checksum"],
+        )
+
+        # WR-07: スクリプト全体の最後に raw fingerprint を再取得し、最初と一致することを
+        # assert する（1回目と2回目の間に別プロセスが raw を変更した場合の検出）。
+        with read_pool.connection() as conn:
+            with conn.cursor() as read_cur:
+                script_wide_after = compute_raw_fingerprint(read_cur)
+        assert script_wide_before == script_wide_after, (
+            "raw fingerprint がスクリプト全体で変化した（WR-07・別プロセスが raw を "
+            f"変更した可能性）: before={script_wide_before} after={script_wide_after}"
+        )
+        logger.info(
+            "raw 不変性（スクリプト全体・WR-07）: PASS（前後 fingerprint 完全一致）"
         )
 
         # HIGH #3 idempotent assertion: rows_backfilled 一致

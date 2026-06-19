@@ -101,29 +101,7 @@ def estimate_running_style(history_rows: Iterable[dict[str, Any]] | Any) -> str:
     return classify_running_style(avg_position)
 
 
-def estimate_running_style_batch(
-    history_by_horse: Any,
-) -> pd.Series:  # noqa: F821 (pandas import below for type only)
-    """groupby 適用用 vectorized 版（builder で ``history.groupby("kettonum").apply(...)``）。
-
-    各グループ（1馬の過去走 DataFrame）に ``estimate_running_style`` を適用し、
-    脚質コード文字列（または ``__MISSING__``）を返す。戻り値は ``pd.Series``（index=kettonum）。
-
-    Parameters
-    ----------
-    history_by_horse : pd.core.groupby.DataFrameGroupBy
-        ``kettonum`` で group化された過去走 DataFrame groupby object。各 group は
-        ``jyuni3c`` / ``jyuni4c`` 列を含むこと。
-
-    Returns
-    -------
-    pd.Series
-        index=kettonum・値は ``"逃"`` / ``"先"`` / ``"差"`` / ``"追"`` / ``__MISSING__``。
-    """
-    import pandas as pd
-
-    def _per_group(group: pd.DataFrame) -> str:  # noqa: F821
-        rows = group[["jyuni3c", "jyuni4c"]].to_dict(orient="records") if len(group) > 0 else []
-        return estimate_running_style(rows)
-
-    return history_by_horse.apply(_per_group)
+# WR-08 (03-REVIEW): 旧 ``estimate_running_style_batch`` は dead code であり、かつ
+# module top-level に ``import pandas as pd`` が無い状態で戻り値型 ``pd.Series`` を
+# 前方参照していた（``# noqa: F821`` で黙らせていた・type checker は黙らない）。builder は
+# ``estimate_running_style`` のみを使用するため、本関数は YAGNI で削除した。
