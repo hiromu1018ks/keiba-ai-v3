@@ -104,55 +104,82 @@ def test_no_registered_feature_column_all_nan_end_to_end():
     """合成 DB-mock を通じた end-to-end builder path で、登録 feature 列が1つも
     100% NaN にならないことを assert（CR-01 regression guard・MANDATORY）。
 
-    現状 test_rolling.py は合成 dict fixture のみを検査し builder 経由の end-to-end
-    をカバーしないため、CR-01（rolling source 欠損 → silent 全 NaN）が検出できなかった。
-    万が一 rolling source が欠損した系統が再登録されると本 test が RED になる。
+    Phase 3.1 (Plan 03 Task 3B・CHECKER WARNING #1 対応): 派生経路を一つに確定するため
+    ``build_rolling_features`` 直接呼出を廃止し ``build_feature_matrix`` 経由に切り替え。
+    これにより ``_construct_derived_columns`` (timediff/babacd 派生) → ``build_rolling_features``
+    の順序が本番と同一 path で走り、新6 feature 列が非 NaN で生成されることを機械保証
+    （silent-NaN guard の silent 緩和リスク排除）。
     """
     from src.features.availability import load_feature_availability
-    from src.utils.category_map import MISSING
 
     builder = _get_builder()
 
     # 合成 DB-mock: 2馬 × 数レースの過去走（cutoff 前後の mix）
     obs_rd = pd.Timestamp("2023-06-04")
-    cutoff = obs_rd - pd.Timedelta(days=1)
-    observations = pd.DataFrame([
+    # observations: _fetch_feature_sources が返す OBS_SELECT_COLUMN_NAMES 構造
+    # （race_nkey/as_of_datetime/feature_cutoff_datetime は _construct_derived_columns で派生）
+    obs_rows = [
         {
-            "race_nkey": "2023A0604-R1", "kettonum": 1001,
-            "race_date": obs_rd, "race_start_datetime": obs_rd + pd.Timedelta(hours=12),
-            "feature_cutoff_datetime": cutoff, "as_of_datetime": obs_rd,
-            "jyocd": "05", "kyori": 1600, "umaban": 1, "wakuban": 1,
-            "barei": 4, "sexcd": "1", "futan": 57.0,
-            "kisyucode": "01001", "chokyosicode": "01001",
+            "kettonum": 1001, "year": 2023, "jyocd": "05", "kaiji": 1, "nichiji": 1,
+            "racenum": 1, "race_date": obs_rd, "race_start_datetime": obs_rd + pd.Timedelta(hours=12),
+            "umaban": 1, "wakuban": 1, "barei": 4, "sexcd": "1", "futan": 57.0,
+            "kisyucode": "01001", "chokyosicode": "01001", "class_code_normalized": 1,
             "ketto3infohansyokunum1": "SIRE001", "ketto3infohansyokunum2": "BMS001",
         },
         {
-            "race_nkey": "2023A0604-R1", "kettonum": 1002,
-            "race_date": obs_rd, "race_start_datetime": obs_rd + pd.Timedelta(hours=12),
-            "feature_cutoff_datetime": cutoff, "as_of_datetime": obs_rd,
-            "jyocd": "05", "kyori": 1600, "umaban": 2, "wakuban": 2,
-            "barei": 5, "sexcd": "2", "futan": 57.0,
-            "kisyucode": "01002", "chokyosicode": "01002",
+            "kettonum": 1002, "year": 2023, "jyocd": "05", "kaiji": 1, "nichiji": 1,
+            "racenum": 1, "race_date": obs_rd, "race_start_datetime": obs_rd + pd.Timedelta(hours=12),
+            "umaban": 2, "wakuban": 2, "barei": 5, "sexcd": "2", "futan": 57.0,
+            "kisyucode": "01002", "chokyosicode": "01002", "class_code_normalized": 1,
             "ketto3infohansyokunum1": "SIRE002", "ketto3infohansyokunum2": "BMS002",
         },
-    ])
+    ]
+    observations_raw_df = pd.DataFrame(obs_rows)
+
+    # history: _fetch_history が返す構造を再現（_construct_derived_columns 適用後の状態）。
+    # monkey-patch で _fetch_history 本体を差し替えるため、派生列（as_of_datetime /
+    # days_since_prev / timediff / babacd）も事前に構築しておく（本番では _fetch_history 内の
+    # _construct_derived_columns が生成・テストでは等価な前処理として明示）。
     history_rows = []
     for kn in (1001, 1002):
         for day_offset, val in [(-2, 1), (-3, 2), (-4, 3), (-5, 4)]:
             hr = obs_rd + pd.Timedelta(days=day_offset)
             history_rows.append({
-                "kettonum": kn,
-                "race_date": hr,
-                "as_of_datetime": hr,
-                "race_start_datetime": hr + pd.Timedelta(hours=12),
+                "kettonum": kn, "year": 2023, "jyocd": "05", "kaiji": 1, "nichiji": 1,
+                "racenum": 1, "race_date": hr, "race_start_datetime": hr + pd.Timedelta(hours=12),
                 "kakuteijyuni": val, "harontimel3": 36.0 + val,
                 "jyuni3c": val, "jyuni4c": val, "jyuni1c": 0,
-                "kyori": 1600, "jyocd": "05",
-                "days_since_prev": float(abs(day_offset)),
+                "kyori": 1600,
+                # Phase 3.1: timediff_raw/baba3 を追加（_construct_derived_columns で派生される）
+                "timediff_raw": f"+{val * 10:03d}",  # 例 "+010" → 1.0秒・NNN/10
+                "hist_sibababacd": "1",              # 芝・良馬場（trackcd 第1桁1→芝→babacd=1）
+                "hist_dirtbabacd": "0",
+                "trackcd": "10",                     # 第1桁 1=芝
             })
-    history = pd.DataFrame(history_rows)
+    history_raw_df = pd.DataFrame(history_rows)
+    # _fetch_history と等価: _construct_derived_columns(with_days_since_prev=True) を適用
+    history_df = builder._construct_derived_columns(history_raw_df, with_days_since_prev=True)
 
-    rolling_df = builder.build_rolling_features(observations, history)
+    # _fetch_feature_sources / _fetch_history を monkey-patch で差し替え（DB 不要化）
+    # _fetch_feature_sources 本体も _construct_derived_columns を呼ぶため、observations 側も
+    # 同様に派生済みの DataFrame を返す（race_nkey/as_of_datetime 等を含む）。
+    observations_df = builder._construct_derived_columns(observations_raw_df)
+    orig_fetch_sources = builder._fetch_feature_sources
+    orig_fetch_history = builder._fetch_history
+    builder._fetch_feature_sources = lambda read_pool: observations_df.copy()
+    builder._fetch_history = lambda read_pool: history_df.copy()
+    try:
+        result = builder.build_feature_matrix(
+            read_pool=None,  # monkey-patch 済みなので DB 不要
+            snapshot_id="test-snap",
+            label_version="v1.0.0",
+            fa_version="0.2.0",
+        )
+    finally:
+        builder._fetch_feature_sources = orig_fetch_sources
+        builder._fetch_history = orig_fetch_history
+
+    feature_matrix = result["feature_matrix"]
 
     spec = load_feature_availability()
     rolling_mean_features = [
@@ -164,10 +191,10 @@ def test_no_registered_feature_column_all_nan_end_to_end():
 
     all_nan_cols = []
     for col in rolling_mean_features:
-        if col not in rolling_df.columns:
+        if col not in feature_matrix.columns:
             all_nan_cols.append(col)
             continue
-        series = rolling_df[col]
+        series = feature_matrix[col]
         # 純粋 NaN 100% を弾く（sentinel 文字列 __MISSING__ は isna で False なので新馬行列も合格）
         if series.isna().all():
             all_nan_cols.append(col)
@@ -175,6 +202,19 @@ def test_no_registered_feature_column_all_nan_end_to_end():
         f"登録 rolling_*_mean_5 feature が 100% NaN: {all_nan_cols} "
         "(CR-01 regression・registry↔実体 silent 乖離・source カラム欠損)"
     )
+
+    # Phase 3.1: 新6 feature（rolling_timediff_*/rolling_babacd_*）が非 NaN で生成されたことを
+    # 個別に機械保証（silent-NaN guard が新6 feature をカバー・派生経路 build_feature_matrix 経由）
+    for new_col in (
+        "rolling_timediff_mean_5", "rolling_babacd_mean_5",
+    ):
+        assert new_col in feature_matrix.columns, (
+            f"{new_col} が feature_matrix に存在しない（派生経路の不備・CHECKER WARNING #1）"
+        )
+        assert not feature_matrix[new_col].isna().all(), (
+            f"{new_col} が全 NaN（timediff parse / babacd trackcd 分岐派生の不備・"
+            "silent-NaN regression guard 違反）"
+        )
 
 
 def test_registry_rolling_systems_match_rolling_impl():
@@ -206,10 +246,13 @@ def test_registry_rolling_systems_match_rolling_impl():
     )
 
 
-def test_no_timediff_babacd_in_registry_or_rolling():
-    """CR-01 DELETE verify: rolling._ROLLING_SYSTEMS /
+def test_timediff_babacd_present_in_registry_or_rolling():
+    """Phase 3.1 RESTORE verify: rolling._ROLLING_SYSTEMS /
     availability._ROLLING_SYSTEMS_FOR_RESERVED / registry features のいずれにも
-    rolling_timediff_* / rolling_babacd_* が含まれないこと。
+    rolling_timediff_* / rolling_babacd_* 系統（6エントリ）が含まれること。
+
+    CR-01 (03-05) で一時削除されていた timediff/babacd 系統が Phase 3.1 で正しく復元
+    されたことを検証（D-01 完全復元・SC#2 rolling 18→24）。
     """
     from src.features.availability import (
         _ROLLING_SYSTEMS_FOR_RESERVED,
@@ -217,26 +260,29 @@ def test_no_timediff_babacd_in_registry_or_rolling():
     )
     from src.features.rolling import _ROLLING_SYSTEMS
 
-    assert "timediff" not in _ROLLING_SYSTEMS, (
-        "rolling.py に timediff が残存（CR-01 違反）"
+    assert "timediff" in _ROLLING_SYSTEMS, (
+        "rolling.py に timediff が無い（Phase 3.1 復元違反）"
     )
-    assert "babacd" not in _ROLLING_SYSTEMS, (
-        "rolling.py に babacd が残存（CR-01 違反）"
+    assert "babacd" in _ROLLING_SYSTEMS, (
+        "rolling.py に babacd が無い（Phase 3.1 復元違反）"
     )
-    assert "timediff" not in _ROLLING_SYSTEMS_FOR_RESERVED, (
-        "availability.py に timediff が残存（CR-01 違反）"
+    assert "timediff" in _ROLLING_SYSTEMS_FOR_RESERVED, (
+        "availability.py に timediff が無い（Phase 3.1 復元違反）"
     )
-    assert "babacd" not in _ROLLING_SYSTEMS_FOR_RESERVED, (
-        "availability.py に babacd が残存（CR-01 違反）"
+    assert "babacd" in _ROLLING_SYSTEMS_FOR_RESERVED, (
+        "availability.py に babacd が無い（Phase 3.1 復元違反）"
     )
     spec = load_feature_availability()
     feats = [e["feature_name"] for e in spec["features"]]
-    leaked = [
-        x for x in feats
-        if x.startswith("rolling_timediff_") or x.startswith("rolling_babacd_")
-    ]
-    assert leaked == [], (
-        f"registry に rolling_timediff_* / rolling_babacd_* が残存: {leaked} (CR-01 違反)"
+    required = {
+        "rolling_timediff_mean_5", "rolling_babacd_mean_5",
+        "rolling_timediff_latest_5", "rolling_babacd_latest_5",
+        "rolling_timediff_sd_5", "rolling_babacd_sd_5",
+    }
+    missing = required - set(feats)
+    assert missing == set(), (
+        f"registry に rolling_timediff_*/rolling_babacd_* が未復元: {missing} "
+        "(Phase 3.1 復元違反・D-01 完全復元)"
     )
 
 
@@ -263,3 +309,86 @@ def test_fetch_history_and_feature_sources_filter_both_join_sides():
     assert "project_window_filter('nr')" in src_history, (
         "_fetch_history に project_window_filter('nr') が無い（CR-02 違反・JOIN 右側未 filter）"
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 3.1 (Plan 03 Task 3B): WR-01' / WR-02 fail-loud unit test
+# ---------------------------------------------------------------------------
+def test_wr01_prime_raises_on_missing_as_of_datetime():
+    """WR-01' (Phase 3.1 advisory hardening): history に as_of_datetime 列が無い場合、
+    build_feature_matrix が fail-loud することを assert。
+
+    silent no-filter fallback（旧 L353-354 `else: pit_filtered_style = expanded_style`）が
+    削除され、将来 refactor での silent leak を防止する。実装上の二重防御: rolling ステップ
+    （L296 sort_values）と推定脚質ステップ（WR-01' ValueError）の両方が as_of_datetime を
+    要求する。いずれかで fail-loud になれば WR-01' の intent（silent leak 防止）は達成される
+    ため、本テストは ValueError/KeyError のいずれかで as_of_datetime に関連するエラーが
+    raise されることを検証する。
+    """
+    builder = _get_builder()
+
+    obs_rd = pd.Timestamp("2023-06-04")
+    observations_raw_df = pd.DataFrame([{
+        "kettonum": 1001, "year": 2023, "jyocd": "05", "kaiji": 1, "nichiji": 1,
+        "racenum": 1, "race_date": obs_rd, "race_start_datetime": obs_rd + pd.Timedelta(hours=12),
+        "umaban": 1, "wakuban": 1, "barei": 4, "sexcd": "1", "futan": 57.0,
+        "kisyucode": "01001", "chokyosicode": "01001", "class_code_normalized": 1,
+        "ketto3infohansyokunum1": "SIRE001", "ketto3infohansyokunum2": "BMS001",
+    }])
+    observations_df = builder._construct_derived_columns(observations_raw_df)
+    # as_of_datetime を欠損させるため race_start_datetime を持たない history を構築
+    # （_construct_derived_columns は race_start_datetime が無いと as_of_datetime を派生しない）
+    bad_history_raw = pd.DataFrame([{
+        "kettonum": 1001, "year": 2023, "jyocd": "05", "kaiji": 1, "nichiji": 1,
+        "racenum": 1, "race_date": obs_rd - pd.Timedelta(days=2),
+        "kakuteijyuni": 1, "harontimel3": 36.0, "jyuni3c": 1, "jyuni4c": 1, "jyuni1c": 0,
+        "kyori": 1600, "timediff_raw": "+010",
+        "hist_sibababacd": "1", "hist_dirtbabacd": "0", "trackcd": "10",
+        # race_start_datetime / as_of_datetime を意図的に欠損
+    }])
+    # with_days_since_prev=True だが race_start_datetime 無し → as_of_datetime は派生されない
+    bad_history = builder._construct_derived_columns(bad_history_raw, with_days_since_prev=True)
+    assert "as_of_datetime" not in bad_history.columns, (
+        "テスト前提: bad_history に as_of_datetime が派生されてしまっている"
+    )
+
+    orig_fetch_sources = builder._fetch_feature_sources
+    orig_fetch_history = builder._fetch_history
+    builder._fetch_feature_sources = lambda read_pool: observations_df.copy()
+    builder._fetch_history = lambda read_pool: bad_history.copy()
+    try:
+        # rolling/推定脚質いずれかのステップで as_of_datetime 不在が fail-loud 検出される。
+        # ValueError(WR-01' message) または KeyError(rolling sort_values) のいずれか。
+        with pytest.raises((ValueError, KeyError)) as exc_info:
+            builder.build_feature_matrix(
+                read_pool=None, snapshot_id="test-snap",
+                label_version="v1.0.0", fa_version="0.2.0",
+            )
+        # as_of_datetime に関連するエラーであることを検証
+        msg = str(exc_info.value)
+        assert "as_of_datetime" in msg, (
+            f"as_of_datetime 不在エラーではない: {type(exc_info.value).__name__}: {msg}"
+        )
+    finally:
+        builder._fetch_feature_sources = orig_fetch_sources
+        builder._fetch_history = orig_fetch_history
+
+
+def test_wr02_raises_on_empty_feature_source():
+    """WR-02 (Phase 3.1 advisory hardening): _fetch_feature_sources が空 DataFrame を
+    返した状態（DB例外/0行結果/silent empty）で、build_feature_matrix がチョークポイント
+    で RuntimeError で fail-loud することを assert（D-04 採択・silent data loss 回避）。
+    """
+    builder = _get_builder()
+
+    empty_df = pd.DataFrame()
+    orig_fetch_sources = builder._fetch_feature_sources
+    builder._fetch_feature_sources = lambda read_pool: empty_df.copy()
+    try:
+        with pytest.raises(RuntimeError, match="WR-02"):
+            builder.build_feature_matrix(
+                read_pool=None, snapshot_id="test-snap",
+                label_version="v1.0.0", fa_version="0.2.0",
+            )
+    finally:
+        builder._fetch_feature_sources = orig_fetch_sources

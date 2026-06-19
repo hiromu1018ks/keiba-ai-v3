@@ -127,7 +127,10 @@ se_marker_canonicalization:
   # ハロンタイム異常 sentinel: raw varchar '999' / pandas to_numeric 後 999.0 / 文字列表現 '999.0'/'999.00'
   harontimel3_sentinels: ["999", "999.0", "999.00"]
   # タイム差異常 sentinel（同上）
-  timediff_sentinels: ["9999", "9999.0"]
+  # Phase 3.1 (Plan 03 Task 3B): "0000"/"0000.0" を追加（実データ検証で 0000 は kakuteijyuni='00'
+  # と完全一致・376件・発走前取消/競走中止のタイム差未確定・Pitfall 1）。builder 側の
+  # _TIMEDIFF_SENTINELS と整合（両者で "0000"/"9999" を含む）。
+  timediff_sentinels: ["9999", "9999.0", "0000", "0000.0"]
   # time がこれらの値なら「発走前停止/除外」扱い
   time_sentinels_absent: ["0", "0.0", "", "9999", "9999.0"]
   # time が数値で sentinel 集合外なら「発走後停止=競走中止」扱い
