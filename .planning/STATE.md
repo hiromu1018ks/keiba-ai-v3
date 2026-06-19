@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: gaps_found
-stopped_at: Phase 03 verification gaps_found (CR-01 silent-empty-features + CR-02/03/04 debt) — gap-closure pending
-last_updated: "2026-06-19T03:10:15.692Z"
-last_activity: 2026-06-19 -- Phase 03 verification: 4/4 plans executed, gaps_found (2.5/3 must-haves, CR-01 silent-empty rolling features)
+stopped_at: Phase 03 gap-closure plan 03-05 PLANNED (CR-01 delete + deferred re-registration / WR-01 + CR-02/CR-03/CR-04 fixes) — ready to execute
+last_updated: "2026-06-19T03:59:56.000Z"
+last_activity: 2026-06-19 -- Phase 03 gap-closure plan 03-05 created (planner + plan-checker VERIFICATION PASSED; FEAT-01/02 covered; CR-01/WR-01/CR-02/CR-03/CR-04 targeted)
 progress:
   total_phases: 8
   completed_phases: 2
-  total_plans: 12
+  total_plans: 13
   completed_plans: 12
   percent: 38
 ---
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 03 (as-of-features-snapshots) — GAPS_FOUND
-Plan: 4 of 4 executed (re-verify pending after gap closure)
+Plan: 5 (4 executed + gap-closure 03-05 planned, ready to execute)
 Status: gaps_found — CR-01 silent-empty rolling features (6 cols all-NaN, reproducibility breach) + CR-02/03/04 debt. Code review: 4C/9W/5I.
 Last activity: 2026-06-19 -- Phase 03 verification gaps_found (2.5/3 must-haves)
 
