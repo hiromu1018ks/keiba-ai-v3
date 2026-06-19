@@ -79,9 +79,10 @@ def _idempotent_backfill_label(
          (LIKE label.fukusho_label INCLUDING ALL)``（HIGH #3: PK/index/NOT NULL/comment 継承）
       3. ``TRUNCATE label.fukusho_label_staging``
       4. **INSERT SELECT with JOIN**:
-         ``INSERT INTO label.fukusho_label_staging (<全列>)
-         SELECT fl.<col1..colN>, nr.race_date
-         FROM label.fukusho_label fl
+         ``INSERT INTO label.fukusho_label_staging (<全列>)``
+         SELECT 句は <全列> と同一順序で、race_date 位置だけ nr.race_date に差し替え
+         （INSERT col[i] ← SELECT expr[i] の位置完全整列・末尾 append しない）。
+         ``FROM label.fukusho_label fl
          JOIN normalized.n_race nr ON (fl.year=nr.year AND fl.jyocd=nr.jyocd AND
                fl.kaiji=nr.kaiji AND fl.nichiji=nr.nichiji AND fl.racenum=nr.racenum)
          WHERE project_window_filter('fl') AND project_window_filter('nr')``
@@ -125,15 +126,15 @@ def _idempotent_backfill_label(
 
     # INSERT SELECT with JOIN: race_date を normalized.n_race から取得
     # 列リストは既存 label.fukusho_label の全列（_LABEL_INSERT_COLUMNS・race_date 含む）。
-    # SELECT 側は fl.<全列から race_date を除いたもの> + nr.race_date。
-    # ※ race_date は _LABEL_INSERT_COLUMNS の index 7 に含まれるが、SELECT 側では
-    #    nr.race_date で上書きするため fl.race_date は選択しない。
+    # SELECT 側は cols_list と完全に同一順序で、race_date 位置だけ nr.race_date で差し替え。
+    # ※ INSERT col[i] ← SELECT expr[i] の位置完全整列・positional mismatch 回避。
+    #    race_date は _LABEL_INSERT_COLUMNS の index 7 に含まれるが、SELECT 側では
+    #    nr.race_date で差し替えるため fl.race_date は選択しない（末尾 append しない）。
     cols_list = list(_LABEL_INSERT_COLUMNS)
     insert_cols_sql = ", ".join(cols_list)
-    # SELECT 側: race_date を除く fl 列 + nr.race_date
-    fl_cols_no_racedate = [c for c in cols_list if c != "race_date"]
-    fl_select_sql = ", ".join(f"fl.{c}" for c in fl_cols_no_racedate)
-    select_cols_sql = f"{fl_select_sql}, nr.race_date"
+    select_cols_sql = ", ".join(
+        "nr.race_date" if c == "race_date" else f"fl.{c}" for c in cols_list
+    )
 
     join_on = " AND ".join(f"fl.{k} = nr.{k}" for k in _RACE_LEVEL_JOIN_KEYS)
     fl_filter = project_window_filter("fl")
