@@ -99,7 +99,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 03-03-PLAN.md — Wave 2 feature builder 本体（builder.py + rolling.py 9系統×3軸 per-observation latest-K algorithm + running_style.py 推定脚質・明示カラム SELECT・target-obs/history taxonomy・出力カラム registry 検査・SC#1/#2 GREEN・REVIEWS HIGH #1/#2/#3/#4）— FEAT-01/02
+- [x] 03-03-PLAN.md — Wave 2 feature builder 本体（builder.py + rolling.py 9系統×3軸 per-observation latest-K algorithm + running_style.py 推定脚質・明示カラム SELECT・target-obs/history taxonomy・出力カラム registry 検査・SC#1/#2 GREEN・REVIEWS HIGH #1/#2/#3/#4）— FEAT-01/02
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -183,7 +183,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 |-------|----------------|--------|-----------|
 | 1. Trust & Foundation | 4/4 | Complete    | 2026-06-17 |
 | 2. Fukusho Labels | 4/4 | Complete    | 2026-06-18 |
-| 3. As-of Features & Snapshots | 1/4 | In Progress|  |
+| 3. As-of Features & Snapshots | 3/4 | In Progress|  |
 | 4. Model & Prediction | 0/TBD | Not started | - |
 | 5. EV & Backtest | 0/TBD | Not started | - |
 | 6. Evaluation & Calibration Gates | 0/TBD | Not started | - |

@@ -664,6 +664,7 @@ features:
    - **leak-safety invariant の保持根拠:** leak-safety の本質は「未来情報が feature 計算に入らないこと」であり、それは `merge_asof(direction='backward')` という API ではなく「strict `< cutoff` で history を pre-filter すること」で達成される。CLAUDE.md §3 の `direction='backward'` は strict `< cutoff` filter を wrap した便利 API に過ぎない。本 algorithm は strict `< cutoff` pre-filter を明示的に行うため、`direction='backward'` と同等の PIT-correctness を保持する。
    - **検証:** 5-row adversarial unit test（target / same_day_prior / same_day_later / previous_day / future が全て rolling window から除外されること・各 timediff = 99.99 / 88.88 / 77.77 / 66.66 / 55.55・混入すれば mean ≠ -2.0 で検出）が GREEN になることで leak-safety を機械的に証明する（Plan 03-03 Task 1・test_per_observation_latest_5_excludes_target_same_day_previous_future / test_history_pre_filtered_strict_less_than_cutoff・HIGH #1/#2）。
    - **source:** Plan 03-03 Task 1 action（本 RESEARCH entry と相互参照）。
+   - **CYCLE-2 re-open 更新 (HIGH #1・Plan 03-03 実装時):** 上記 (3) の `groupby("kettonum").head(5)` は horse 単位で1つの window しか作らず、同一 horse が複数の target observation に現れた場合に cross-observation leak を起こす（obs_A が obs_B の cutoff 依存 window を共有してしまう）。実装 `src/features/rolling.py` は group key を **`obs_id = (race_nkey, kettonum)`** に変更し、`groupby("obs_id", sort=False).head(5)` で observation 毎に独立 window を構築する。`test_two_observation_window_is_per_observation_not_per_horse` が同一 horse × 2 observation × 異 cutoff で異なる rolling 値を機械的に検証し、horse-grouped algorithm では必ず RED になる adversarial。leak-safety invariant（strict `< cutoff` pre-filter）は不変・HIGH #2 GREEN も保持。
 
 ## Environment Availability
 
