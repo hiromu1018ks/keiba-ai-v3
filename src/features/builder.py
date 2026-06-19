@@ -32,6 +32,8 @@ from typing import Any
 import pandas as pd
 from psycopg_pool import ConnectionPool
 
+import numpy as np
+
 from src.etl.filters import project_window_filter
 from src.features.availability import (
     TARGET_OBS_BANNED_COLUMNS,
@@ -41,8 +43,19 @@ from src.features.availability import (
 )
 from src.features.rolling import build_rolling_features as _build_rolling_features_impl
 from src.features.running_style import estimate_running_style
+from src.utils.category_map import MISSING
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Phase 3.1 (Plan 03 Task 1): timediff sentinel 集合（builder/rolling 層用）
+# label_spec.yaml::se_marker_canonicalization.timediff_sentinels とは別関心事
+# （label 層は se_marker 識別用・本定数は rolling source の real parse 用・両者で
+#  "0000"/"9999" を含む点は整合）。実データ検証で 0000 は kakuteijyuni='00' と完全一致
+# （376件・発走前取消/競走中止のタイム差未確定）・9999 は異常値。両者を NaN 化する
+# （T-03.1-07: sentinel が 0.0/999.9 秒として rolling に混入するのを防止）。
+# ---------------------------------------------------------------------------
+_TIMEDIFF_SENTINELS: frozenset[str] = frozenset({"0000", "9999"})
 
 # ---------------------------------------------------------------------------
 # cutoff semantics metadata（§13.2 / HIGH #2・availability.CUTOFF_SEMANTICS と同一不変量）
@@ -70,7 +83,19 @@ CUTOFF_RULE_METADATA: dict[str, str] = {
 # TARGET_OBS_BANNED_COLUMNS（当日禁止: kyakusitukubun/bataijyu/ninki/odds/sibababacd/
 # dirtbabacd/tenkocd/harontimel4）とは**異なる SELECT パス**・同名衝突しない。過去走
 # harontimel3/jyuni3c/jyuni4c は HISTORY_ALLOWED_POST_RACE_COLUMNS（rolling source）。
-# timediff/babacd は CR-01 (03-05) で rolling 系統から削除済み（Phase 3.1 で再登録）。
+#
+# Phase 3.1 (Plan 03 Task 1): timediff と baba3 を raw varchar pass-through で SELECT。
+#   - `ur.timediff AS timediff_raw`: raw カラム名 `timediff` は派生名と衝突するため alias
+#     `timediff_raw` を付与（Pitfall 3・`_DERIVED_HISTORY_COLUMN_NAMES` により `timediff` は
+#     SELECT 対象から除外）。
+#   - `nr.sibababacd AS hist_sibababacd` / `nr.dirtbabacd AS hist_dirtbabacd` /
+#     `nr.trackcd AS trackcd`: baba3。sibababacd/dirtbabacd は TARGET_OBS_BANNED_COLUMNS と
+#     **同名衝突**するため alias (`hist_*`) を付与して L213-215 の disjoint assert を回避
+#     （HIGH #4 の intent は「target race 当日行の馬場=禁止」・history の過去走 n_race 馬場は
+#     許可。alias で同名衝突を回避しつつ intent を保持・`_HISTORY_SELECT_COLUMNS` には
+#     `hist_sibababacd`/`hist_dirtbabacd` が入るため target_obs_banned と disjoint）。
+#   - babacd 自体は `_DERIVED_HISTORY_COLUMN_NAMES` にあるため SELECT せず、
+#     `_construct_derived_columns` で trackcd 第1桁分岐 + sibababacd/dirtbabacd 値から派生。
 _HISTORY_DB_SELECT_COLUMNS: tuple[str, ...] = (
     "ur.kettonum AS kettonum",
     "ur.year AS year",
@@ -86,6 +111,11 @@ _HISTORY_DB_SELECT_COLUMNS: tuple[str, ...] = (
     "ur.jyuni4c AS jyuni4c",
     "ur.jyuni1c AS jyuni1c",
     "nr.kyori AS kyori",
+    # Phase 3.1: raw varchar pass-through（alias で派生名衝突/TARGET_OBS_BANNED 同名衝突を回避）
+    "ur.timediff AS timediff_raw",
+    "nr.sibababacd AS hist_sibababacd",
+    "nr.dirtbabacd AS hist_dirtbabacd",
+    "nr.trackcd AS trackcd",
 )
 _HISTORY_SELECT_COLUMN_NAMES: tuple[str, ...] = tuple(
     c.split(" AS ")[1] for c in _HISTORY_DB_SELECT_COLUMNS
@@ -202,6 +232,45 @@ def _construct_derived_columns(
             ordered.groupby("kettonum")["_rd"].diff().dt.total_seconds() / 86400.0
         )
         result["days_since_prev"] = ordered["days_since_prev"].reindex(result.index)
+
+    # Phase 3.1 (Plan 03 Task 1): timediff parse (varchar4 → real秒・sentinel 0000/9999 → NaN)
+    # raw format: "sNNN"（s="+"/"-"、NNN=3桁・NNN/10 秒）・例 "+001"→0.1秒・"-020"→-2.0秒。
+    # sentinel 0000/9999 は NaN 化（T-03.1-07・D-03・Pitfall 1）。vector 化 idiom。
+    if "timediff_raw" in result.columns and "timediff" not in result.columns:
+        raw_td = result["timediff_raw"].astype(str)
+        is_sentinel = raw_td.isin(_TIMEDIFF_SENTINELS)
+        sign = raw_td.str[0]
+        digits = pd.to_numeric(raw_td.str.slice(1, 4), errors="coerce")
+        signed = digits.where(sign != "-", -digits)
+        result["timediff"] = (signed / 10.0).where(~is_sentinel, np.nan)
+
+    # Phase 3.1 (Plan 03 Task 1): babacd trackcd 第1桁分岐派生（D-13・Pitfall 2・T-03.1-08）
+    # trackcd 先頭桁で芝/ダートを判定し、対応する馬場状態コード（sibababacd/dirtbabacd）を
+    # babacd 列に格納。判定不能/欠損は __MISSING__ sentinel（silent NaN fill 禁止）。
+    #   - trackcd 第1桁 "1"/"2" → 芝 → babacd = hist_sibababacd（芝馬場状態）
+    #   - trackcd 第1桁 "5"     → ダート → babacd = hist_dirtbabacd（ダート馬場状態）
+    #     （dirtbabacd='0'/欠損/NaN の場合は信号欠損 → __MISSING__・T-03.1-08 accept）
+    #   - その他（'0'/'3'/'4'/欠損/曖昧）→ __MISSING__
+    if (
+        "trackcd" in result.columns
+        and "hist_sibababacd" in result.columns
+        and "hist_dirtbabacd" in result.columns
+        and "babacd" not in result.columns
+    ):
+        tc = result["trackcd"].astype(str).str.strip()
+        lead = tc.str[0]
+        turf_mask = lead.isin(["1", "2"])
+        dirt_mask = lead == "5"
+        babacd = pd.Series([MISSING] * len(result), dtype=object, index=result.index)
+        # 芝: sibababacd が '0'/空/NaN なら __MISSING__（信号欠損）
+        turf_val = result["hist_sibababacd"].astype(str).str.strip()
+        turf_valid = turf_mask & turf_val.notna() & (turf_val != "") & (turf_val != "nan") & (turf_val != "0")
+        babacd = babacd.where(~turf_valid, turf_val)
+        # ダート: dirtbabacd が '0'/空/NaN なら __MISSING__（信号欠損・T-03.1-08）
+        dirt_val = result["hist_dirtbabacd"].astype(str).str.strip()
+        dirt_valid = dirt_mask & dirt_val.notna() & (dirt_val != "") & (dirt_val != "nan") & (dirt_val != "0")
+        babacd = babacd.where(~dirt_valid, dirt_val)
+        result["babacd"] = babacd
     return result
 
 # ---------------------------------------------------------------------------
@@ -296,6 +365,16 @@ def build_feature_matrix(
     # --- Step 2: readonly SELECT（明示カラム・JRA フィルタ・Pitfall 1） ---
     feature_matrix = _fetch_feature_sources(read_pool)
 
+    # WR-02 (Phase 3.1 advisory hardening): feature source fetch が空結果を返した場合
+    # （DB 例外/0行結果/silent empty）をチョークポイントで fail-loud 検知（D-04 採択・
+    # advisory hardening todo WR-02）。`_fetch_feature_sources` 内の except→空 DF は維持
+    # しつつ、本呼出点で空を検知して RuntimeError（silent data loss 回避）。
+    if len(feature_matrix) == 0:
+        raise RuntimeError(
+            "feature source fetch が空結果を返した・DB例外/0行結果の silent empty を検知 "
+            "(WR-02 fail-loud・advisory hardening)"
+        )
+
     # --- Step 3: cutoff 計算（D-06・HIGH #2: race_date - 1 day・JST midnight・strict <） ---
     feature_matrix["feature_cutoff_datetime"] = (
         pd.to_datetime(feature_matrix["race_date"]) - pd.Timedelta(days=1)
@@ -345,13 +424,18 @@ def build_feature_matrix(
             ]
             expanded_style = expanded_style.drop(columns=["feature_cutoff_datetime_obs"])
         # PIT pre-filter: cutoff 以前の過去走のみ（rolling.py L193-195 と同一の strict < idiom）
-        if "as_of_datetime" in expanded_style.columns:
-            pit_filtered_style = expanded_style[
-                expanded_style["as_of_datetime"]
-                < expanded_style["feature_cutoff_datetime"]
-            ].copy()
-        else:
-            pit_filtered_style = expanded_style
+        # WR-01' (Phase 3.1 advisory hardening): as_of_datetime 列が無い場合は silent に
+        # no-filter でフォールバックせず ValueError で fail-loud（将来 refactor での
+        # silent leak 防止・advisory hardening todo WR-01'）。
+        if "as_of_datetime" not in expanded_style.columns:
+            raise ValueError(
+                "history に as_of_datetime 列が無い・PIT filter を適用できない "
+                "(WR-01' fail-loud・将来 refactor での silent leak 防止)"
+            )
+        pit_filtered_style = expanded_style[
+            expanded_style["as_of_datetime"]
+            < expanded_style["feature_cutoff_datetime"]
+        ].copy()
         style_map: dict[Any, str] = {}
         for kn, group in pit_filtered_style.groupby("kettonum"):
             rows = (
