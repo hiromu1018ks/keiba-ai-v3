@@ -439,10 +439,29 @@ def build_feature_matrix(
     # --- Step 6: 推定脚質（過去走 jyuni3c/jyuni4c のみ・当日不使用・D-05） ---
     # WR-01 (03-05 gap-closure): rolling と同一の PIT pre-filter
     # （history.as_of_datetime < obs.feature_cutoff_datetime・per-observation・strict <）
-    # を groupby(kettonum) 前に適用し、cutoff 後の過去走が推定脚質に混入しないようにする。
+    # を groupby 前に適用し、cutoff 後の過去走が推定脚質に混入しないようにする。
+    # WR-03 (03-REVIEW): groupby を kettonum 単位でなく obs_id 単位に変更
+    # （rolling と対称・同一 horse が複数 observation に現れる場合の cross-obs leak 再発防止）。
     # registry は strict `< cutoff` を宣言（feature_availability.yaml L355-361）し、本実装が一致。
     if len(history) > 0 and "kettonum" in history.columns and len(feature_matrix) > 0:
-        obs_keys_style = feature_matrix[["kettonum", "feature_cutoff_datetime"]].copy()
+        # obs_id 構築（rolling と同一 idiom・CR-01 merge_keys 整合）。
+        # 既に rolling merge で obs_id 列が追加されていれば再利用・無ければ生成。
+        if "obs_id" not in feature_matrix.columns:
+            if "race_nkey" in feature_matrix.columns:
+                feature_matrix["obs_id"] = list(zip(
+                    feature_matrix["race_nkey"].tolist(),
+                    feature_matrix["kettonum"].tolist(),
+                    strict=False,
+                ))
+            else:
+                feature_matrix["obs_id"] = list(zip(
+                    feature_matrix.index.tolist(),
+                    feature_matrix["kettonum"].tolist(),
+                    strict=False,
+                ))
+        obs_keys_style = feature_matrix[
+            ["obs_id", "kettonum", "feature_cutoff_datetime"]
+        ].copy()
         expanded_style = history.merge(
             obs_keys_style, on="kettonum", how="inner", suffixes=("", "_obs")
         )
@@ -451,6 +470,9 @@ def build_feature_matrix(
                 "feature_cutoff_datetime_obs"
             ]
             expanded_style = expanded_style.drop(columns=["feature_cutoff_datetime_obs"])
+        if "obs_id_obs" in expanded_style.columns:
+            expanded_style["obs_id"] = expanded_style["obs_id_obs"]
+            expanded_style = expanded_style.drop(columns=["obs_id_obs"])
         # PIT pre-filter: cutoff 以前の過去走のみ（rolling.py L193-195 と同一の strict < idiom）
         # WR-01' (Phase 3.1 advisory hardening): as_of_datetime 列が無い場合は silent に
         # no-filter でフォールバックせず ValueError で fail-loud（将来 refactor での
@@ -465,15 +487,16 @@ def build_feature_matrix(
             < expanded_style["feature_cutoff_datetime"]
         ].copy()
         style_map: dict[Any, str] = {}
-        for kn, group in pit_filtered_style.groupby("kettonum"):
+        # WR-03: obs_id 単位で groupby（kettonum でない・cross-obs leak 回避）
+        for obs_id_key, group in pit_filtered_style.groupby("obs_id"):
             rows = (
                 group[["jyuni3c", "jyuni4c"]].to_dict(orient="records")
                 if len(group) > 0
                 else []
             )
-            style_map[kn] = estimate_running_style(rows)
+            style_map[obs_id_key] = estimate_running_style(rows)
         feature_matrix["estimated_running_style"] = (
-            feature_matrix["kettonum"].map(style_map).fillna("__MISSING__")
+            feature_matrix["obs_id"].map(style_map).fillna("__MISSING__")
         )
     else:
         feature_matrix["estimated_running_style"] = "__MISSING__"

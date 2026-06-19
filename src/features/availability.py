@@ -159,6 +159,9 @@ _RESERVED_NON_FEATURE_COLUMNS: frozenset[str] = frozenset({
     "feature_availability_version",
     "label_generation_version",
     "prediction_timing",
+    # CR-01/WR-03 (03-REVIEW): rolling 統合の merge key / 推定脚質の groupby key。
+    # feature でなく中間 key（rolling 実装が (race_nkey, kettonum) を tuple 化した値）。
+    "obs_id",
 }) | {f"rolling_{sys}_count_5" for sys in _ROLLING_SYSTEMS_FOR_RESERVED}
 
 
