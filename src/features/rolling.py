@@ -32,7 +32,13 @@ from __future__ import annotations
 
 import pandas as pd
 
+from src.features.availability import CUTOFF_SEMANTICS
 from src.utils.category_map import MISSING
+
+# HIGH #2: cutoff semantics 不変量の実行時参照（strict_less_than / Asia/Tokyo）。
+# strict < filter は CUTOFF_SEMANTICS["pit_filter"] と同一不変量・本 module は
+# 同定数を re-export し builder/snapshot と単一の真の源を共有する。
+assert CUTOFF_SEMANTICS["comparison_operator"] == "strict_less_than"
 
 # ---------------------------------------------------------------------------
 # D-03: lookback window size
