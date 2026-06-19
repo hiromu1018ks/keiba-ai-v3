@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Trust & Foundation** - Raw quality gate + normalized ETL + leakage-prevention stack bootstrap (completed 2026-06-17)
 - [x] **Phase 2: Fukusho Labels** - Sales-start-time labels with payout-table reconciliation (highest-risk, long pole) (completed 2026-06-18)
-- [x] **Phase 3: As-of Features & Snapshots** - PIT-correct feature builder + immutable versioned Parquet snapshots (completed 2026-06-19)
+- [ ] **Phase 3: As-of Features & Snapshots** - PIT-correct feature builder + immutable versioned Parquet snapshots (4/4 plans executed; verification gaps_found — CR-01 silent-empty-features + CR-02/03/04 debt; gap-closure pending)
 - [ ] **Phase 4: Model & Prediction** - Baselines BL-1..BL-5 + Phase 1-A LightGBM/CatBoost + calibrated p_fukusho_hit
 - [ ] **Phase 5: EV & Backtest** - EV/rank module + race_id-grouped virtual-purchase simulator with fixed odds policy
 - [ ] **Phase 6: Evaluation & Calibration Gates** - Acceptance criteria (Brier/LogLoss/calibration/sum(p)/stability)
@@ -183,7 +183,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 |-------|----------------|--------|-----------|
 | 1. Trust & Foundation | 4/4 | Complete    | 2026-06-17 |
 | 2. Fukusho Labels | 4/4 | Complete    | 2026-06-18 |
-| 3. As-of Features & Snapshots | 4/4 | Complete   | 2026-06-19 |
+| 3. As-of Features & Snapshots | 4/4 | Gaps found (re-verify pending) | - |
 | 4. Model & Prediction | 0/TBD | Not started | - |
 | 5. EV & Backtest | 0/TBD | Not started | - |
 | 6. Evaluation & Calibration Gates | 0/TBD | Not started | - |
