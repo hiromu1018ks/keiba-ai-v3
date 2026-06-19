@@ -1,17 +1,22 @@
-# Phase 3 Plan 03-04: snapshot artifacts の git 管理外設定 (D-08 / §19.1)
+# Phase 3 Plan 03-04 / 03-05: snapshot artifacts の git 管理外設定 (D-08 / §19.1)
 #
-# feature matrix の Parquet バイナリと frozen category map の joblib artifact は
-# バイナリでかつサイズが大きいため git 管理外とする。再現性 (§19.1) は code + uv.lock +
+# feature matrix の Parquet バイナリと frozen category map artifact は
+# バイナリ/サイズが大きいため git 管理外とする。再現性 (§19.1) は code + uv.lock +
 # Postgres + manifest YAML の metadata から担保し、Parquet バイナリを repo に抱えない
 # (CLAUDE.md「What NOT to Use」: __pycache__/Parquet/models in Git 禁止)。
 #
 # manifest YAML (*.manifest.yaml) のみ git 管理候補 (sha256 + §12.4 metadata を持ち
 # 再現性の監査証跡となる・テキストで軽量)。
+#
+# CR-04 (03-05): category map artifact は joblib (pickle) → JSON に移行。
+# byte-reproducible になったが監査証跡は manifest YAML の category_map_artifact 参照で
+# 充分なため、引き続きバイナリ同様に git 管理外とする (改訂時は再生成すればよい)。
 
 # feature matrix Parquet バイナリ (不変 versioned snapshot・git 管理外)
 *.parquet
 
-# frozen category map artifact (joblib・git 管理外)
+# frozen category map artifact (旧 joblib・現 JSON・git 管理外)
 *.joblib
+category_map_*.json
 
 # (manifest YAML は git 管理候補・除外しない)

@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: gaps_found
-stopped_at: Phase 03 gap-closure plan 03-05 PLANNED (CR-01 delete + deferred re-registration / WR-01 + CR-02/CR-03/CR-04 fixes) — ready to execute; Phase 03.1 (Timediff/Babacd Restoration) INSERTED before Phase 4
-last_updated: "2026-06-19T04:05:00.000Z"
-last_activity: 2026-06-19 -- Phase 03.1 inserted (Timediff/Babacd Rolling Restoration — source restoration for the 6 features 03-05 deletes); gap-closure plan 03-05 ready to execute
+status: executing
+stopped_at: Plan 03-05 complete (gap-closure: CR-01/02/03/04 + WR-01・全 features テスト GREEN・live-DB snapshot rebuild で parity 実証)
+last_updated: "2026-06-19T04:45:00.000Z"
+last_activity: 2026-06-19 -- Phase 03 gap-closure 03-05 complete
 progress:
-  total_phases: 8
+  total_phases: 9
   completed_phases: 2
   total_plans: 13
-  completed_plans: 12
-  percent: 38
+  completed_plans: 13
+  percent: 24
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-16)
 
 **Core value:** オッズ非依存の確率 `p_fukusho_hit` と固定オッズ時点のEVで、過小評価されている馬の複勝払戻対象入り可能性をリークなく検出し、race_id単位・時系列順の再現可能なバックテストで定量評価できること。リーク防止と再現性だけは必ず守る。
-**Current focus:** Phase 03 — as-of-features-snapshots
+**Current focus:** Phase 03 — as-of-features-snapshots (gap-closure 完了・Phase 3 verification 再判定待ち)
 
 ## Current Position
 
-Phase: 03 (as-of-features-snapshots) — GAPS_FOUND
-Plan: 5 (4 executed + gap-closure 03-05 planned, ready to execute)
-Status: gaps_found — CR-01 silent-empty rolling features (6 cols all-NaN, reproducibility breach) + CR-02/03/04 debt. Code review: 4C/9W/5I.
-Last activity: 2026-06-19 -- Phase 03 verification gaps_found (2.5/3 must-haves)
+Phase: 03 (as-of-features-snapshots) — gap-closure 03-05 COMPLETE (Phase 3 verification 再判定待ち)
+Plan: 5 of 5 (Phase 3 全 plan 完了)
+Status: Phase 03 gap-closure 完了・verification で must-have #1 PARTIAL→VERIFIED 判定待ち
+Last activity: 2026-06-19 -- 03-05 gap-closure (CR-01/02/03/04 + WR-01) 完了
 
-Progress: [████░░░░░░░] 25%
+Progress: [████░░░░░░░] 24%
 
 ## Performance Metrics
 
@@ -65,6 +65,7 @@ Progress: [████░░░░░░░] 25%
 | Phase 03 P02 | 12m | 2 tasks | 3 files |
 | Phase 03 P03 | 13m | 3 tasks | 4 files |
 | Phase 03 P04 | 25m | 4 tasks | 8 files |
+| Phase 03 P05 | 45m | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -95,6 +96,10 @@ Recent decisions affecting current work:
 - [Phase 03]: race_nkey は DB カラムでなく予約済み canonical key — make_race_nkey(year,jyocd,kaiji,nichiji,racenum) で pandas 構築 (BUG A fix)
 - [Phase 03]: normalized 層に babacd/timediff/datakubun は存在しない — 当該 rolling 系統は D-13 sentinel で fallback
 - [Phase 03]: COPY-NOT-RENAME raw ID 原列は _RAW_ID_KEPT_COLUMNS で明示許可 (HIGH #5・banned source は防御的 assert で排除)
+- [Phase 03]: plan 03-05 (gap-closure): CR-01 は REVIEW option (c) 採用 — rolling timediff/babacd 6エントリ削除 + Deferred note で Phase 3.1 で再登録（source カラムが normalized 層に揃った段階）
+- [Phase 03]: plan 03-05: estimated_running_style は rolling と同一 PIT pre-filter (strict < cutoff) を groupby 前に適用 (WR-01・registry 宣言と一致・obs_id 構築不要・kettonum 単位 per-horse style)
+- [Phase 03]: plan 03-05: category_map artifact は JSON (sort_keys=True・byte-reproducible・human-auditable) で永続化 (CR-04・pickle ACE vector 完全解消・joblib 廃止)
+- [Phase 03]: plan 03-05: CR-04 regression guard は AST 解析で Import/ImportFrom/Attribute を検査 (docstring の「joblib 廃止」説明は許容・実コード依存のみを検出)
 
 ### Pending Todos
 
@@ -118,6 +123,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-19T03:09:41.044Z
-Stopped at: Plan 03-02 complete (label.race_date backfill・実 DB 全行非 NULL・idempotent verify PASS)
-Resume file: .planning/phases/03-as-of-features-snapshots/03-03-PLAN.md
+Last session: 2026-06-19T04:45:00.000Z
+Stopped at: Plan 03-05 complete (gap-closure: CR-01/02/03/04 + WR-01・全 features テスト GREEN・live-DB snapshot rebuild で parity 実証)
+Resume file: Phase 3 verification 再判定 (must-have #1 PARTIAL→VERIFIED) → Phase 4 (model) 計画 or Phase 3.1 (Timediff/Babacd Restoration) 計画

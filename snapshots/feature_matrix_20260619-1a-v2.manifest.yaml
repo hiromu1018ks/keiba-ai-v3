@@ -1,0 +1,18 @@
+byte_reproducible_scope: parquet_bytes_only
+byte_size: 34311329
+category_map_artifact: snapshots/category_map_20260619-1a-v2.json
+created_at: '2026-06-19T04:43:05.097207+00:00'
+created_at_fixed: '2026-06-19T00:00:00Z'
+dataset_version: v1.0.0
+feature_availability_version: 0.2.0
+feature_count: 55
+feature_cutoff_rule: race_date - 1 day
+feature_snapshot_id: 20260619-1a-v2
+label_version: v1.0.0
+parquet_path: /Users/hart/develop/keiba-ai-v3/snapshots/feature_matrix_20260619-1a-v2.parquet
+prediction_timing: 1A
+row_count: 554267
+sha256: 36254ab69188bde1d076c833b73bccafec87aa2a30506b9d89d7c56acc3be760
+snapshot_id: 20260619-1a-v2
+train_period: 2016-07-01/2023-12-31
+validation_period: 2024-01-01/2024-12-31
