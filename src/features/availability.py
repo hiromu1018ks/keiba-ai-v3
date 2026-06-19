@@ -72,6 +72,18 @@ ALLOWED_TIMINGS: frozenset[str] = frozenset({
 })
 
 # ---------------------------------------------------------------------------
+# WR-04 (03-REVIEW): prediction_timing 毎の許可 available_from_timing 集合
+# builder が feature_matrix に stamp する prediction_timing と整合する feature のみ
+# 出力できるよう検査するための mapping。CR-03 wontfix（要件 §8.1/§13.4/§13.5）と整合し、
+# Phase 1-A = 「出馬表・馬番・枠番確定後」のため 1A は entry_confirmed +
+# post_position_confirmed 両方を許可する（futan/jockey_id/umaban/wakuban は 1-A 利用可能）。
+# 新規 1A_BANNED_TIMINGS で futan 等を弾く変更は行わない（CR-03 wontfix の制約）。
+# ---------------------------------------------------------------------------
+PREDICTION_TIMING_ALLOWED: dict[str, frozenset[str]] = {
+    "1A": frozenset({"entry_confirmed", "post_position_confirmed"}),
+}
+
+# ---------------------------------------------------------------------------
 # REVIEWS HIGH #4: target-obs vs history-allowed カラム taxonomy
 # TARGET_OBS_BANNED_COLUMNS ∩ HISTORY_ALLOWED_POST_RACE_COLUMNS == ∅ （Pitfall 3.6 厳守・
 # harontimel4 は target_obs_banned 側に分類し history SELECT にも絶対許可しない）
@@ -231,6 +243,48 @@ def assert_all_entries_allowed(spec: dict[str, Any]) -> None:
         raise ValueError(
             "feature_availability.yaml に許可されていない available_from_timing を持つ "
             f"feature があります: {offenders} (D-07 allowlist: {sorted(ALLOWED_TIMINGS)})"
+        )
+
+
+def assert_features_allowed_for_prediction_timing(
+    spec: dict[str, Any],
+    prediction_timing: str,
+) -> None:
+    """WR-04 (03-REVIEW): registry 全 feature の ``available_from_timing`` が
+    指定 ``prediction_timing`` で許可される集合内にあることを検査する。
+
+    ``builder.build_feature_matrix`` が ``prediction_timing="1A"`` を stamp する場合、
+    出力される feature の ``available_from_timing`` は ``PREDICTION_TIMING_ALLOWED["1A"]``
+    に属している必要がある（そうでないと timing×cutoff の整合性が崩れ、PIT leak 経路に
+    なる可能性）。本検査はその整合性を registry ロード時に fail-loud 検証する。
+
+    CR-03 wontfix 制約: 1-A = 「出馬表・馬番・枠番確定後」（要件 §8.1/§13.4/§13.5）のため
+    1A は entry_confirmed + post_position_confirmed 両方を許可する。futan / jockey_id /
+    umaban / wakuban を 1-A から除外する変更は行わない。
+
+    Raises
+    ------
+    ValueError
+        ``prediction_timing`` が ``PREDICTION_TIMING_ALLOWED`` に未定義、または
+        許可集合外の timing を持つ feature が registry に存在する場合。
+    """
+    if prediction_timing not in PREDICTION_TIMING_ALLOWED:
+        raise ValueError(
+            f"未知の prediction_timing: {prediction_timing!r} "
+            f"(WR-04・許可集合: {sorted(PREDICTION_TIMING_ALLOWED)})"
+        )
+    allowed = PREDICTION_TIMING_ALLOWED[prediction_timing]
+    offenders: list[tuple[str, str]] = []
+    for f in spec.get("features", []):
+        timing = f.get("available_from_timing")
+        name = f.get("feature_name", "<unknown>")
+        if timing not in allowed:
+            offenders.append((name, repr(timing)))
+    if offenders:
+        raise ValueError(
+            f"prediction_timing={prediction_timing!r} で許可されない available_from_timing "
+            f"を持つ feature があります: {offenders} "
+            f"(WR-04・{prediction_timing} 許可 timing: {sorted(allowed)})"
         )
 
 

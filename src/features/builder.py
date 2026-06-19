@@ -39,6 +39,7 @@ from src.etl.filters import project_window_filter
 from src.features.availability import (
     TARGET_OBS_BANNED_COLUMNS,
     assert_all_entries_allowed,
+    assert_features_allowed_for_prediction_timing,
     assert_matrix_columns_registered,
     load_feature_availability,
 )
@@ -373,6 +374,10 @@ def build_feature_matrix(
     # --- Step 1: availability registry load + allowlist 強制（Plan 03-01） ---
     spec = load_feature_availability()
     assert_all_entries_allowed(spec)
+    # WR-04 (03-REVIEW): prediction_timing="1A" で許可される available_from_timing 集合に
+    # 全 feature が属することを検査（timing×cutoff 整合性の fail-loud・CR-03 wontfix 制約下で
+    # 1-A = 出馬表・馬番・枠番確定後 なので futan/jockey_id/umaban/wakuban は許可）。
+    assert_features_allowed_for_prediction_timing(spec, "1A")
 
     # --- Step 2: readonly SELECT（明示カラム・JRA フィルタ・Pitfall 1） ---
     feature_matrix = _fetch_feature_sources(read_pool)

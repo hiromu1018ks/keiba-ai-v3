@@ -47,6 +47,57 @@ def test_all_entries_in_allowed_set():
 
 
 # ---------------------------------------------------------------------------
+# WR-04 (03-REVIEW): prediction_timing 毎の許可 timing 検査
+# ---------------------------------------------------------------------------
+def test_wr04_all_features_allowed_for_prediction_timing_1A():
+    """WR-04: registry 全 feature が prediction_timing="1A" で許可される timing 集合に属する。
+
+    CR-03 wontfix 制約下で 1-A は entry_confirmed + post_position_confirmed 両方を許可する
+    （要件 §8.1/§13.4/§13.5・1-A = 出馬表・馬番・枠番確定後）。futan/jockey_id/umaban/wakuban
+    は 1-A で利用可能。本テストは現 registry が全て 1-A 許可集合内にあることを機械保証する。
+    """
+    from src.features.availability import (
+        PREDICTION_TIMING_ALLOWED,
+        assert_features_allowed_for_prediction_timing,
+    )
+
+    # 1A の許可 timing 集合は entry_confirmed + post_position_confirmed
+    assert PREDICTION_TIMING_ALLOWED["1A"] == frozenset({
+        "entry_confirmed", "post_position_confirmed",
+    }), "1A の許可 timing 集合が CR-03 wontfix 制約と不一致"
+
+    # raise しなければ合格
+    assert_features_allowed_for_prediction_timing(_spec(), "1A")
+
+
+def test_wr04_unknown_prediction_timing_raises():
+    """WR-04: 未知の prediction_timing は ValueError で fail-loud。"""
+    from src.features.availability import assert_features_allowed_for_prediction_timing
+
+    with pytest.raises(ValueError, match="未知の prediction_timing"):
+        assert_features_allowed_for_prediction_timing(_spec(), "2B_unknown")
+
+
+def test_wr04_rejects_disallowed_timing_for_1A():
+    """WR-04: 1A で許可されない timing（race_day_morning 等）を持つ feature は reject。
+
+    合成 spec で race_day_morning を持つ feature を混入し、検査がそれを弾くことを検証。
+    """
+    from src.features.availability import assert_features_allowed_for_prediction_timing
+
+    spec = _spec()
+    bad_spec = {
+        **spec,
+        "features": list(spec["features"]) + [{
+            "feature_name": "synthetic_bad_feature",
+            "available_from_timing": "race_day_morning",
+        }],
+    }
+    with pytest.raises(ValueError, match="許可されない available_from_timing"):
+        assert_features_allowed_for_prediction_timing(bad_spec, "1A")
+
+
+# ---------------------------------------------------------------------------
 # REVIEWS HIGH #3: 出力カラム全登録検査
 # ---------------------------------------------------------------------------
 def test_matrix_columns_all_registered():
