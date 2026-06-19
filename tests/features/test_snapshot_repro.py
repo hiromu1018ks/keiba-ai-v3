@@ -43,11 +43,11 @@ def test_byte_reproducible_by_hash(tmp_path: Path):
     df = _build_synthetic_matrix()
     sha1 = snapshot.write_snapshot(
         df, out_dir=tmp_path, snapshot_id="s1",
-        created_at="2026-06-18T10:00:00",
+        created_at_fixed="2026-06-18T10:00:00",
     )
     sha2 = snapshot.write_snapshot(
         df, out_dir=tmp_path, snapshot_id="s2",
-        created_at="2026-06-18T10:00:00",
+        created_at_fixed="2026-06-18T10:00:00",
     )
     assert sha1 == sha2, f"byte-reproducibility 違反: {sha1} != {sha2} (Pitfall 3.5)"
 
@@ -87,11 +87,11 @@ def test_sha256_covers_parquet_bytes_only(tmp_path: Path):
     df = _build_synthetic_matrix()
     sha1 = snapshot.write_snapshot(
         df, out_dir=tmp_path, snapshot_id="s3",
-        created_at="2026-06-18T10:00:00",
+        created_at_fixed="2026-06-18T10:00:00",
     )
     sha2 = snapshot.write_snapshot(
         df, out_dir=tmp_path, snapshot_id="s4",
-        created_at="2026-06-19T15:30:00",  # 異なる created_at
+        created_at_fixed="2026-06-19T15:30:00",  # 異なる created_at
     )
     assert sha1 == sha2, (
         "manifest の created_at が異なると Parquet SHA256 も変化する（HIGH #6 scope 違反）"
@@ -104,12 +104,12 @@ def test_manifest_created_at_varies_between_runs(tmp_path: Path):
     df = _build_synthetic_matrix()
     m1 = snapshot.write_snapshot(
         df, out_dir=tmp_path, snapshot_id="s5",
-        created_at="2026-06-18T10:00:00",
+        created_at_fixed="2026-06-18T10:00:00",
         return_manifest=True,
     )
     m2 = snapshot.write_snapshot(
         df, out_dir=tmp_path, snapshot_id="s6",
-        created_at="2026-06-19T15:30:00",
+        created_at_fixed="2026-06-19T15:30:00",
         return_manifest=True,
     )
     assert m1["created_at"] != m2["created_at"], (
@@ -206,4 +206,69 @@ def test_persist_then_manifest_order_in_script_source():
     assert persist_line < assert_exists_line < manifest_line, (
         f"順序違反: persist(L{persist_line}) / assert exists(L{assert_exists_line}) / "
         f"manifest(L{manifest_line}) — persist→assert→manifest の順序が必要（CR-01新・Pitfall 5）"
+    )
+
+
+# ---------------------------------------------------------------------------
+# CR-04 (03-REVIEW): Parquet schema metadata に snapshot_id/created_at 実値が埋込まれる
+# ---------------------------------------------------------------------------
+def test_cr04_parquet_metadata_embeds_real_snapshot_id_and_created_at(tmp_path: Path):
+    """CR-04 (03-REVIEW) Fix 選択肢1: Parquet ファイル単体から ``feature_snapshot_id`` /
+    ``created_at`` を復元できることを検証する（§12.4 監査証跡・sentinel でなく実値）。
+
+    旧実装は ``_DETERMINISTIC_CREATED_AT`` sentinel で schema metadata を埋めていたため、
+    Parquet ファイル単体で snapshot_id を特定できなかった。現行実装は SHA256 計算を
+    metadata 無し schema で行い、その後実値を metadata として付与するため、Parquet bytes
+    に snapshot_id と created_at が埋込まれる。
+    """
+    import pyarrow.parquet as pq
+
+    snapshot = _get_snapshot()
+    df = _build_synthetic_matrix()
+    test_snapshot_id = "cr04-audit-test-snap"
+    test_created_at = "2026-06-18T10:00:00"
+    snapshot.write_snapshot(
+        df, out_dir=tmp_path, snapshot_id=test_snapshot_id,
+        created_at_fixed=test_created_at,
+    )
+    parquet_path = tmp_path / f"feature_matrix_{test_snapshot_id}.parquet"
+    assert parquet_path.exists(), "Parquet ファイルが書き込まれていない"
+
+    # Parquet schema metadata から snapshot_id / created_at を復元
+    table = pq.read_table(parquet_path)
+    metadata = table.schema.metadata or {}
+    # metadata は bytes→bytes・pyarrow の仕様
+    decoded = {k.decode(): v.decode() for k, v in metadata.items()}
+
+    assert decoded.get("feature_snapshot_id") == test_snapshot_id, (
+        f"Parquet metadata の snapshot_id が実値で無い: "
+        f"{decoded.get('feature_snapshot_id')!r}（期待 {test_snapshot_id!r}）"
+        "・CR-04 監査証跡欠損・sentinel が埋まっている可能性"
+    )
+    assert decoded.get("created_at") == test_created_at, (
+        f"Parquet metadata の created_at が実値で無い: "
+        f"{decoded.get('created_at')!r}（期待 {test_created_at!r}）"
+    )
+
+
+def test_cr04_sha256_independent_of_snapshot_id(tmp_path: Path):
+    """CR-04: 異なる snapshot_id で書込んでも SHA256 は同一（データ内容のみ依存）。
+
+    旧実装は snapshot_id が sentinel で固定だったため問題無かったが、現行は実値を
+    metadata に埋めるため「SHA256 が snapshot_id に依存しない」ことを改めて検証する
+    （SHA256 計算を metadata 無し schema で行う設計の妥当性）。
+    """
+    snapshot = _get_snapshot()
+    df = _build_synthetic_matrix()
+    sha1 = snapshot.write_snapshot(
+        df, out_dir=tmp_path, snapshot_id="cr04-snap-A",
+        created_at_fixed="2026-06-18T10:00:00",
+    )
+    sha2 = snapshot.write_snapshot(
+        df, out_dir=tmp_path, snapshot_id="cr04-snap-B-different",
+        created_at_fixed="2026-06-19T15:30:00",
+    )
+    assert sha1 == sha2, (
+        f"異なる snapshot_id/created_at で SHA256 が変化した: {sha1} != {sha2}"
+        "・CR-04 SHA256 scope（metadata 無し schema bytes）違反"
     )

@@ -16,16 +16,19 @@ stamped Parquet **のみ**から学習できる状態を届ける。
     ``prediction_timing`` / ``feature_cutoff_rule`` / ``train_period`` /
     ``validation_period`` / ``created_at`` / ``feature_availability_version``）。
     ``created_at`` は**関数引数で固定**（実タイムスタンプを schema に直接入れない・Pitfall 3.5）。
-  - **REVIEWS HIGH #6 (created_at scope)**: ``created_at`` 引数は SHA256 計算対象外とする
-    ため schema metadata bytes に**埋め込まない**。schema の ``created_at`` キーは固定の
-    deterministic sentinel 値 ``_DETERMINISTIC_CREATED_AT`` で埋める（§12.4 のキー存在要件を
-    満たしつつ Parquet SHA256 が ``created_at`` 引数に依存しない）。``created_at`` 引数は
-    manifest 側に ``created_at_fixed`` として記録する。
-  - **REVIEWS HIGH #6 SHA256 scope = Parquet bytes のみ**:
-      * SHA256 計算対象は ``pq.write_table`` が生成した Parquet バイト列**のみ**。
+  - **CR-04 (03-REVIEW) Fix 選択肢1 + IN-03**: SHA256 は **metadata 無し schema bytes** のみ
+    から計算する（データ内容のみ依存・snapshot_id/created_at 等の run 毎変動因子を除外）。
+    その後 schema metadata（実際の ``snapshot_id`` と ``created_at_fixed`` 引数を含む）を
+    付与して Parquet bytes を書込む。これにより:
+      * **byte-reproducibility**: 同一 DataFrame なら snapshot_id/created_at が異なっても
+        SHA256 は同一（データ内容のみ依存）。
+      * **§12.4 監査証跡**: Parquet ファイル単体から ``feature_snapshot_id`` / ``created_at``
+        を復元可能（sentinel でなく実値を埋込む）。
+  - **REVIEWS HIGH #6 SHA256 scope = データ内容（metadata 無し schema）のみ**:
+      * SHA256 計算対象は metadata 無し schema の Parquet バイト列**のみ**。
       * manifest YAML bytes / 実行時 ``created_at_real``（実タイムスタンプ）は SHA256 計算対象外。
-      * これにより同一 DataFrame + 同一 ``created_at`` 引数なら常に同一 SHA256 が再現される。
-      * manifest 側 ``created_at_real`` は run 毎に可変だが Parquet SHA256 は不変 — これが
+      * これにより同一 DataFrame なら常に同一 SHA256 が再現される。
+      * manifest 側 ``created_at_real`` は run 毎に可変だが SHA256 は不変 — これが
         byte-reproducibility の契約。manifest に ``byte_reproducible_scope: "parquet_bytes_only"``
         フィールドで SHA256 scope を文書化する。
   - **空入力拒否** (CR-04(a)): 空 DataFrame は ``RuntimeError`` で silent data loss を防止。
@@ -67,13 +70,10 @@ _METADATA_KEYS = (
 )
 
 # manifest 側で SHA256 計算対象を明示する固定値（REVIEWS HIGH #6 監査用）
-_BYTE_REPRODUCIBLE_SCOPE = "parquet_bytes_only"
-
-# schema metadata の created_at は固定 sentinel 値で埋める（REVIEWS HIGH #6）。
-# created_at 引数を Parquet bytes に埋め込むと sha256 が run 毎（引数値毎）に変化して
-# しまうため、schema の created_at キーはこの deterministic 定数で埋め、§12.4 の
-# 「キー存在要件」を満たしつつ Parquet SHA256 を created_at 引数から独立させる。
-_DETERMINISTIC_CREATED_AT = "deterministic-by-design-parquet-bytes-only"
+# CR-04 (03-REVIEW) 後: SHA256 scope は「metadata 無し schema bytes」に変更。
+# snapshot_id/created_at は SHA256 計算後に metadata として付与されるため、
+# SHA256 はこれら run 毎変動因子に依存しない（データ内容のみ依存）。
+_BYTE_REPRODUCIBLE_SCOPE = "parquet_data_only_metadata_excluded"
 
 
 def _coerce_rolling_columns_for_parquet(df: pd.DataFrame) -> pd.DataFrame:
@@ -107,7 +107,7 @@ def write_snapshot(
     *,
     out_dir: str | Path,
     snapshot_id: str,
-    created_at: str,
+    created_at_fixed: str,
     return_manifest: bool = False,
     label_version: str = "v1.0.0",
     fa_version: str = "0.2.0",
@@ -119,10 +119,19 @@ def write_snapshot(
 ) -> str | dict:
     """feature matrix を PyArrow 決定論的書込で byte-reproducible な Parquet に保存する。
 
-    SHA256 scope は **Parquet bytes のみ**（``buf.getvalue().to_pybytes()``）。schema metadata
-    に渡す ``created_at`` は関数引数（固定文字列）・manifest 側 ``created_at`` は実タイム
-    スタンプだが、いずれも SHA256 計算対象外。これにより同一 DataFrame + 同一 ``created_at``
-    引数なら run を跨いで同一 SHA256 が再現される（REVIEWS HIGH #6・Pitfall 3.5）。
+    CR-04 (03-REVIEW) / IN-03: SHA256 は **metadata 無し schema bytes** から計算する
+    （データ内容のみに依存・snapshot_id/created_at 等の run 毎変動因子を除外）。その後
+    schema metadata（実際の ``snapshot_id`` と ``created_at_fixed`` 引数を含む）を付与して
+    Parquet bytes を書込む。これにより:
+
+      - **byte-reproducibility**: 同一 DataFrame なら run/snapshot_id/created_at が異なって
+        も SHA256 は同一（データ内容のみ依存・test_byte_reproducible_by_hash GREEN）。
+      - **§12.4 監査証跡**: Parquet ファイル単体から ``feature_snapshot_id`` / ``created_at``
+        を復元可能（sentinel でなく実値を埋込む・DuckDB ``read_parquet`` で参照可）。
+
+    ``created_at_fixed`` 引数は schema metadata の ``created_at`` キーに埋め込む固定文字列
+    （IN-03・旧 ``created_at`` から rename して役割を明示化）。manifest 側の ``created_at``
+    フィールドは実タイムスタンプ（``datetime.now(UTC)``）で run 毎に可変。
 
     Parameters
     ----------
@@ -131,10 +140,10 @@ def write_snapshot(
     out_dir : str | Path
         出力ディレクトリ（``snapshots/``）。未存在なら作成。
     snapshot_id : str
-        feature snapshot identifier（§12.4・ファイル名に使用）。
-    created_at : str
-        schema metadata 埋込用の固定タイムスタンプ文字列（ISO8601 推奨・実タイム
-        スタンプでない・再現性の要）。
+        feature snapshot identifier（§12.4・ファイル名 + schema metadata に埋込）。
+    created_at_fixed : str
+        schema metadata 埋込用の固定タイムスタンプ文字列（ISO8601 推奨・再現性の要・
+        実タイムスタンプでない・IN-03 rename）。
     return_manifest : bool
         ``True`` なら manifest dict を戻り値とする（manifest の ``created_at`` は実タイム
         スタンプ・run 毎に可変・REVIEWS HIGH #6）。
@@ -142,7 +151,7 @@ def write_snapshot(
     Returns
     -------
     str | dict
-        ``return_manifest=False`` なら SHA256 hexstring（Parquet bytes のみ由来）。
+        ``return_manifest=False`` なら SHA256 hexstring（metadata 無し schema bytes 由来）。
         ``return_manifest=True`` なら manifest dict（``sha256`` / ``created_at`` (実タイム
         スタンプ) / ``byte_reproducible_scope`` 等を含む）。
 
@@ -172,24 +181,40 @@ def write_snapshot(
     # 既に数値の列は Float64 変換で等価・byte-reproducibility は維持（決定論的 cast）。
     df_sorted = _coerce_rolling_columns_for_parquet(df_sorted)
 
-    # --- §12.4 metadata 構築 (9 keys) ---
-    # REVIEWS HIGH #6: Parquet SHA256 はデータ内容のみに依存させるため、run 毎に変化し得る
-    # ``snapshot_id`` / ``created_at`` は schema metadata bytes に**直接埋め込まず** deterministic
-    # sentinel で埋める（キー存在要件は満たす）。実値は manifest 側で別管理する。
+    # --- SHA256 計算 (CR-04: metadata 無し schema bytes のみ・データ内容のみ依存) ---
+    # run 毎に変動し得る snapshot_id / created_at を含む schema metadata bytes を SHA256
+    # 計算から除外し、純粋に DataFrame のデータ内容 + PyArrow 決定論的書込設定のみで
+    # hash を決定する。これにより同一 DataFrame なら常に同一 SHA256（byte-reproducible）。
+    base_schema = pa.Schema.from_pandas(df_sorted, preserve_index=False)
+    base_table = pa.Table.from_pandas(df_sorted, schema=base_schema, preserve_index=False)
+    sha_buf = pa.BufferOutputStream()
+    pq.write_table(
+        base_table,
+        sha_buf,
+        use_dictionary=False,
+        compression="zstd",
+        write_statistics=True,
+        row_group_size=100_000,  # rows, not bytes (REVIEWS MEDIUM #10)
+    )
+    sha256 = hashlib.sha256(sha_buf.getvalue().to_pybytes()).hexdigest()
+
+    # --- §12.4 metadata 構築 (9 keys・CR-04: sentinel でなく実値を埋込) ---
+    # CR-04 (03-REVIEW) Fix 選択肢1: schema metadata に実際の snapshot_id / created_at_fixed
+    # を埋め込み、Parquet ファイル単体で監査証跡を復元可能にする。SHA256 は上記の metadata
+    # 無し schema で計算済みのため、ここで実値を埋め込んでも SHA256 は不変（データ内容のみ依存）。
     metadata: dict[bytes, bytes] = {
         b"dataset_version": dataset_version.encode(),
-        b"feature_snapshot_id": _DETERMINISTIC_CREATED_AT.encode(),
+        b"feature_snapshot_id": snapshot_id.encode(),
         b"label_version": label_version.encode(),
         b"prediction_timing": prediction_timing.encode(),
         b"feature_cutoff_rule": feature_cutoff_rule.encode(),
         b"train_period": train_period.encode(),
         b"validation_period": validation_period.encode(),
-        b"created_at": _DETERMINISTIC_CREATED_AT.encode(),
+        b"created_at": created_at_fixed.encode(),
         b"feature_availability_version": fa_version.encode(),
     }
 
-    # --- schema + Table 構築 ---
-    base_schema = pa.Schema.from_pandas(df_sorted, preserve_index=False)
+    # --- schema + Table 構築（metadata 付き・書込用） ---
     schema = base_schema.with_metadata(metadata)
     table = pa.Table.from_pandas(df_sorted, schema=schema, preserve_index=False)
 
@@ -206,11 +231,7 @@ def write_snapshot(
         row_group_size=100_000,  # rows, not bytes (REVIEWS MEDIUM #10)
     )
 
-    # --- SHA256 計算 (scope = Parquet bytes のみ・REVIEWS HIGH #6) ---
-    # data は pq.write_table が生成した Parquet バイト列。manifest bytes / 実行時
-    # created_at_real は含まない。同一 DataFrame + 同一 created_at 引数なら常に同一 SHA256。
     data = buf.getvalue().to_pybytes()
-    sha256 = hashlib.sha256(data).hexdigest()
 
     # --- ファイル書込 ---
     out_dir_path = Path(out_dir)
@@ -236,7 +257,7 @@ def write_snapshot(
         feature_cutoff_rule=feature_cutoff_rule,
         train_period=train_period,
         validation_period=validation_period,
-        created_at_fixed=created_at,
+        created_at_fixed=created_at_fixed,
     )
     return manifest
 
