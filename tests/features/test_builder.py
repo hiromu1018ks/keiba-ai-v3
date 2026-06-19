@@ -392,3 +392,88 @@ def test_wr02_raises_on_empty_feature_source():
             )
     finally:
         builder._fetch_feature_sources = orig_fetch_sources
+
+
+# ---------------------------------------------------------------------------
+# CR-01 (03-REVIEW): rolling 統合での row-misalignment 回帰テスト
+# ---------------------------------------------------------------------------
+def test_cr01_rolling_aligned_by_canonical_key_across_distinct_cutoffs():
+    """CR-01 (03-REVIEW): 異なる feature_cutoff_datetime を持つ複数 observation で、
+    各 observation の rolling 値が正しい馬に対応付けられていることを検証する。
+
+    旧実装は feature_matrix(未ソート) と rolling_df(cutoff 昇順ソート) を axis=1 で
+    位置結合していたため、rolling 値が別の observation に割当てられる silent バグがあった。
+    現行の merge 実装では (race_nkey, kettonum) で明示結合するため整合する。
+
+    2馬 × 同一 kettonum は canonical key の一意性検査に反するため、race_nkey が異なる
+    2馬（kettonum も異なる）で、かつ cutoff 順序と元の observation 順序が異なる場合を
+    作って検証する。
+    """
+    builder = _get_builder()
+
+    # 2 馬（kettonum 異なる）× 異なる race_date。馬 A の方が race_date が遅い。
+    # _construct_derived_columns は入力順序を保持するため、observations の行順序は
+    # [A, B] のままだが、rolling 側は cutoff 昇順で [B, A] にソートされる。
+    rd_a = pd.Timestamp("2023-07-15")   # 後
+    rd_b = pd.Timestamp("2023-05-07")   # 前
+    observations_raw_df = pd.DataFrame([
+        {"kettonum": 1001, "year": 2023, "jyocd": "05", "kaiji": 1, "nichiji": 1,
+         "racenum": 1, "race_date": rd_a, "race_start_datetime": rd_a + pd.Timedelta(hours=12),
+         "umaban": 1, "wakuban": 1, "barei": 4, "sexcd": "1", "futan": 57.0,
+         "kisyucode": "01001", "chokyosicode": "01001", "class_code_normalized": 1,
+         "ketto3infohansyokunum1": "SIRE001", "ketto3infohansyokunum2": "BMS001"},
+        {"kettonum": 1002, "year": 2023, "jyocd": "05", "kaiji": 2, "nichiji": 1,
+         "racenum": 1, "race_date": rd_b, "race_start_datetime": rd_b + pd.Timedelta(hours=12),
+         "umaban": 1, "wakuban": 1, "barei": 5, "sexcd": "2", "futan": 57.0,
+         "kisyucode": "01002", "chokyosicode": "01002", "class_code_normalized": 1,
+         "ketto3infohansyokunum1": "SIRE002", "ketto3infohansyokunum2": "BMS002"},
+    ])
+    observations_df = builder._construct_derived_columns(observations_raw_df)
+
+    # 馬 A の過去走: kakuteijyuni = [1, 2, 3] （平均 2.0）
+    # 馬 B の過去走: kakuteijyuni = [10, 11, 12] （平均 11.0）
+    history_rows = []
+    for kn, base_rd, vals in (
+        (1001, rd_a, [1, 2, 3]),
+        (1002, rd_b, [10, 11, 12]),
+    ):
+        for i, v in enumerate(vals):
+            hr = base_rd - pd.Timedelta(days=(i + 1) * 7)   # cutoff 前に確実に配置
+            history_rows.append({
+                "kettonum": kn, "year": 2023, "jyocd": "05", "kaiji": 1, "nichiji": 1,
+                "racenum": 1, "race_date": hr, "race_start_datetime": hr + pd.Timedelta(hours=12),
+                "kakuteijyuni": v, "harontimel3": 36.0 + v,
+                "jyuni3c": v, "jyuni4c": v, "jyuni1c": 0,
+                "kyori": 1600,
+                "timediff_raw": f"+{v * 10:03d}",
+                "hist_sibababacd": "1", "hist_dirtbabacd": "0", "trackcd": "10",
+            })
+    history_raw_df = pd.DataFrame(history_rows)
+    history_df = builder._construct_derived_columns(history_raw_df, with_days_since_prev=True)
+
+    orig_fetch_sources = builder._fetch_feature_sources
+    orig_fetch_history = builder._fetch_history
+    builder._fetch_feature_sources = lambda read_pool: observations_df.copy()
+    builder._fetch_history = lambda read_pool: history_df.copy()
+    try:
+        result = builder.build_feature_matrix(
+            read_pool=None, snapshot_id="test-snap",
+            label_version="v1.0.0", fa_version="0.2.0",
+        )
+    finally:
+        builder._fetch_feature_sources = orig_fetch_sources
+        builder._fetch_history = orig_fetch_history
+
+    fm = result["feature_matrix"]
+    row_a = fm[fm["kettonum"] == 1001].iloc[0]
+    row_b = fm[fm["kettonum"] == 1002].iloc[0]
+    # 馬 A の rolling_kakuteijyuni_mean_5 は 2.0・馬 B は 11.0 でなければならない
+    # （旧 axis=1 concat では行順不一致で値が交差する silent バグがあった）
+    assert abs(float(row_a["rolling_kakuteijyuni_mean_5"]) - 2.0) < 1e-9, (
+        f"馬 A の rolling 値が不正: {row_a['rolling_kakuteijyuni_mean_5']} "
+        "(CR-01 row-misalignment regression・期待値 2.0)"
+    )
+    assert abs(float(row_b["rolling_kakuteijyuni_mean_5"]) - 11.0) < 1e-9, (
+        f"馬 B の rolling 値が不正: {row_b['rolling_kakuteijyuni_mean_5']} "
+        "(CR-01 row-misalignment regression・期待値 11.0)"
+    )

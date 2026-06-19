@@ -398,15 +398,31 @@ def build_feature_matrix(
         feature_matrix["bms_id"] = feature_matrix["ketto3infohansyokunum2"]
 
     # --- Step 5: rolling features 統合（per-observation latest-K・HIGH #1・rolling 側で完結） ---
+    # CR-01 (03-REVIEW): rolling 統合は位置ベース(axis=1) concat でなく canonical key で
+    # merge する。build_rolling_features は内部で sort_values("feature_cutoff_datetime")
+    # した上で rolling を計算するため、返却 DataFrame の行順が feature_matrix と一致する保証は
+    # 無い。位置 concat は silent に別の observation に rolling 値を割当ててしまう row-
+    # misalignment バグの原因。race_nkey/kettonum（存在時）または obs_id で明示 merge する。
     history = _fetch_history(read_pool)
     if len(history) > 0 and len(feature_matrix) > 0:
         rolling_df = build_rolling_features(feature_matrix, history)
         rolling_cols = [
             c for c in rolling_df.columns if c.startswith("rolling_")
         ]
-        fm_reset = feature_matrix.reset_index(drop=True)
-        rolling_reset = rolling_df[rolling_cols].reset_index(drop=True)
-        feature_matrix = pd.concat([fm_reset, rolling_reset], axis=1)
+        if "race_nkey" in rolling_df.columns and "kettonum" in rolling_df.columns:
+            merge_keys = ["race_nkey", "kettonum"]
+        elif "obs_id" in rolling_df.columns:
+            merge_keys = ["obs_id"]
+        else:
+            # フォールバック: rolling_df が key 列を全く持たない（rolling 実装契約違反）。
+            # 位置 concat は row-misalignment を起こすため認めない・fail-loud。
+            raise RuntimeError(
+                "rolling_df に merge key (race_nkey/kettonum または obs_id) が無い・"
+                "row-misalignment を防ぐ merge が実行できない (CR-01・rolling 実装契約違反)"
+            )
+        feature_matrix = feature_matrix.merge(
+            rolling_df[merge_keys + rolling_cols], on=merge_keys, how="left"
+        )
 
     # --- Step 6: 推定脚質（過去走 jyuni3c/jyuni4c のみ・当日不使用・D-05） ---
     # WR-01 (03-05 gap-closure): rolling と同一の PIT pre-filter
