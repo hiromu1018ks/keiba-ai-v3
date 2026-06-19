@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
+status: verifying
 stopped_at: Plan 03-02 complete (label.race_date backfill・実 DB 全行非 NULL・idempotent verify PASS)
-last_updated: "2026-06-19T02:23:22.953Z"
+last_updated: "2026-06-19T03:10:15.692Z"
 last_activity: 2026-06-19 -- Plan 03-02 complete (label.race_date backfill・実 DB で全行非 NULL)
 progress:
   total_phases: 8
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 12
-  completed_plans: 11
-  percent: 25
+  completed_plans: 12
+  percent: 38
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 
 Phase: 03 (as-of-features-snapshots) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-19 -- Plan 03-02 complete (label.race_date backfill・実 DB で全行非 NULL)
 
 Progress: [█░░░░░░░░░] 10%
@@ -64,6 +64,7 @@ Progress: [█░░░░░░░░░] 10%
 | Phase 03 P01 | 7m | 2 tasks | 12 files |
 | Phase 03 P02 | 12m | 2 tasks | 3 files |
 | Phase 03 P03 | 13m | 3 tasks | 4 files |
+| Phase 03 P04 | 25m | 4 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -91,6 +92,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 03-01: rolling 8 systems x 3 axes (24) + static 15 + running_style 1 = 40 features; source_role taxonomy [HIGH #4]; strict < cutoff unified [HIGH #2]
 - [Phase 03]: plan 03-02: label.fukusho_label.race_date 全 554267 行 backfill 済 (Phase 2 負債解消)・INSERT/SELECT positional mismatch を Rule 1 で auto-fix・staging-swap idempotent (2回実行同一 checksum) + raw 不変性 PASS
 - [Phase 03]: plan 03-03: rolling.py は per-observation latest-K algorithm (obs_id=(race_nkey,kettonum) group・pit_join_backward 不使用) で CYCLE-2 HIGH #1 cross-obs leak を閉鎖・running_style は dict-list + 純粋閾値関数 (テスト契約優先)・builder は COPY-NOT-RENAME (HIGH #5) + HIGH #3 出力カラム全登録検査・39/39 GREEN (10 RED は 03-04 スコープ)
+- [Phase 03]: race_nkey は DB カラムでなく予約済み canonical key — make_race_nkey(year,jyocd,kaiji,nichiji,racenum) で pandas 構築 (BUG A fix)
+- [Phase 03]: normalized 層に babacd/timediff/datakubun は存在しない — 当該 rolling 系統は D-13 sentinel で fallback
+- [Phase 03]: COPY-NOT-RENAME raw ID 原列は _RAW_ID_KEPT_COLUMNS で明示許可 (HIGH #5・banned source は防御的 assert で排除)
 
 ### Pending Todos
 
@@ -110,6 +114,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-19T02:23:22.948Z
+Last session: 2026-06-19T03:09:41.044Z
 Stopped at: Plan 03-02 complete (label.race_date backfill・実 DB 全行非 NULL・idempotent verify PASS)
 Resume file: .planning/phases/03-as-of-features-snapshots/03-03-PLAN.md
