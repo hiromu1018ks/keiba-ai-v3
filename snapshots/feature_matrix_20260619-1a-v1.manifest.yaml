@@ -1,0 +1,18 @@
+byte_reproducible_scope: parquet_bytes_only
+byte_size: 34281980
+category_map_artifact: snapshots/category_map_20260619-1a-v1.joblib
+created_at: '2026-06-19T03:06:41.988108+00:00'
+created_at_fixed: '2020-01-01T00:00:00Z'
+dataset_version: v1.0.0
+feature_availability_version: 0.2.0
+feature_count: 63
+feature_cutoff_rule: race_date - 1 day
+feature_snapshot_id: 20260619-1a-v1
+label_version: v1.0.0
+parquet_path: /Users/hart/develop/keiba-ai-v3/snapshots/feature_matrix_20260619-1a-v1.parquet
+prediction_timing: 1A
+row_count: 554267
+sha256: 19f11c3113319ae6b35cfde371ee2f69063e651bf37f920b599b65d6fa2673a0
+snapshot_id: 20260619-1a-v1
+train_period: 2016-07-01/2023-12-31
+validation_period: 2024-01-01/2024-12-31
