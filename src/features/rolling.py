@@ -54,11 +54,13 @@ assert CUTOFF_SEMANTICS["comparison_operator"] == "strict_less_than"
 LOOKBACK: int = 5
 
 # ---------------------------------------------------------------------------
-# rolling 対象6系統。target race 当日の芝/ダート馬場状態（sibababacd/dirtbabacd:
+# rolling 対象8系統。target race 当日の芝/ダート馬場状態（sibababacd/dirtbabacd:
 # TARGET_OBS_BANNED_COLUMNS）は含めず、過去走の babacd（HISTORY_ALLOWED_POST_RACE）
 # のみを rolling source とする（HIGH #4 taxonomy）。
-# CR-01 (03-05 gap-closure): ``timediff`` / ``babacd`` 系統は normalized 層に
-# source カラムが存在しないため削除（Phase 3.1 で再登録予定・registry↔実体 parity）。
+# Phase 3.1 (Plan 03 Task 2): ``timediff`` / ``babacd`` 系統を再登録（CR-01 03-05 で
+# 一時削除・normalized 層に source カラムが揃ったため復元・D-01 完全復元・SC#2 rolling 18→24）。
+#   - timediff: builder 側で real parse 済み（sentinel 0000/9999 → NaN）・数値系と同一 path
+#   - babacd:   builder 側で trackcd 第1桁分岐から派生（序数 varchar→to_numeric で int 化・D-02）
 # ---------------------------------------------------------------------------
 _ROLLING_SYSTEMS: tuple[str, ...] = (
     "kakuteijyuni",
@@ -67,10 +69,13 @@ _ROLLING_SYSTEMS: tuple[str, ...] = (
     "kyori",
     "jyocd",
     "days_since_prev",
+    "timediff",
+    "babacd",
 )
 
 # 各系統が ``history`` から読む source 列の対応表。target race 当日の後半3ハロン
 # （Pitfall 3.6 で禁止・TARGET_OBS_BANNED）は系統にも source にも含めない。
+# Phase 3.1: timediff / babacd は builder 側で派生済みの history 列名を指す（単一 source）。
 _SYSTEM_SOURCE: dict[str, tuple[str, ...]] = {
     "kakuteijyuni": ("kakuteijyuni",),
     "harontimel3": ("harontimel3",),
@@ -78,6 +83,8 @@ _SYSTEM_SOURCE: dict[str, tuple[str, ...]] = {
     "kyori": ("kyori",),
     "jyocd": ("jyocd",),
     "days_since_prev": ("days_since_prev",),
+    "timediff": ("timediff",),
+    "babacd": ("babacd",),
 }
 
 
@@ -233,10 +240,11 @@ def build_rolling_features(
             )
 
         # count: non-NaN の走数（何走分で集約したか）
+        # WR-03 (Phase 3.1 advisory hardening): groupby().apply(lambda) を vector 形に置換
+        # （pandas 3.x 推奨・apply 廃止・Pitfall 4 SHA256 drift 対策・同一入力で count 値完全一致）。
         count_per_obs = (
-            recent_sys.groupby("obs_id")["_sys_value"]
-            .apply(lambda s: int(s.notna().sum()))
-            .to_dict()
+            recent_sys["_sys_value"].notna()
+            .groupby(recent_sys["obs_id"]).sum().astype(int).to_dict()
         )
 
         mean_per_obs = (
