@@ -32,7 +32,7 @@ from typing import Any
 import pandas as pd
 from psycopg_pool import ConnectionPool
 
-from src.etl.filters import PROJECT_WINDOW_FILTER, project_window_filter
+from src.etl.filters import project_window_filter
 from src.features.availability import (
     TARGET_OBS_BANNED_COLUMNS,
     assert_all_entries_allowed,
@@ -57,59 +57,72 @@ CUTOFF_RULE_METADATA: dict[str, str] = {
 # ---------------------------------------------------------------------------
 # 明示カラム定数（SC#2・HIGH #4 taxonomy）
 # ---------------------------------------------------------------------------
-# normalized.n_uma_race から取得する過去走 history カラム。TARGET_OBS_BANNED_COLUMNS
-# （当日禁止: kyakusitukubun/bataijyu/ninki/odds/sibababacd/dirtbabacd/tenkocd/harontimel4）
-# とは**異なる SELECT パス**・同名衝突しない。過去走 babacd/timediff/harontimel3/
-# jyuni3c/jyuni4c は HISTORY_ALLOWED_POST_RACE_COLUMNS（rolling source として許可・
-# 当日行は cutoff で除外）。
-_HISTORY_SELECT_COLUMNS: tuple[str, ...] = (
-    "kettonum",
-    "race_nkey",
-    "race_date",
-    "as_of_datetime",
-    "race_start_datetime",
-    "kakuteijyuni",
-    "timediff",
-    "harontimel3",
-    "jyuni3c",
-    "jyuni4c",
-    "jyuni1c",
-    "kyori",
-    "jyocd",
-    "babacd",
-    "datakubun",
-    "days_since_prev",
+# 注意（live-DB schema 整合・BUG A fix）: ``race_nkey`` / ``race_date`` /
+# ``race_start_datetime`` / ``as_of_datetime`` / ``days_since_prev`` / ``timediff`` /
+# ``babacd`` / ``datakubun`` は **DB の実在カラムではない**（``race_nkey`` は予約済み
+# canonical key・他は derived）。実在する raw DB カラムのみを SELECT し、derived 列は
+# pandas 側で ``_construct_derived_columns`` で構築する（リーク不変量は不変・PIT 意味は
+# 変更なし）。``timediff`` / ``babacd`` は normalized 層に存在しないため SELECT せず、
+# 当該 rolling 系統は rolling.py の D-13 sentinel 経路で ``__MISSING__`` 扱いとなる。
+#
+# history SELECT（normalized.n_uma_race ur JOIN normalized.n_race nr）。
+# TARGET_OBS_BANNED_COLUMNS（当日禁止: kyakusitukubun/bataijyu/ninki/odds/sibababacd/
+# dirtbabacd/tenkocd/harontimel4）とは**異なる SELECT パス**・同名衝突しない。過去走
+# harontimel3/jyuni3c/jyuni4c は HISTORY_ALLOWED_POST_RACE_COLUMNS（rolling source）。
+# timediff/babacd は normalized 層に欠損のため rolling 側 sentinel 扱い。
+_HISTORY_DB_SELECT_COLUMNS: tuple[str, ...] = (
+    "ur.kettonum AS kettonum",
+    "ur.year AS year",
+    "ur.jyocd AS jyocd",
+    "ur.kaiji AS kaiji",
+    "ur.nichiji AS nichiji",
+    "ur.racenum AS racenum",
+    "nr.race_date AS race_date",
+    "nr.race_start_datetime AS race_start_datetime",
+    "ur.kakuteijyuni AS kakuteijyuni",
+    "ur.harontimel3 AS harontimel3",
+    "ur.jyuni3c AS jyuni3c",
+    "ur.jyuni4c AS jyuni4c",
+    "ur.jyuni1c AS jyuni1c",
+    "nr.kyori AS kyori",
+)
+_HISTORY_SELECT_COLUMN_NAMES: tuple[str, ...] = tuple(
+    c.split(" AS ")[1] for c in _HISTORY_DB_SELECT_COLUMNS
 )
 
-# 対象レース observations（normalized.n_uma_race + n_race JOIN から取得）
-_OBS_SELECT_COLUMNS: tuple[str, ...] = (
-    "kettonum",
-    "race_nkey",
-    "race_date",
-    "race_start_datetime",
-    "jyocd",
-    "kyori",
-    "umaban",
-    "wakuban",
-    "barei",
-    "sexcd",
-    "futan",
-    "kisyucode",
-    "chokyosicode",
-    "class_code_normalized",
+# observations SELECT（normalized.n_uma_race ur JOIN normalized.n_race nr JOIN public.n_uma）。
+_OBS_DB_SELECT_COLUMNS: tuple[str, ...] = (
+    "ur.kettonum AS kettonum",
+    "ur.year AS year",
+    "ur.jyocd AS jyocd",
+    "ur.kaiji AS kaiji",
+    "ur.nichiji AS nichiji",
+    "ur.racenum AS racenum",
+    "nr.race_date AS race_date",
+    "nr.race_start_datetime AS race_start_datetime",
+    "ur.umaban AS umaban",
+    "ur.wakuban AS wakuban",
+    "ur.barei AS barei",
+    "ur.sexcd AS sexcd",
+    "ur.futan AS futan",
+    "ur.kisyucode AS kisyucode",
+    "ur.chokyosicode AS chokyosicode",
+    "nr.class_code_normalized AS class_code_normalized",
+)
+_OBS_SELECT_COLUMN_NAMES: tuple[str, ...] = tuple(
+    c.split(" AS ")[1] for c in _OBS_DB_SELECT_COLUMNS
 )
 
-# race-level 文脈（normalized.n_race から取得・trackcd/coursekubuncd は raw_everydb2 VIEW 由来）
-_RACE_CONTEXT_COLUMNS: tuple[str, ...] = (
-    "race_nkey",
-    "race_date",
-    "race_start_datetime",
-    "jyocd",
-    "kyori",
-    "trackcd",
-    "coursekubuncd",
-    "class_code_normalized",
+# 後方互換: 既存テスト（test_banned_columns_not_selected 等）が参照する公開定数名。
+# ``_HISTORY_SELECT_COLUMNS`` は HIGH #4 taxonomy 検査の対象（target_obs_banned と disjoint）。
+# 実 DB カラム名の set として expose する（derived 列 race_nkey/as_of_datetime 等は含まない）。
+_DERIVED_HISTORY_COLUMN_NAMES = frozenset({
+    "race_nkey", "as_of_datetime", "days_since_prev", "timediff", "babacd", "datakubun",
+})
+_HISTORY_SELECT_COLUMNS: frozenset[str] = frozenset(
+    c for c in _HISTORY_SELECT_COLUMN_NAMES if c not in _DERIVED_HISTORY_COLUMN_NAMES
 )
+_OBS_SELECT_COLUMNS: tuple[str, ...] = _OBS_SELECT_COLUMN_NAMES
 
 # 3代血統（public.n_uma から取得）
 _BLOODLINE_COLUMNS: tuple[str, ...] = (
@@ -118,11 +131,79 @@ _BLOODLINE_COLUMNS: tuple[str, ...] = (
     "ketto3infohansyokunum2",  # bms_id
 )
 
+
+def make_race_nkey(
+    year: pd.Series,
+    jyocd: pd.Series,
+    kaiji: pd.Series,
+    nichiji: pd.Series,
+    racenum: pd.Series,
+) -> pd.Series:
+    """複合レースキー ``race_nkey`` を pandas で決定論的に構築する（BUG A fix）。
+
+    ``race_nkey`` は予約済み canonical key（availability._RESERVED_NON_FEATURE_COLUMNS）
+    だが **DB の実在カラムではない**（information_schema で確認済）。複合キー
+    (year, jyocd, kaiji, nichiji, racenum) を零埋連結した固定幅文字列
+    ``YYYYJJJKK< nichiji>NN`` で構築する。同一レースの全馬で同一値・観測と
+    過去走で同一構成（両者は race_nkey で group/join される・rolling.py 参照）。
+
+    リーク不変量: 本関数は純粋な key formatting のみ行い、PIT 意味（cutoff / as_of）
+    には一切影響しない。
+    """
+    return (
+        year.astype(str).str.zfill(4)
+        + jyocd.astype(str).str.zfill(2)
+        + kaiji.astype(str).str.zfill(2)
+        + nichiji.astype(str).str.zfill(2)
+        + racenum.astype(str).str.zfill(2)
+    )
+
+
+def _construct_derived_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """DB に存在しない derived 列を pandas で構築する（observations / history 共通）。
+
+    - ``race_nkey``: ``make_race_nkey(year, jyocd, kaiji, nichiji, racenum)``。
+    - ``as_of_datetime``: ``race_start_datetime``（=レース発走時刻・PIT 基準時刻）。
+    - ``days_since_prev``: 同一 kettonum 内の前走 race_date からの日数差（rolling source）。
+      history のみ意味を持つ・observations では NaN のまま（rolling は history 側で消費）。
+
+    リーク不変量: 全て過去情報のみから導出。cutoff / PIT filter は別途 rolling 側で
+    strict ``<`` で適用される。
+    """
+    result = df.copy()
+    composite_present = all(
+        c in result.columns for c in ("year", "jyocd", "kaiji", "nichiji", "racenum")
+    )
+    if composite_present and "race_nkey" not in result.columns:
+        result["race_nkey"] = make_race_nkey(
+            result["year"],
+            result["jyocd"],
+            result["kaiji"],
+            result["nichiji"],
+            result["racenum"],
+        )
+    if "race_start_datetime" in result.columns and "as_of_datetime" not in result.columns:
+        result["as_of_datetime"] = pd.to_datetime(result["race_start_datetime"])
+    # days_since_prev: kettonum 毎に race_date 昇順で diff(days)。history rolling source。
+    if (
+        "kettonum" in result.columns
+        and "race_date" in result.columns
+        and "days_since_prev" not in result.columns
+    ):
+        rd = pd.to_datetime(result["race_date"])
+        ordered = result.sort_values(["kettonum", "race_date"]).copy()
+        ordered["_rd"] = rd.loc[ordered.index]
+        ordered["days_since_prev"] = (
+            ordered.groupby("kettonum")["_rd"].diff().dt.total_seconds() / 86400.0
+        )
+        result["days_since_prev"] = ordered["days_since_prev"].reindex(result.index)
+    return result
+
 # ---------------------------------------------------------------------------
 # 起動時不変量: _HISTORY_SELECT_COLUMNS と TARGET_OBS_BANNED_COLUMNS は disjoint（HIGH #4）
 # 両者は別 SELECT パスなので同名衝突しないが、誤って禁止カラムを history に混入するのを
-# 機械的に防止する。sibababacd/dirtbabacd（target_obs_banned）と babacd（history_allowed）
-# は異なるカラム名なのでこの検査で衝突しない。
+# 機械的に防止する。sibababacd/dirtbabacd（target_obs_banned・n_race の当日馬場）は
+# normalized 層 history SELECT には現れない（本検査で機械的に保証）。
 # ---------------------------------------------------------------------------
 assert TARGET_OBS_BANNED_COLUMNS.isdisjoint(_HISTORY_SELECT_COLUMNS), (
     "_HISTORY_SELECT_COLUMNS に TARGET_OBS_BANNED_COLUMNS と衝突するカラムがある (HIGH #4)"
@@ -290,11 +371,12 @@ def build_feature_matrix(
 # internal: readonly SELECT helpers（明示カラム・JRA フィルタ・Pitfall 1）
 # ---------------------------------------------------------------------------
 def _fetch_feature_sources(read_pool: ConnectionPool) -> pd.DataFrame:
-    """observations + race_context + bloodline を readonly で SELECT し統合（明示カラム）。
+    """observations + bloodline を readonly で SELECT し統合（明示カラム）。
 
-    normalized.n_uma_race / normalized.n_race / public.n_uma から ``PROJECT_WINDOW_FILTER``
-    と ``project_window_filter(alias)`` で JRA フィルタを適用（CR-06）。明示カラムのみ
-    （ワイルドカード SELECT 禁止・Pitfall 1）。
+    normalized.n_uma_race / normalized.n_race / public.n_uma から ``project_window_filter``
+    で JRA フィルタを適用（CR-06）。明示カラムのみ（ワイルドカード SELECT 禁止・Pitfall 1）。
+    DB に存在しない derived 列（race_nkey / as_of_datetime）は ``_construct_derived_columns``
+    で pandas 側で構築する（BUG A fix・PIT 意味不変）。
 
     実行時 DB が未接続（unit test 等）の場合は空 DataFrame を返し、rolling/sentinel 経路で
     安全にフォールバックする。本関数は ``build_feature_matrix`` のみから呼ばれる。
@@ -302,7 +384,7 @@ def _fetch_feature_sources(read_pool: ConnectionPool) -> pd.DataFrame:
     try:
         with read_pool.connection() as conn:
             with conn.cursor() as cur:
-                obs_cols = ", ".join(_OBS_SELECT_COLUMNS)
+                obs_cols = ", ".join(_OBS_DB_SELECT_COLUMNS)
                 blood_cols = ", ".join(_BLOODLINE_COLUMNS)
                 obs_sql = (
                     f"SELECT {obs_cols} FROM normalized.n_uma_race ur "
@@ -318,38 +400,52 @@ def _fetch_feature_sources(read_pool: ConnectionPool) -> pd.DataFrame:
                 obs_rows = cur.fetchall()
                 cur.execute(blood_sql)
                 blood_rows = cur.fetchall()
-        obs_df = pd.DataFrame(obs_rows, columns=_OBS_SELECT_COLUMNS) if obs_rows else pd.DataFrame()
+        obs_df = (
+            pd.DataFrame(obs_rows, columns=_OBS_SELECT_COLUMN_NAMES)
+            if obs_rows
+            else pd.DataFrame(columns=_OBS_SELECT_COLUMN_NAMES)
+        )
         blood_df = (
             pd.DataFrame(blood_rows, columns=_BLOODLINE_COLUMNS)
             if blood_rows
             else pd.DataFrame(columns=_BLOODLINE_COLUMNS)
         )
+        if len(obs_df) > 0:
+            obs_df = _construct_derived_columns(obs_df)
         if len(obs_df) > 0 and len(blood_df) > 0:
             obs_df = obs_df.merge(blood_df, on="kettonum", how="left")
         return obs_df
     except Exception as exc:  # noqa: BLE001 - unit test / DB 未接続時は空 frame で安全フォールバック
         logger.warning("feature source fetch failed (returning empty frame): %s", exc)
-        return pd.DataFrame(columns=_OBS_SELECT_COLUMNS)
+        return pd.DataFrame(columns=_OBS_SELECT_COLUMN_NAMES)
 
 
 def _fetch_history(read_pool: ConnectionPool) -> pd.DataFrame:
     """過去走 history を readonly で SELECT（明示カラム・JRA フィルタ）。
 
-    ``_HISTORY_SELECT_COLUMNS``（TARGET_OBS_BANNED_COLUMNS と disjoint・HIGH #4）のみ。
+    ``_HISTORY_DB_SELECT_COLUMNS``（TARGET_OBS_BANNED_COLUMNS と disjoint・HIGH #4）のみを
+    DB から取得し、derived 列（race_nkey / as_of_datetime / days_since_prev）は
+    ``_construct_derived_columns`` で pandas 側で構築する（BUG A fix・PIT 意味不変）。
     """
     try:
         with read_pool.connection() as conn:
             with conn.cursor() as cur:
-                cols = ", ".join(_HISTORY_SELECT_COLUMNS)
+                cols = ", ".join(_HISTORY_DB_SELECT_COLUMNS)
                 sql = (
-                    f"SELECT {cols} FROM normalized.n_uma_race WHERE {PROJECT_WINDOW_FILTER}"
+                    f"SELECT {cols} FROM normalized.n_uma_race ur "
+                    f"JOIN normalized.n_race nr ON (ur.year=nr.year AND ur.jyocd=nr.jyocd "
+                    f"AND ur.kaiji=nr.kaiji AND ur.nichiji=nr.nichiji AND ur.racenum=nr.racenum) "
+                    f"WHERE {project_window_filter('ur')}"
                 )
                 cur.execute(sql)
                 rows = cur.fetchall()
-        return pd.DataFrame(rows, columns=_HISTORY_SELECT_COLUMNS) if rows else pd.DataFrame()
+        if not rows:
+            return pd.DataFrame(columns=_HISTORY_SELECT_COLUMN_NAMES)
+        hist_df = pd.DataFrame(rows, columns=_HISTORY_SELECT_COLUMN_NAMES)
+        return _construct_derived_columns(hist_df)
     except Exception as exc:  # noqa: BLE001 - DB 未接続時は空 frame
         logger.warning("history fetch failed (returning empty frame): %s", exc)
-        return pd.DataFrame(columns=_HISTORY_SELECT_COLUMNS)
+        return pd.DataFrame(columns=_HISTORY_SELECT_COLUMN_NAMES)
 
 
 def _cast_static_columns(df: pd.DataFrame) -> pd.DataFrame:

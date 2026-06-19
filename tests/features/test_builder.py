@@ -40,8 +40,10 @@ def test_no_select_star_in_builder():
 def test_banned_columns_not_selected():
     """_HISTORY_SELECT_COLUMNS に target_obs_banned カラムが含まれない（HIGH #4 区別）。
 
-    過去走 source として babacd / timediff / harontimel3 / jyuni3c / jyuni4c は含む
-    （history_allowed_post_race・registry taxonomy と整合）。
+    過去走 source として harontimel3 / jyuni3c / jyuni4c は含む
+    （history_allowed_post_race・registry taxonomy と整合）。``babacd`` / ``timediff`` は
+    normalized 層に実在カラムが無いため SELECT 対象外（rolling 側 D-13 sentinel 扱い・
+    live-DB 整合 fix）。当該 rolling 系統は ``__MISSING__`` で安全に fallback する。
     """
     builder = _get_builder()
     assert hasattr(builder, "_HISTORY_SELECT_COLUMNS"), (
@@ -54,8 +56,8 @@ def test_banned_columns_not_selected():
     assert leaked == set(), (
         f"_HISTORY_SELECT_COLUMNS に target_obs_banned カラムが含まれる: {leaked} (HIGH #4)"
     )
-    # 過去走 babacd / timediff / harontimel3 は許可されているべき
-    for allowed_history in ("babacd", "timediff", "harontimel3", "jyuni3c", "jyuni4c"):
+    # 過去走 harontimel3 / jyuni3c / jyuni4c は実在カラムであり許可されているべき
+    for allowed_history in ("harontimel3", "jyuni3c", "jyuni4c"):
         assert allowed_history in history_cols, (
             f"_HISTORY_SELECT_COLUMNS に過去走 source {allowed_history} が無い（HIGH #4 history_allowed）"
         )

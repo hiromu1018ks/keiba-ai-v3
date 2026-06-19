@@ -108,6 +108,22 @@ _CATEGORY_COLUMNS: frozenset[str] = frozenset({
     "horse_id",
 })
 
+# ---------------------------------------------------------------------------
+# CYCLE-2 HIGH #5 (COPY-NOT-RENAME): 抽象 ID alias を追加する際、**元の raw ID 列**は
+# 破壊的 rename されずそのまま保持される（``feature_matrix["jockey_id"] = kisyucode``
+# copy・builder 参照）。これら raw ID 原列は Phase 4 が raw ID で refit する経路を**開いた
+# ままにする意図的設計**（HIGH #5 contract・audit trail）。``_CATEGORY_COLUMNS`` は抽象
+# alias のみ drop し raw 原列は保持。よってこれら raw 原列は出力カラム検査の allowlist に
+# 明示的に含まれる必要がある（BUG B fix）。banned source（sibababacd/dirtbabacd/odds 等）
+# はここに絶対に含めない・含めると HIGH #3 fail-loud が無意味化する。
+_RAW_ID_KEPT_COLUMNS: frozenset[str] = frozenset({
+    "kisyucode",                  # jockey_id の原列
+    "chokyosicode",               # trainer_id の原列
+    "ketto3infohansyokunum1",     # sire_id の原列
+    "ketto3infohansyokunum2",     # bms_id の原列
+    "kettonum",                   # horse_id の原列（canonical key でもある・reserved にも含まれる）
+})
+
 # rolling 8系統（Plan 03-03 rolling.py::_ROLLING_SYSTEMS と同一・二重定義の危険を下げるため
 # import ではなく再定義・availability.py から features.rolling への循環依存を回避）
 _ROLLING_SYSTEMS_FOR_RESERVED: tuple[str, ...] = (
@@ -226,20 +242,33 @@ def assert_matrix_columns_registered(
     output_columns: list[str] | set[str],
     *,
     reserved: frozenset[str] = _RESERVED_NON_FEATURE_COLUMNS,
+    raw_id_kept: frozenset[str] = _RAW_ID_KEPT_COLUMNS,
 ) -> None:
-    """出力 feature-matrix カラムが全て registry / reserved / category_map(_code) 由来であることを検査。
+    """出力 feature-matrix カラムが全て registry / reserved / category_map(_code) / kept-raw-ID
+    由来であることを検査。
 
-    1件でも未登録（registry に無い・reserved でない・``_code`` suffix で category map 由来でない）
-    出力カラムがあれば ``ValueError`` で fail-loud（HIGH #3）。banned source カラムが allowed
-    feature 名の alias で潜入するのを構造的に防止する。
+    1件でも未登録（registry に無い・reserved でない・``_code`` suffix で category map 由来でない・
+    ``_RAW_ID_KEPT_COLUMNS`` でない）出力カラムがあれば ``ValueError`` で fail-loud（HIGH #3）。
+    banned source カラムが allowed feature 名の alias で潜入するのを構造的に防止する。
+
+    **CYCLE-2 HIGH #5 (COPY-NOT-RENAME)**: builder は抽象 alias を copy で追加し raw ID 原列
+    （kisyucode/chokyosicode/ketto3infohansyokunum1/ketto3infohansyokunum2）を保持する。これら
+    raw 原列は意図的に保持されるため ``raw_id_kept`` で明示的に許可する（BUG B fix）。ただし
+    ``TARGET_OBS_BANNED_COLUMNS``（sibababacd/dirtbabacd/odds/ninki/...）は絶対に許可しない。
     """
-    allowed = registered_feature_columns(spec) | set(reserved)
-    # category map 由来の <col>_code 形式を許可（HIGH #5: apply 後は raw ID は drop されるが
+    allowed = registered_feature_columns(spec) | set(reserved) | set(raw_id_kept)
+    # category map 由来の <col>_code 形式を許可（HIGH #5: apply 後は raw ID alias は drop されるが
     # _code suffix 列は残る・Phase 4 モデルが消費）
     allowed |= {f"{c}_code" for c in _CATEGORY_COLUMNS}
+    # banned source カラムが raw_id_kept / reserved 経由で潜入していないか二重防御
+    banned_leak = TARGET_OBS_BANNED_COLUMNS & allowed
+    assert not banned_leak, (
+        f"banned source カラムが allowlist に混入: {banned_leak} (HIGH #3 fail-loud 無意味化・違反)"
+    )
     for col in output_columns:
         if col not in allowed:
             raise ValueError(
                 f"unregistered feature-matrix column: {col}; "
-                "allowed = registry features + reserved keys + <col>_code from frozen category map"
+                "allowed = registry features + reserved keys + <col>_code from frozen category map "
+                "+ COPY-NOT-RENAME kept raw-ID columns"
             )
