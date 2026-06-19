@@ -3,9 +3,15 @@
 REVIEWS HIGH #1 (per-observation latest-K algorithm) / HIGH #2 (strict < cutoff) /
 HIGH #4 (babacd history-allowed vs sibababacd/dirtbababd target-obs-banned) 対応。
 
-6系統 × 3軸 (mean / latest / sd) + count 軸の rolling feature を構築する。
+8系統の rolling feature を構築する。numeric 系統は mean/latest/sd + count の 4 軸、
+categorical 系統は mode/latest + count の 3 軸。
 ``rolling_kakuteijyuni / rolling_harontimel3 / rolling_jyuni3c_jyuni4c /
-rolling_kyori / rolling_jyocd / rolling_days_since_prev`` の6系統。
+rolling_kyori / rolling_jyocd / rolling_days_since_prev / rolling_timediff /
+rolling_babacd`` の 8 系統。
+
+CR-02 (03-REVIEW): ``jyocd`` は JRA 競馬場コード（varchar(2)）のカテゴリカル値で
+あるため、mean/sd でなく最頻値(mode)と直近値(latest)で集約する（数値平均は意味論的
+に不正）。``_CATEGORICAL_SYSTEMS`` で categorical 扱いを明示。
 
 CR-01 (03-VERIFICATION.md / gap-closure 03-05): ``rolling_timediff_*`` /
 ``rolling_babacd_*`` 計6エントリは normalized 層に source カラム
@@ -87,6 +93,21 @@ _SYSTEM_SOURCE: dict[str, tuple[str, ...]] = {
     "babacd": ("babacd",),
 }
 
+# CR-02 (03-REVIEW): ``jyocd`` は JRA 競馬場コード（"01"=札幌, "05"=東京 等）の
+# **カテゴリカル varchar(2)** であり、数値 mean/sd を取ると「平均競馬場コード = 5.8」の
+# ような意味をなさない数値が生まれる。jyocd は categorical 系統として扱い、mean/sd で
+# なく最頻値(mode)と直近値(latest)のみを算出する。
+# 当日 jyocd は静的属性（feature_availability.yaml 別エントリ・本系統は「過去走の競馬場分布」
+# を表現）。latest は「直近の競馬場」で意味論的に妥当なので保持・mean/sd は廃止。
+_CATEGORICAL_SYSTEMS: frozenset[str] = frozenset({"jyocd"})
+
+# 系統毎の出力 axis セット（mean/latest/sd/count または mode/latest/count）。
+def _axes_for(system: str) -> tuple[str, ...]:
+    """系統が出力すべき axis タプルを返す（categorical は mode/latest/count）。"""
+    if system in _CATEGORICAL_SYSTEMS:
+        return ("mode", "latest", "count")
+    return ("mean", "latest", "sd", "count")
+
 
 def build_rolling_features(
     observations: pd.DataFrame,
@@ -94,11 +115,15 @@ def build_rolling_features(
     *,
     lookback: int = LOOKBACK,
 ) -> pd.DataFrame:
-    """8系統 × 3軸 (mean/latest/sd) + count 軸 rolling feature を observation 単位で構築する。
+    """8系統 rolling feature を observation 単位で構築する（numeric は mean/latest/sd+count・
+    categorical は mode/latest+count）。
 
     明示的 **per-observation latest-K algorithm** （HIGH #1・CYCLE-2: ``obs_id`` 単位・
     horse 単位でない・単一後方 join 不使用）で cutoff 以前の直近 ``lookback`` 走を取得し、
-    3軸集約（D-04）と5走未満 ``__MISSING__`` sentinel（D-13）を適用する。
+    系統毎の軸集約（D-04）と5走未満 ``__MISSING__`` sentinel（D-13）を適用する。
+
+    CR-02 (03-REVIEW): categorical 系統（``_CATEGORICAL_SYSTEMS``・現在は ``jyocd``）は
+    mean/sd でなく最頻値(mode)を算出する（varchar 競馬場コードの数値平均は意味論的バグ）。
 
     Pipeline
     --------
@@ -134,9 +159,12 @@ def build_rolling_features(
     Returns
     -------
     pd.DataFrame
-        ``observations`` に ``rolling_<system>_{mean,latest,sd,count}_5`` 計
-        (8系統 × 4 = 32) 列を付与した DataFrame。行 key は ``(race_nkey, kettonum)`` で一意。
-        ``obs_id`` 列は結果に伝播（呼出側が observation 毎に結果を取り出せる）。
+        ``observations`` に rolling 列を付与した DataFrame。行 key は ``(race_nkey, kettonum)``
+        で一意。``obs_id`` 列は結果に伝播（呼出側が observation 毎に結果を取り出せる）。
+
+        - numeric 系統: ``rolling_<system>_{mean,latest,sd,count}_5`` （7系統 × 4 = 28 列）
+        - categorical 系統: ``rolling_<system>_{mode,latest,count}_5`` （jyocd 1系統 × 3 = 3 列）
+        - 計 31 列（CR-02 で jyocd を mode/latest/count に変更・numeric 32→28 + categorical 3 = 31）
 
     Raises
     ------
@@ -173,9 +201,10 @@ def build_rolling_features(
 
     # rolling 出力列を object dtype で初期化（数値と __MISSING__ sentinel 文字列が混在・
     # silent fill 禁止・D-13）。pandas が str dtype を推論して数値代入を拒否するのを避ける。
+    # CR-02: categorical 系統（jyocd）は mean/sd でなく mode/latest を出力。
     rolling_cols: list[str] = []
     for system in _ROLLING_SYSTEMS:
-        for axis in ("mean", "latest", "sd", "count"):
+        for axis in _axes_for(system):
             col = f"rolling_{system}_{axis}_5"
             rolling_cols.append(col)
             result[col] = pd.Series([MISSING] * len(result), dtype=object, index=result.index)
@@ -222,12 +251,60 @@ def build_rolling_features(
 
     # --- Step 4/5: 3軸集約 + count + 5走未満 sentinel（D-04/D-13・Pitfall 3.3） ---
     # 各 obs_id 毎に system 列を集約
+    # CR-02 (03-REVIEW): categorical 系統（jyocd 等）は数値 mean/sd でなく最頻値(mode) を算出。
+    # varchar 競馬場コードを to_numeric すると意味をなさない数値平均になるため、
+    # categorical 扱いとして source 列の生値を集約対象にする。
     for system in _ROLLING_SYSTEMS:
         source_cols = _SYSTEM_SOURCE[system]
         # 系統の source 列が history に無ければ全系統 sentinel 初期値のまま（D-13 相当）
         if not all(c in recent.columns for c in source_cols):
             continue
 
+        is_categorical = system in _CATEGORICAL_SYSTEMS
+
+        if is_categorical:
+            # categorical 系統: source 列の生値（文字列）を集約対象にする・to_numeric しない。
+            # 欠損/NaN/None は有効値扱いから除外するため mask で管理。
+            raw_series = recent[system].astype(object)
+            recent_sys = recent.assign(_sys_value=raw_series)
+            # count: 欠損（None/NaN/空文字）を除外した有効値数
+            valid_mask = recent_sys["_sys_value"].notna() & (
+                recent_sys["_sys_value"].astype(str).str.strip() != ""
+            )
+            count_per_obs = (
+                valid_mask.groupby(recent_sys["obs_id"]).sum().astype(int).to_dict()
+            )
+            # mode: 各 obs_id 毎の最頻値（同数の場合先頭・pandas mode は昇順値で最初を返す）。
+            # vector 形: groupby + agg で各 group の mode.iloc[0] を取得（apply 廃止・WR-03 対称）。
+            mode_per_obs: dict[Any, object] = {}
+            latest_per_obs_cat: dict[Any, object] = {}
+            for obs_id, group in recent_sys.groupby("obs_id", sort=False):
+                gv = group["_sys_value"].dropna()
+                gv = gv[gv.astype(str).str.strip() != ""]
+                if len(gv) == 0:
+                    continue
+                # mode: 最頻値（同票の場合値昇順で最小・決定論的）。複数ある場合 .iloc[0]。
+                modes = gv.astype(str).mode()
+                mode_per_obs[obs_id] = modes.iloc[0] if len(modes) > 0 else MISSING
+                # latest: sort 済みなので first が最新（race_start_datetime DESC）
+                latest_per_obs_cat[obs_id] = str(gv.iloc[0])
+
+            for idx, obs_id in zip(result.index, result["obs_id"], strict=False):
+                n = count_per_obs.get(obs_id, 0)
+                mode_col = f"rolling_{system}_mode_5"
+                latest_col = f"rolling_{system}_latest_5"
+                count_col = f"rolling_{system}_count_5"
+
+                result.at[idx, count_col] = n
+                if n == 0:
+                    result.at[idx, mode_col] = MISSING
+                    result.at[idx, latest_col] = MISSING
+                else:
+                    result.at[idx, mode_col] = mode_per_obs.get(obs_id, MISSING)
+                    result.at[idx, latest_col] = latest_per_obs_cat.get(obs_id, MISSING)
+            continue
+
+        # --- numeric 系統（既存ロジック） ---
         if system == "jyuni3c_jyuni4c":
             # 合成系統: jyuni3c と jyuni4c の平均（両方必要・片方欠損なら当該走は除外）
             j3 = pd.to_numeric(recent["jyuni3c"], errors="coerce")

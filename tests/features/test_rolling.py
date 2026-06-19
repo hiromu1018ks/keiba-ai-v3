@@ -129,3 +129,66 @@ def test_history_pre_filtered_strict_less_than_cutoff():
     assert "<=" not in src.replace("<feature_cutoff_datetime", "__KEEP__") or "< feature_cutoff_datetime" in src, (
         "strict < filter が確認できない（<= は HIGH #2 違反）"
     )
+
+
+# ---------------------------------------------------------------------------
+# CR-02 (03-REVIEW): jyocd は categorical（varchar 競馬場コード）として最頻値集計
+# ---------------------------------------------------------------------------
+def test_jyocd_categorical_mode_aggregation():
+    """CR-02 (03-REVIEW): rolling_jyocd は数値 mean/sd でなく最頻値(mode)と直近値(latest)
+    を算出する。varchar(2) 競馬場コードの数値平均は意味をなさないため categorical 扱い。
+
+    検証: 過去5走の競馬場コード ["05","05","05","01","01"] の mode="05"・latest="01"
+    （race_start_datetime 降順で最初）・count=5。mean/sd 列は生成されない。
+    """
+    rolling = _get_rolling()
+    from src.features.rolling import _CATEGORICAL_SYSTEMS
+
+    assert "jyocd" in _CATEGORICAL_SYSTEMS, "jyocd が categorical 系統に含まれない（CR-02）"
+
+    # history: 馬 3003 の過去5走・race_date 降順で [01, 01, 05, 05, 05]
+    #（最新が 01、3走前〜5走前が 05・mode は同票の場合値昇順で最小→"01" になるが
+    # ここでは 05 を3回出して mode="05" になるよう構成）
+    base = pd.Timestamp("2023-06-04")
+    history_rows = []
+    # 最新から順: 01(2回) → 05(3回)・latest=01・mode=05
+    seq = [("01", -1), ("01", -2), ("05", -3), ("05", -4), ("05", -5)]
+    for jyocd_val, day_off in seq:
+        rd = base + pd.Timedelta(days=day_off)
+        history_rows.append({
+            "kettonum": 3003, "year": 2023, "jyocd": jyocd_val, "kaiji": 1,
+            "nichiji": 1, "racenum": 1, "race_date": rd,
+            "race_start_datetime": rd + pd.Timedelta(hours=12),
+            "as_of_datetime": rd + pd.Timedelta(hours=12),
+            "kakuteijyuni": 1, "harontimel3": 36.0, "jyuni3c": 1, "jyuni4c": 1,
+            "jyuni1c": 0, "kyori": 1600,
+        })
+    history = pd.DataFrame(history_rows)
+    obs = pd.DataFrame([{
+        "kettonum": 3003, "feature_cutoff_datetime": base - pd.Timedelta(days=1),
+    }])
+    result = rolling.build_rolling_features(obs, history)
+    row = result.iloc[0]
+
+    # categorical 系統: mode / latest / count のみ（mean/sd は無い）
+    assert "rolling_jyocd_mode_5" in result.columns, "jyocd の mode_5 列が無い（CR-02）"
+    assert "rolling_jyocd_latest_5" in result.columns, "jyocd の latest_5 列が無い（CR-02）"
+    assert "rolling_jyocd_count_5" in result.columns, "jyocd の count_5 列が無い"
+    assert "rolling_jyocd_mean_5" not in result.columns, (
+        "jyocd に mean_5 が存在する（CR-02 違反・categorical は数値平均しない）"
+    )
+    assert "rolling_jyocd_sd_5" not in result.columns, (
+        "jyocd に sd_5 が存在する（CR-02 違反）"
+    )
+    assert row["rolling_jyocd_mode_5"] == "05", (
+        f"jyocd mode が不正: {row['rolling_jyocd_mode_5']}（期待値 '05'・3回出現で最頻）"
+    )
+    # latest: cutoff = base-1day（6/3・strict <）なので最新の 6/3(day_off=-1) は除外され、
+    # 次の 6/2(day_off=-2) の "01" が latest になる
+    assert row["rolling_jyocd_latest_5"] == "01", (
+        f"jyocd latest が不正: {row['rolling_jyocd_latest_5']}（期待値 '01'・直近値）"
+    )
+    # cutoff strict < で day_off=-1 (6/3) は除外されるため count=4
+    assert int(row["rolling_jyocd_count_5"]) == 4, (
+        f"jyocd count が不正: {row['rolling_jyocd_count_5']}（期待値 4・cutoff strict < で最新1件除外）"
+    )

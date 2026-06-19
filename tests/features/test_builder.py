@@ -188,9 +188,15 @@ def test_no_registered_feature_column_all_nan_end_to_end():
         if e["feature_name"].startswith("rolling_") and e["feature_name"].endswith("_mean_5")
     ]
     assert len(rolling_mean_features) > 0, "registry に rolling_*_mean_5 が1つも無い（前提違反）"
+    # CR-02: categorical 系統（jyocd）の mode_5 も非 NaN 検査対象に含める
+    rolling_mode_features = [
+        e["feature_name"]
+        for e in spec["features"]
+        if e["feature_name"].startswith("rolling_") and e["feature_name"].endswith("_mode_5")
+    ]
 
     all_nan_cols = []
-    for col in rolling_mean_features:
+    for col in rolling_mean_features + rolling_mode_features:
         if col not in feature_matrix.columns:
             all_nan_cols.append(col)
             continue
@@ -199,7 +205,7 @@ def test_no_registered_feature_column_all_nan_end_to_end():
         if series.isna().all():
             all_nan_cols.append(col)
     assert all_nan_cols == [], (
-        f"登録 rolling_*_mean_5 feature が 100% NaN: {all_nan_cols} "
+        f"登録 rolling_*_mean_5 / rolling_*_mode_5 feature が 100% NaN: {all_nan_cols} "
         "(CR-01 regression・registry↔実体 silent 乖離・source カラム欠損)"
     )
 
@@ -218,22 +224,31 @@ def test_no_registered_feature_column_all_nan_end_to_end():
 
 
 def test_registry_rolling_systems_match_rolling_impl():
-    """registry の rolling_*_mean_5 系統集合が rolling.py::_ROLLING_SYSTEMS と
+    """registry の rolling 系統集合が rolling.py::_ROLLING_SYSTEMS と
     availability._ROLLING_SYSTEMS_FOR_RESERVED と完全一致することを assert
     （3者 parity・IN-01 重複定義の drift を機械検出）。
+
+    CR-02 (03-REVIEW): categorical 系統（jyocd）は mean/sd でなく mode を出力するため、
+    registry の rolling_*_mean_5 に加え rolling_*_mode_5 からも系統を抽出して一致検査する
+    （numeric 系統は mean・categorical 系統は mode で代表させる）。
     """
     from src.features.availability import (
         _ROLLING_SYSTEMS_FOR_RESERVED,
         load_feature_availability,
     )
-    from src.features.rolling import _ROLLING_SYSTEMS
+    from src.features.rolling import _CATEGORICAL_SYSTEMS, _ROLLING_SYSTEMS
 
     spec = load_feature_availability()
-    rolling_in_registry = {
-        e["feature_name"].removeprefix("rolling_").removesuffix("_mean_5")
-        for e in spec["features"]
-        if e["feature_name"].startswith("rolling_") and e["feature_name"].endswith("_mean_5")
-    }
+    # numeric 系統は mean_5・categorical 系統は mode_5 から系統名を抽出する。
+    rolling_in_registry: set[str] = set()
+    for e in spec["features"]:
+        name = e["feature_name"]
+        if not name.startswith("rolling_"):
+            continue
+        if name.endswith("_mean_5"):
+            rolling_in_registry.add(name.removeprefix("rolling_").removesuffix("_mean_5"))
+        elif name.endswith("_mode_5"):
+            rolling_in_registry.add(name.removeprefix("rolling_").removesuffix("_mode_5"))
     assert rolling_in_registry == set(_ROLLING_SYSTEMS), (
         f"registry↔rolling.py drift: {rolling_in_registry} != {set(_ROLLING_SYSTEMS)}"
     )
@@ -244,6 +259,18 @@ def test_registry_rolling_systems_match_rolling_impl():
     assert tuple(_ROLLING_SYSTEMS_FOR_RESERVED) == _ROLLING_SYSTEMS, (
         "rolling.py と availability.py の _ROLLING_SYSTEMS 順序含め不一致"
     )
+    # categorical 系統は registry に mode_5 が存在し mean_5/sd_5 は無いことを確認
+    for cat_sys in _CATEGORICAL_SYSTEMS:
+        feats = {e["feature_name"] for e in spec["features"]}
+        assert f"rolling_{cat_sys}_mode_5" in feats, (
+            f"categorical 系統 {cat_sys} に mode_5 エントリが無い（CR-02・意味論的集計）"
+        )
+        assert f"rolling_{cat_sys}_mean_5" not in feats, (
+            f"categorical 系統 {cat_sys} に mean_5 が残っている（CR-02 違反・数値平均は無意味）"
+        )
+        assert f"rolling_{cat_sys}_sd_5" not in feats, (
+            f"categorical 系統 {cat_sys} に sd_5 が残っている（CR-02 違反）"
+        )
 
 
 def test_timediff_babacd_present_in_registry_or_rolling():
