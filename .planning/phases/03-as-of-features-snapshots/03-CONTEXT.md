@@ -142,6 +142,7 @@
 - **Phase 7:** Streamlit での snapshot 一覧性・特徴量確認画面。Phase 3 は Parquet＋manifest のみ
 - **Phase 8:** SC#2 allowlist test・`feature_cutoff_datetime` enforcement・synthetic-lookahead injection（T の特徴量が T+1 のデータを使う検出）に対する対抗的監査テスト（TEST-01）。Phase 3 で実装する allowlist/PIT 機構が監査対象
 - **Phase 1-B（将来）:** 開催日朝モデル・発走直前モデル。D-06 の時刻粒度 cutoff（`race_start_datetime - δ`）は Phase 1-B 拡張時に意味を持つ。Phase 1-A は日付粒度で十分
+- **Phase 2 ETL 拡張（Phase 3.1: Timediff/Babacd Rolling Restoration・挿入済み・Phase 3 gap-closure 03-05 完了後に /gsd-plan-phase 03.1 で計画）:** EveryDB2 normalized ETL を拡張して `timediff`（勝馬差 TimeDIFN）・`babacd`（過去走馬場状態）の source カラムを normalized.n_uma_race に持ち込む。その後 Phase 3 の rolling_timediff_* / rolling_babacd_* 計6 feature を registry・rolling.py・availability reserved の三者から再登録し、Phase 1-A rolling features を 18 → 24（8系統×3軸）に拡張。Phase 3 gap-closure (03-05・CR-01) で silent 全 NaN breach を解消するため一時削除した。
 
 None — discussion stayed within phase scope
 

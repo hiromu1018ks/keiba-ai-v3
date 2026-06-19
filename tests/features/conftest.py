@@ -6,7 +6,7 @@
     observations 行 builder（test_fukusho_label.py:_build_se_row パターン踏襲）。
   - ``_build_adversarial_rolling_rows``: 単一 observation × 5行 adversarial + 3行 eligible
     rolling history builder（target / same_day_prior / same_day_later / previous_day / future
-    + eligible 3行・各 timediff 区別値・HIGH #1）。
+    + eligible 3行・各 kakuteijyuni 区別値・HIGH #1・CR-01 で timediff→kakuteijyuni 切替）。
   - ``_build_two_observation_rolling_rows``: 同一 horse × 2 observation × 異 cutoff adversarial
     builder（CYCLE-2 HIGH #1 re-open・horse-grouped algorithm では検出不能な cross-obs leak）。
   - ``synthetic_availability`` / ``mock_readonly_cur``: fixtures。
@@ -95,31 +95,34 @@ def _build_adversarial_rolling_rows(
 ) -> pd.DataFrame:
     """1頭の馬 × 1つの target observation に対する adversarial rolling history。
 
-    戻り DataFrame は8行（5行 adversarial + 3行 eligible）。各 row の ``timediff`` は
-    区別可能な値を持ち、rolling 結果 ``rolling_timediff_mean_5`` が eligible 3行の平均
-    （=-2.0）のみを含むことを test_rolling が機械的に検証する。
+    戻り DataFrame は8行（5行 adversarial + 3行 eligible）。各 row の ``kakuteijyuni`` は
+    区別可能な値を持ち、rolling 結果 ``rolling_kakuteijyuni_mean_5`` が eligible 3行の平均
+    （=(1.0+2.0+3.0)/3 = 2.0）のみを含むことを test_rolling が機械的に検証する。
+
+    ※ CR-01 (03-05): timediff/babacd 系統は rolling から削除されたため、本 fixture は
+    残存系統 ``kakuteijyuni`` を識別値に使用する（PIT defense-in-depth の intent は不変）。
     """
     obs_rd = pd.to_datetime(obs_race_date)
     rows = [
-        # (label, as_of_datetime offset from obs_rd, timediff)
-        ("target",          pd.Timedelta(days=0),  99.99),   # 当日・必ず除外
-        ("same_day_prior",  pd.Timedelta(days=0),  88.88),   # 同日別レース・必ず除外
-        ("same_day_later",  pd.Timedelta(days=0),  77.77),   # 同日午後・必ず除外
-        ("previous_day",    pd.Timedelta(days=-1), 66.66),   # 前日==cutoff midnight・strict < で除外
-        ("future",          pd.Timedelta(days=2),  55.55),   # 未来・必ず除外
+        # (label, as_of_datetime offset from obs_rd, kakuteijyuni)
+        ("target",          pd.Timedelta(days=0),  99),   # 当日・必ず除外
+        ("same_day_prior",  pd.Timedelta(days=0),  88),   # 同日別レース・必ず除外
+        ("same_day_later",  pd.Timedelta(days=0),  77),   # 同日午後・必ず除外
+        ("previous_day",    pd.Timedelta(days=-1), 66),   # 前日==cutoff midnight・strict < で除外
+        ("future",          pd.Timedelta(days=2),  55),   # 未来・必ず除外
         # eligible 3行（window に含まれるべき正当な過去走）
-        ("eligible",        pd.Timedelta(days=-2), -1.0),
-        ("eligible",        pd.Timedelta(days=-3), -2.0),
-        ("eligible",        pd.Timedelta(days=-4), -3.0),
+        ("eligible",        pd.Timedelta(days=-2), 1.0),
+        ("eligible",        pd.Timedelta(days=-3), 2.0),
+        ("eligible",        pd.Timedelta(days=-4), 3.0),
     ]
     history = []
-    for label, offset, timediff in rows:
+    for label, offset, kakuteijyuni in rows:
         as_of = obs_rd + offset
         row = _build_se_history_row(
             kettonum=kettonum,
             race_date=as_of.strftime("%Y-%m-%d"),
             as_of_datetime=as_of,
-            timediff=timediff,
+            kakuteijyuni=kakuteijyuni,
         )
         row["row_label"] = label
         history.append(row)
@@ -145,10 +148,13 @@ def _build_two_observation_rolling_rows(
       feature_cutoff_datetime="2023-06-10"
 
     history は3種の境界 race:
-      (a) both_pre:        as_of="2023-06-01"・timediff=-1.0・両 cutoff 以前・両 window 共通
-      (b) obs_B_only_pre:  as_of="2023-06-05"・timediff=-7.7・obs_B の cutoff 以前だが
+      (a) both_pre:        as_of="2023-06-01"・kakuteijyuni=1・両 cutoff 以前・両 window 共通
+      (b) obs_B_only_pre:  as_of="2023-06-05"・kakuteijyuni=7・obs_B の cutoff 以前だが
                            obs_A の cutoff 以降・obs_A には混入不可・obs_B のみに含まれるべき
-      (c) both_post:       as_of="2023-06-12"・timediff=99.99・両 cutoff 以降・両 window 除外
+      (c) both_post:       as_of="2023-06-12"・kakuteijyuni=99・両 cutoff 以降・両 window 除外
+
+    ※ CR-01 (03-05): timediff/babacd 系統は rolling から削除されたため、本 fixture は
+    残存系統 ``kakuteijyuni`` を識別値に使用する（PIT defense-in-depth の intent は不変）。
     """
     observations = pd.DataFrame([
         _build_race_obs_row("2023A0610-R1", kettonum, "2023-06-04", obs_id="A"),
@@ -159,21 +165,21 @@ def _build_two_observation_rolling_rows(
             kettonum=kettonum,
             race_date="2023-06-01",
             as_of_datetime=pd.to_datetime("2023-06-01"),
-            timediff=-1.0,
+            kakuteijyuni=1,
             row_label="both_pre",
         ),
         _build_se_history_row(
             kettonum=kettonum,
             race_date="2023-06-05",
             as_of_datetime=pd.to_datetime("2023-06-05"),
-            timediff=-7.7,
+            kakuteijyuni=7,
             row_label="obs_B_only_pre",
         ),
         _build_se_history_row(
             kettonum=kettonum,
             race_date="2023-06-12",
             as_of_datetime=pd.to_datetime("2023-06-12"),
-            timediff=99.99,
+            kakuteijyuni=99,
             row_label="both_post",
         ),
     ]

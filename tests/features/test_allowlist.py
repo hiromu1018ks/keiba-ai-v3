@@ -85,13 +85,25 @@ def test_target_obs_banned_columns_not_in_registry_features():
     )
 
 
-def test_history_allowed_babacd_rolling_present():
-    """過去走 babacd に由来する rolling feature は registry に含まれる（HIGH #4 で許可）。"""
+def test_history_allowed_rolling_present():
+    """過去走 history_allowed に由来する rolling feature は registry に含まれる（HIGH #4 で許可）。
+
+    ※ CR-01 (03-05): rolling_timediff_* / rolling_babacd_* は normalized 層に source カラムが
+    存在しないため registry から削除済み（Phase 3.1 で再登録予定）。代わりに残存6系統の
+    代表 kakuteijyuni が history_allowed_post_race rolling として存在することを検証する。
+    """
     spec = _spec()
     names = registered_feature_columns(spec)
-    for required in ("rolling_babacd_mean_5", "rolling_babacd_latest_5", "rolling_babacd_sd_5"):
+    for required in ("rolling_kakuteijyuni_mean_5", "rolling_kakuteijyuni_latest_5", "rolling_kakuteijyuni_sd_5"):
         assert required in names, (
-            f"{required} が registry に存在しない（過去走 babacd rolling は history_allowed・HIGH #4）"
+            f"{required} が registry に存在しない（過去走 kakuteijyuni rolling は history_allowed・HIGH #4）"
+        )
+    # CR-01 (03-05): 削除済みの timediff/babacd rolling が registry に無いことも防御的に確認
+    for removed in (
+        "rolling_timediff_mean_5", "rolling_babacd_mean_5",
+    ):
+        assert removed not in names, (
+            f"{removed} が registry に残存（CR-01 03-05 で削除済み・Phase 3.1 で再登録予定）"
         )
 
 

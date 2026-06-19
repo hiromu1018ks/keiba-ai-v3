@@ -31,9 +31,9 @@ def test_under_5_starts_uses_missing_sentinel():
     from src.utils.category_map import MISSING
     # 新馬（history 空）
     obs = pd.DataFrame([{"kettonum": 9999, "feature_cutoff_datetime": pd.Timestamp("2023-06-03")}])
-    history = pd.DataFrame(columns=["kettonum", "as_of_datetime", "timediff"])
+    history = pd.DataFrame(columns=["kettonum", "as_of_datetime", "kakuteijyuni"])
     result = rolling.build_rolling_features(obs, history)
-    assert result.iloc[0]["rolling_timediff_mean_5"] == MISSING
+    assert result.iloc[0]["rolling_kakuteijyuni_mean_5"] == MISSING
 
 
 def test_rolling_three_axes_present():
@@ -45,13 +45,18 @@ def test_rolling_three_axes_present():
 
 
 def test_target_race_timediff_not_in_history():
-    """対象レース自身の timediff が rolling 入力 history に含まれない（defense-in-depth・Pitfall 3.1）。"""
+    """対象レース自身の kakuteijyuni が rolling 入力 history に含まれない（defense-in-depth・Pitfall 3.1）。
+
+    ※ CR-01 (03-05): timediff 系統は rolling から削除されたため、残存系統 kakuteijyuni で
+    同等の PIT defense-in-depth を検証する（target/同日/前日/future の除外・eligible 3行のみ包含）。
+    eligible 3行の kakuteijyuni=(1.0,2.0,3.0) → mean=2.0。
+    """
     rolling = _get_rolling()
     history = _build_adversarial_rolling_rows(obs_race_date="2023-06-04", kettonum=1001)
     obs = pd.DataFrame([{"kettonum": 1001, "feature_cutoff_datetime": pd.Timestamp("2023-06-03")}])
     result = rolling.build_rolling_features(obs, history)
-    # target timediff=99.99 が混入すると mean が -2.0 から外れる
-    assert abs(result.iloc[0]["rolling_timediff_mean_5"] - (-2.0)) < 1e-9
+    # target kakuteijyuni=99 等が混入すると mean が 2.0 から外れる
+    assert abs(result.iloc[0]["rolling_kakuteijyuni_mean_5"] - (2.0)) < 1e-9
 
 
 def test_harontimel4_not_in_feature_matrix():
@@ -65,12 +70,16 @@ def test_harontimel4_not_in_feature_matrix():
 # REVIEWS HIGH #1: per-observation latest-5 algorithm 対抗テスト
 # ---------------------------------------------------------------------------
 def test_per_observation_latest_5_excludes_target_same_day_previous_future():
-    """5行 adversarial + 3行 eligible の history で rolling_timediff_mean_5 == -2.0（eligible のみ）。"""
+    """5行 adversarial + 3行 eligible の history で rolling_kakuteijyuni_mean_5 == 2.0（eligible のみ）。
+
+    ※ CR-01 (03-05): timediff 系統は rolling から削除されたため残存系統 kakuteijyuni で検証。
+    eligible 3行 (1.0,2.0,3.0) のみを含む → mean=2.0。
+    """
     rolling = _get_rolling()
     history = _build_adversarial_rolling_rows(obs_race_date="2023-06-04", kettonum=1001)
     obs = pd.DataFrame([{"kettonum": 1001, "feature_cutoff_datetime": pd.Timestamp("2023-06-03")}])
     result = rolling.build_rolling_features(obs, history)
-    assert abs(result.iloc[0]["rolling_timediff_mean_5"] - (-2.0)) < 1e-9, (
+    assert abs(result.iloc[0]["rolling_kakuteijyuni_mean_5"] - (2.0)) < 1e-9, (
         "target/same_day/previous_day/future の異常値が rolling に混入（HIGH #1 違反）"
     )
 
@@ -79,21 +88,22 @@ def test_two_observation_window_is_per_observation_not_per_horse():
     """CYCLE-2 HIGH #1 re-open: 同一 horse × 2 obs × 異 cutoff で rolling 結果が異なる。
 
     horse-grouped `groupby("kettonum").head(5)` では必ず RED・obs_id-keyed のみ GREEN。
-    obs_A window = both_pre のみ（timediff=-1.0）
-    obs_B window = both_pre + obs_B_only_pre の平均（=((-1.0)+(-7.7))/2 = -4.35）
+    ※ CR-01 (03-05): timediff 系統は rolling から削除されたため残存系統 kakuteijyuni で検証。
+    obs_A window = both_pre のみ（kakuteijyuni=1）
+    obs_B window = both_pre + obs_B_only_pre の平均（=((1)+(7))/2 = 4.0）
     """
     rolling = _get_rolling()
     observations, history = _build_two_observation_rolling_rows(kettonum=2002)
     result = rolling.build_rolling_features(observations, history)
     obs_a = result[result["obs_id"] == "A"].iloc[0]
     obs_b = result[result["obs_id"] == "B"].iloc[0]
-    assert abs(obs_a["rolling_timediff_mean_5"] - (-1.0)) < 1e-9, (
+    assert abs(obs_a["rolling_kakuteijyuni_mean_5"] - (1.0)) < 1e-9, (
         "obs_A に obs_B_only_pre が混入（CYCLE-2 HIGH #1 違反）"
     )
-    assert abs(obs_b["rolling_timediff_mean_5"] - (-4.35)) < 1e-9, (
+    assert abs(obs_b["rolling_kakuteijyuni_mean_5"] - (4.0)) < 1e-9, (
         "obs_B に both_pre + obs_B_only_pre の平均が含まれない"
     )
-    assert obs_a["rolling_timediff_mean_5"] != obs_b["rolling_timediff_mean_5"], (
+    assert obs_a["rolling_kakuteijyuni_mean_5"] != obs_b["rolling_kakuteijyuni_mean_5"], (
         "obs_A と obs_B の rolling が同一 = horse-grouped cross-obs leak（CYCLE-2 HIGH #1）"
     )
 

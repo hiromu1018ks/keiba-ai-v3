@@ -62,14 +62,15 @@ CUTOFF_RULE_METADATA: dict[str, str] = {
 # ``babacd`` / ``datakubun`` は **DB の実在カラムではない**（``race_nkey`` は予約済み
 # canonical key・他は derived）。実在する raw DB カラムのみを SELECT し、derived 列は
 # pandas 側で ``_construct_derived_columns`` で構築する（リーク不変量は不変・PIT 意味は
-# 変更なし）。``timediff`` / ``babacd`` は normalized 層に存在しないため SELECT せず、
-# 当該 rolling 系統は rolling.py の D-13 sentinel 経路で ``__MISSING__`` 扱いとなる。
+# 変更なし）。``timediff`` / ``babacd`` は Phase 3 gap-closure (03-05・CR-01) で rolling
+# 系統から削除済み・Phase 2 ETL 拡張（Phase 3.1: Timediff/Babacd Rolling Restoration）
+# で normalized 層に source カラムが追加された後に再登録予定。
 #
 # history SELECT（normalized.n_uma_race ur JOIN normalized.n_race nr）。
 # TARGET_OBS_BANNED_COLUMNS（当日禁止: kyakusitukubun/bataijyu/ninki/odds/sibababacd/
 # dirtbabacd/tenkocd/harontimel4）とは**異なる SELECT パス**・同名衝突しない。過去走
 # harontimel3/jyuni3c/jyuni4c は HISTORY_ALLOWED_POST_RACE_COLUMNS（rolling source）。
-# timediff/babacd は normalized 層に欠損のため rolling 側 sentinel 扱い。
+# timediff/babacd は CR-01 (03-05) で rolling 系統から削除済み（Phase 3.1 で再登録）。
 _HISTORY_DB_SELECT_COLUMNS: tuple[str, ...] = (
     "ur.kettonum AS kettonum",
     "ur.year AS year",

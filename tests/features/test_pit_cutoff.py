@@ -31,9 +31,11 @@ def test_cutoff_excludes_same_day_races():
     history = _build_adversarial_rolling_rows(obs_race_date="2023-06-04", kettonum=1001)
     obs = pd.DataFrame([_build_race_obs_row("2023A0610-R1", 1001, "2023-06-04")])
     result = builder.build_rolling_features(obs, history)
-    # same_day_prior (88.88) / same_day_later (77.77) が rolling 結果に含まれない
-    assert "rolling_timediff_mean_5" in result.columns
-    assert abs(result.iloc[0]["rolling_timediff_mean_5"] - (-2.0)) < 1e-9
+    # same_day_prior / same_day_later が rolling 結果に含まれない
+    # ※ CR-01 (03-05): timediff 系統は rolling から削除されたため残存系統 kakuteijyuni で検証
+    # eligible 3行 (1,2,3) のみ → mean=2.0
+    assert "rolling_kakuteijyuni_mean_5" in result.columns
+    assert abs(result.iloc[0]["rolling_kakuteijyuni_mean_5"] - (2.0)) < 1e-9
 
 
 # ---------------------------------------------------------------------------
@@ -43,13 +45,14 @@ def test_cutoff_excludes_previous_day_race_strict_less_than():
     """feature_cutoff_datetime = '2023-06-03' (JST midnight) に対し、
     previous_day_row の as_of == '2023-06-03'（cutoff と同日）が除外される。
     strict < なので同日 == cutoff は除外（<= だと混入）。
+    ※ CR-01 (03-05): timediff 系統は rolling から削除・残存系統 kakuteijyuni で検証。
     """
     builder = _get_builder()
     history = _build_adversarial_rolling_rows(obs_race_date="2023-06-04", kettonum=1001)
     obs = pd.DataFrame([_build_race_obs_row("2023A0610-R1", 1001, "2023-06-04")])
     result = builder.build_rolling_features(obs, history)
-    # previous_day (66.66) が混入すると mean が -2.0 から外れる
-    assert abs(result.iloc[0]["rolling_timediff_mean_5"] - (-2.0)) < 1e-9
+    # previous_day (66) が混入すると mean が 2.0 から外れる
+    assert abs(result.iloc[0]["rolling_kakuteijyuni_mean_5"] - (2.0)) < 1e-9
 
 
 def test_cutoff_excludes_future_race():
@@ -57,8 +60,9 @@ def test_cutoff_excludes_future_race():
     history = _build_adversarial_rolling_rows(obs_race_date="2023-06-04", kettonum=1001)
     obs = pd.DataFrame([_build_race_obs_row("2023A0610-R1", 1001, "2023-06-04")])
     result = builder.build_rolling_features(obs, history)
-    # future (55.55) が混入すると mean が -2.0 から外れる
-    assert abs(result.iloc[0]["rolling_timediff_mean_5"] - (-2.0)) < 1e-9
+    # future (55) が混入すると mean が 2.0 から外れる
+    # ※ CR-01 (03-05): timediff 系統は rolling から削除・残存系統 kakuteijyuni で検証
+    assert abs(result.iloc[0]["rolling_kakuteijyuni_mean_5"] - (2.0)) < 1e-9
 
 
 def test_pit_join_backward_called_with_sorted_input():

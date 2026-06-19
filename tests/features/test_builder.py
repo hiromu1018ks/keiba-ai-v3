@@ -95,3 +95,146 @@ def test_builder_output_columns_all_registered_in_registry():
     )
     # spec 自体が健全であることも再確認
     assert_matrix_columns_registered(spec, output_columns=[])
+
+
+# ---------------------------------------------------------------------------
+# CR-01 (03-05 gap-closure): registry↔実体 silent empty feature breach 回帰防止
+# ---------------------------------------------------------------------------
+def test_no_registered_feature_column_all_nan_end_to_end():
+    """合成 DB-mock を通じた end-to-end builder path で、登録 feature 列が1つも
+    100% NaN にならないことを assert（CR-01 regression guard・MANDATORY）。
+
+    現状 test_rolling.py は合成 dict fixture のみを検査し builder 経由の end-to-end
+    をカバーしないため、CR-01（rolling source 欠損 → silent 全 NaN）が検出できなかった。
+    万が一 rolling source が欠損した系統が再登録されると本 test が RED になる。
+    """
+    from src.features.availability import load_feature_availability
+    from src.utils.category_map import MISSING
+
+    builder = _get_builder()
+
+    # 合成 DB-mock: 2馬 × 数レースの過去走（cutoff 前後の mix）
+    obs_rd = pd.Timestamp("2023-06-04")
+    cutoff = obs_rd - pd.Timedelta(days=1)
+    observations = pd.DataFrame([
+        {
+            "race_nkey": "2023A0604-R1", "kettonum": 1001,
+            "race_date": obs_rd, "race_start_datetime": obs_rd + pd.Timedelta(hours=12),
+            "feature_cutoff_datetime": cutoff, "as_of_datetime": obs_rd,
+            "jyocd": "05", "kyori": 1600, "umaban": 1, "wakuban": 1,
+            "barei": 4, "sexcd": "1", "futan": 57.0,
+            "kisyucode": "01001", "chokyosicode": "01001",
+            "ketto3infohansyokunum1": "SIRE001", "ketto3infohansyokunum2": "BMS001",
+        },
+        {
+            "race_nkey": "2023A0604-R1", "kettonum": 1002,
+            "race_date": obs_rd, "race_start_datetime": obs_rd + pd.Timedelta(hours=12),
+            "feature_cutoff_datetime": cutoff, "as_of_datetime": obs_rd,
+            "jyocd": "05", "kyori": 1600, "umaban": 2, "wakuban": 2,
+            "barei": 5, "sexcd": "2", "futan": 57.0,
+            "kisyucode": "01002", "chokyosicode": "01002",
+            "ketto3infohansyokunum1": "SIRE002", "ketto3infohansyokunum2": "BMS002",
+        },
+    ])
+    history_rows = []
+    for kn in (1001, 1002):
+        for day_offset, val in [(-2, 1), (-3, 2), (-4, 3), (-5, 4)]:
+            hr = obs_rd + pd.Timedelta(days=day_offset)
+            history_rows.append({
+                "kettonum": kn,
+                "race_date": hr,
+                "as_of_datetime": hr,
+                "race_start_datetime": hr + pd.Timedelta(hours=12),
+                "kakuteijyuni": val, "harontimel3": 36.0 + val,
+                "jyuni3c": val, "jyuni4c": val, "jyuni1c": 0,
+                "kyori": 1600, "jyocd": "05",
+                "days_since_prev": float(abs(day_offset)),
+            })
+    history = pd.DataFrame(history_rows)
+
+    rolling_df = builder.build_rolling_features(observations, history)
+
+    spec = load_feature_availability()
+    rolling_mean_features = [
+        e["feature_name"]
+        for e in spec["features"]
+        if e["feature_name"].startswith("rolling_") and e["feature_name"].endswith("_mean_5")
+    ]
+    assert len(rolling_mean_features) > 0, "registry に rolling_*_mean_5 が1つも無い（前提違反）"
+
+    all_nan_cols = []
+    for col in rolling_mean_features:
+        if col not in rolling_df.columns:
+            all_nan_cols.append(col)
+            continue
+        series = rolling_df[col]
+        # 純粋 NaN 100% を弾く（sentinel 文字列 __MISSING__ は isna で False なので新馬行列も合格）
+        if series.isna().all():
+            all_nan_cols.append(col)
+    assert all_nan_cols == [], (
+        f"登録 rolling_*_mean_5 feature が 100% NaN: {all_nan_cols} "
+        "(CR-01 regression・registry↔実体 silent 乖離・source カラム欠損)"
+    )
+
+
+def test_registry_rolling_systems_match_rolling_impl():
+    """registry の rolling_*_mean_5 系統集合が rolling.py::_ROLLING_SYSTEMS と
+    availability._ROLLING_SYSTEMS_FOR_RESERVED と完全一致することを assert
+    （3者 parity・IN-01 重複定義の drift を機械検出）。
+    """
+    from src.features.availability import (
+        _ROLLING_SYSTEMS_FOR_RESERVED,
+        load_feature_availability,
+    )
+    from src.features.rolling import _ROLLING_SYSTEMS
+
+    spec = load_feature_availability()
+    rolling_in_registry = {
+        e["feature_name"].removeprefix("rolling_").removesuffix("_mean_5")
+        for e in spec["features"]
+        if e["feature_name"].startswith("rolling_") and e["feature_name"].endswith("_mean_5")
+    }
+    assert rolling_in_registry == set(_ROLLING_SYSTEMS), (
+        f"registry↔rolling.py drift: {rolling_in_registry} != {set(_ROLLING_SYSTEMS)}"
+    )
+    assert rolling_in_registry == set(_ROLLING_SYSTEMS_FOR_RESERVED), (
+        f"registry↔availability drift: {rolling_in_registry} != "
+        f"{set(_ROLLING_SYSTEMS_FOR_RESERVED)}"
+    )
+    assert tuple(_ROLLING_SYSTEMS_FOR_RESERVED) == _ROLLING_SYSTEMS, (
+        "rolling.py と availability.py の _ROLLING_SYSTEMS 順序含め不一致"
+    )
+
+
+def test_no_timediff_babacd_in_registry_or_rolling():
+    """CR-01 DELETE verify: rolling._ROLLING_SYSTEMS /
+    availability._ROLLING_SYSTEMS_FOR_RESERVED / registry features のいずれにも
+    rolling_timediff_* / rolling_babacd_* が含まれないこと。
+    """
+    from src.features.availability import (
+        _ROLLING_SYSTEMS_FOR_RESERVED,
+        load_feature_availability,
+    )
+    from src.features.rolling import _ROLLING_SYSTEMS
+
+    assert "timediff" not in _ROLLING_SYSTEMS, (
+        "rolling.py に timediff が残存（CR-01 違反）"
+    )
+    assert "babacd" not in _ROLLING_SYSTEMS, (
+        "rolling.py に babacd が残存（CR-01 違反）"
+    )
+    assert "timediff" not in _ROLLING_SYSTEMS_FOR_RESERVED, (
+        "availability.py に timediff が残存（CR-01 違反）"
+    )
+    assert "babacd" not in _ROLLING_SYSTEMS_FOR_RESERVED, (
+        "availability.py に babacd が残存（CR-01 違反）"
+    )
+    spec = load_feature_availability()
+    feats = [e["feature_name"] for e in spec["features"]]
+    leaked = [
+        x for x in feats
+        if x.startswith("rolling_timediff_") or x.startswith("rolling_babacd_")
+    ]
+    assert leaked == [], (
+        f"registry に rolling_timediff_* / rolling_babacd_* が残存: {leaked} (CR-01 違反)"
+    )

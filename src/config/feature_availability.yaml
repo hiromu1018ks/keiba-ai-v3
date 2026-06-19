@@ -30,7 +30,7 @@ cutoff_semantics:
 feature_schema:
   feature_name:
     type: "string"
-    description: "feature 識別子（例: rolling_timediff_mean_5）"
+    description: "feature 識別子（例: rolling_kakuteijyuni_mean_5）"
   feature_group:
     type: "string"
     description: "feature 分類（horse_static / jockey / trainer / bloodline / race_context / post_position / rolling_* / running_style）"
@@ -161,10 +161,15 @@ features:
     cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
     leakage_risk_level: medium
 
-  # === Rolling 8系統 × 3軸 (mean / latest / sd) = 24 — source_role: history_allowed_post_race ===
-  # 系統: kakuteijyuni / timediff / harontimel3 / jyuni3c_jyuni4c / kyori / babacd / jyocd / days_since_prev
+  # === Rolling 6系統 × 3軸 (mean / latest / sd) = 18 — source_role: history_allowed_post_race ===
+  # 系統: kakuteijyuni / harontimel3 / jyuni3c_jyuni4c / kyori / jyocd / days_since_prev
   # source となる過去走カラムは history SELECT のみ許可・target race 当日行は cutoff で構造排除 +
-  # target_obs_banned の二重防御。babacd は過去走馬場状態（HIGH #4）。
+  # target_obs_banned の二重防御。
+  # CR-01 (03-VERIFICATION.md / gap-closure 03-05): 旧 rolling timediff/babacd 系統の6エントリは
+  # normalized 層に source カラム (timediff/babacd) が存在しないため全行 __MISSING__ → NaN となり
+  # registry↔実体 silent 乖離が生じていた。Phase 3.1（Timediff/Babacd Rolling Restoration・
+  # 挿入済み・Phase 3 gap-closure 03-05 完了後に /gsd-plan-phase 03.1 で計画）で source カラムが
+  # normalized 層に揃った後に再登録する。それまで Phase 4 は 18 rolling features（6系統×3軸）で学習。
 
   # --- rolling_kakuteijyuni (過去走着順) ---
   - feature_name: rolling_kakuteijyuni_mean_5
@@ -189,28 +194,8 @@ features:
     cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
     leakage_risk_level: low
 
-  # --- rolling_timediff (勝馬差 / TimeDIFN) ---
-  - feature_name: rolling_timediff_mean_5
-    feature_group: rolling_timediff
-    available_from_timing: entry_confirmed
-    source_role: history_allowed_post_race
-    source_table: normalized.n_uma_race (history)
-    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
-    leakage_risk_level: low
-  - feature_name: rolling_timediff_latest_5
-    feature_group: rolling_timediff
-    available_from_timing: entry_confirmed
-    source_role: history_allowed_post_race
-    source_table: normalized.n_uma_race (history)
-    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
-    leakage_risk_level: low
-  - feature_name: rolling_timediff_sd_5
-    feature_group: rolling_timediff
-    available_from_timing: entry_confirmed
-    source_role: history_allowed_post_race
-    source_table: normalized.n_uma_race (history)
-    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
-    leakage_risk_level: low
+  # --- rolling_timediff (勝馬差 / TimeDIFN) — CR-01 (03-05): 削除・Phase 3.1 で再登録 ---
+  # （normalized 層に source カラム timediff が未存在・全行 NaN silent breach を解消するため削除）
 
   # --- rolling_harontimel3 (上がり3F・harontimel4 は絶対に使用しない・Pitfall 3.6) ---
   - feature_name: rolling_harontimel3_mean_5
@@ -281,28 +266,8 @@ features:
     cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
     leakage_risk_level: low
 
-  # --- rolling_babacd (過去走馬場状態・target race 当日 sibababacd/dirtbabacd とは区別・HIGH #4) ---
-  - feature_name: rolling_babacd_mean_5
-    feature_group: rolling_babacd
-    available_from_timing: entry_confirmed
-    source_role: history_allowed_post_race
-    source_table: normalized.n_uma_race (history)
-    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
-    leakage_risk_level: low
-  - feature_name: rolling_babacd_latest_5
-    feature_group: rolling_babacd
-    available_from_timing: entry_confirmed
-    source_role: history_allowed_post_race
-    source_table: normalized.n_uma_race (history)
-    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
-    leakage_risk_level: low
-  - feature_name: rolling_babacd_sd_5
-    feature_group: rolling_babacd
-    available_from_timing: entry_confirmed
-    source_role: history_allowed_post_race
-    source_table: normalized.n_uma_race (history)
-    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
-    leakage_risk_level: low
+  # --- rolling_babacd (過去走馬場状態) — CR-01 (03-05): 削除・Phase 3.1 で再登録 ---
+  # （normalized 層に source カラム babacd が未存在・全行 NaN silent breach を解消するため削除）
 
   # --- rolling_jyocd (過去走出走競馬場) ---
   - feature_name: rolling_jyocd_mean_5

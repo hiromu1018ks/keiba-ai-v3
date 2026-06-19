@@ -3,9 +3,17 @@
 REVIEWS HIGH #1 (per-observation latest-K algorithm) / HIGH #2 (strict < cutoff) /
 HIGH #4 (babacd history-allowed vs sibababacd/dirtbababd target-obs-banned) 対応。
 
-8系統 × 3軸 (mean / latest / sd) + count 軸の rolling feature を構築する。
-``rolling_kakuteijyuni / rolling_timediff / rolling_harontimel3 / rolling_jyuni3c_jyuni4c /
-rolling_kyori / rolling_babacd / rolling_jyocd / rolling_days_since_prev`` の8系統。
+6系統 × 3軸 (mean / latest / sd) + count 軸の rolling feature を構築する。
+``rolling_kakuteijyuni / rolling_harontimel3 / rolling_jyuni3c_jyuni4c /
+rolling_kyori / rolling_jyocd / rolling_days_since_prev`` の6系統。
+
+CR-01 (03-VERIFICATION.md / gap-closure 03-05): ``rolling_timediff_*`` /
+``rolling_babacd_*`` 計6エントリは normalized 層に source カラム
+（``timediff`` / ``babacd``）が存在しないため全行 ``__MISSING__`` → NaN となり
+registry↔実体 silent 乖離が生じていた。本 module から当該2系統を削除し、
+Phase 3.1（Timediff/Babacd Rolling Restoration・Phase 2 ETL 拡張）で source
+カラムが normalized 層に揃った後に再登録する。Phase 4 は 18 rolling features
+（6系統×3軸）で学習する。
 本 module は **明示的 observation 単位 latest-K algorithm** を採り、単一の後方 ``merge_asof``
 （cutoff 以前の最新1件しか返さない）は使わない。
 
@@ -46,17 +54,17 @@ assert CUTOFF_SEMANTICS["comparison_operator"] == "strict_less_than"
 LOOKBACK: int = 5
 
 # ---------------------------------------------------------------------------
-# rolling 対象8系統。target race 当日の芝/ダート馬場状態（sibababacd/dirtbabacd:
+# rolling 対象6系統。target race 当日の芝/ダート馬場状態（sibababacd/dirtbabacd:
 # TARGET_OBS_BANNED_COLUMNS）は含めず、過去走の babacd（HISTORY_ALLOWED_POST_RACE）
 # のみを rolling source とする（HIGH #4 taxonomy）。
+# CR-01 (03-05 gap-closure): ``timediff`` / ``babacd`` 系統は normalized 層に
+# source カラムが存在しないため削除（Phase 3.1 で再登録予定・registry↔実体 parity）。
 # ---------------------------------------------------------------------------
 _ROLLING_SYSTEMS: tuple[str, ...] = (
     "kakuteijyuni",
-    "timediff",
     "harontimel3",
     "jyuni3c_jyuni4c",
     "kyori",
-    "babacd",
     "jyocd",
     "days_since_prev",
 )
@@ -65,11 +73,9 @@ _ROLLING_SYSTEMS: tuple[str, ...] = (
 # （Pitfall 3.6 で禁止・TARGET_OBS_BANNED）は系統にも source にも含めない。
 _SYSTEM_SOURCE: dict[str, tuple[str, ...]] = {
     "kakuteijyuni": ("kakuteijyuni",),
-    "timediff": ("timediff",),
     "harontimel3": ("harontimel3",),
     "jyuni3c_jyuni4c": ("jyuni3c", "jyuni4c"),
     "kyori": ("kyori",),
-    "babacd": ("babacd",),
     "jyocd": ("jyocd",),
     "days_since_prev": ("days_since_prev",),
 }
