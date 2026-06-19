@@ -124,9 +124,10 @@ _RAW_ID_KEPT_COLUMNS: frozenset[str] = frozenset({
     "kettonum",                   # horse_id の原列（canonical key でもある・reserved にも含まれる）
 })
 
-# rolling 6系統（Plan 03-03 rolling.py::_ROLLING_SYSTEMS と同一・二重定義の危険を下げるため
+# rolling 8系統（Plan 03-03 rolling.py::_ROLLING_SYSTEMS と同一・二重定義の危険を下げるため
 # import ではなく再定義・availability.py から features.rolling への循環依存を回避）
-# CR-01 (03-05 gap-closure): timediff / babacd は削除（Phase 3.1 で再登録予定・parity）。
+# Phase 3.1 (Plan 03 Task 3A): timediff / babacd を再登録（CR-01 03-05 で一時削除・
+# normalized 層に source カラムが揃ったため復元・rolling.py と順序含め完全一致）。
 _ROLLING_SYSTEMS_FOR_RESERVED: tuple[str, ...] = (
     "kakuteijyuni",
     "harontimel3",
@@ -134,6 +135,8 @@ _ROLLING_SYSTEMS_FOR_RESERVED: tuple[str, ...] = (
     "kyori",
     "jyocd",
     "days_since_prev",
+    "timediff",
+    "babacd",
 )
 
 # ---------------------------------------------------------------------------
