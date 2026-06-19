@@ -14,7 +14,7 @@ manifest YAML + frozen category map artifact を生成する。
      で raw ID をコード化（REVIEWS HIGH #5 / CYCLE-2 HIGH #5）
   5. ``write_snapshot`` を **2回呼出**し SHA256 が完全一致することを assert（SC#3 byte-reproducibility）
   6. ``write_manifest`` で manifest YAML を書出（sha256 / §12.4 metadata / category_map_artifact）
-  7. ``persist_category_maps`` で frozen category map を joblib で永続化
+  7. ``persist_category_maps`` で frozen category map を JSON（byte-reproducible・CR-04・pickle ACE 解消）で永続化
 
 Usage::
 
@@ -201,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
         # --- Step 5: manifest YAML 書出 (sha256 / §12.4 metadata / category_map_artifact) ---
         parquet_path = _SNAPSHOTS_DIR / f"feature_matrix_{args.snapshot_id}.parquet"
         manifest_path = _SNAPSHOTS_DIR / f"feature_matrix_{args.snapshot_id}.manifest.yaml"
-        category_map_artifact = f"snapshots/category_map_{args.snapshot_id}.joblib"
+        category_map_artifact = f"snapshots/category_map_{args.snapshot_id}.json"
 
         write_manifest(
             manifest_path,
@@ -223,8 +223,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         logger.info("manifest written: %s", manifest_path)
 
-        # --- Step 6: frozen category map artifact 永続化 (joblib) ---
-        category_map_path = _SNAPSHOTS_DIR / f"category_map_{args.snapshot_id}.joblib"
+        # --- Step 6: frozen category map artifact 永続化 (JSON・CR-04 pickle ACE 解消) ---
+        category_map_path = _SNAPSHOTS_DIR / f"category_map_{args.snapshot_id}.json"
         persist_category_maps(frozen_maps, category_map_path)
         logger.info("category map artifact written: %s", category_map_path)
 

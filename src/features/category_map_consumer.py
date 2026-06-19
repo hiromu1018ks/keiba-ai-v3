@@ -31,10 +31,10 @@ API (test contract):
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from pathlib import Path
 
-import joblib
 import pandas as pd
 
 from src.utils.category_map import apply_category_map as _apply_one
@@ -57,8 +57,9 @@ class FrozenCategoryMap:
     ``src.utils.category_map.fit_category_map`` は ``dict[str, int]`` を返すが、本モジュールは
     test contract として **dict-style** access (``m["__UNSEEN__"]``) と **attribute-style**
     access (``m.codes[UNSEEN]``) の両方をサポートする必要がある。``FrozenCategoryMap`` は
-    その両面を持つ軽量 wrapper。joblib 永続化も安全（``__getstate__`` / ``__setstate__`` は
-    dict + codes を其のまま保存）。
+    その両面を持つ軽量 wrapper。CR-04 (03-05) で joblib/pickle 永続化は廃止し、JSON 安全
+    フォーマットに移行した（``__getstate__`` / ``__setstate__`` は削除・JSON round-trip は
+    ``persist_category_maps`` / ``load_category_maps`` が担う）。
 
     Parameters
     ----------
@@ -97,14 +98,6 @@ class FrozenCategoryMap:
 
     def __repr__(self) -> str:
         return f"FrozenCategoryMap(n_codes={len(self._code_map)})"
-
-    # joblib / pickle 用
-    def __getstate__(self) -> dict:
-        return {"_code_map": self._code_map}
-
-    def __setstate__(self, state: dict) -> None:
-        self._code_map = state["_code_map"]
-        self.codes = self._code_map
 
 
 def fit_category_map(df: pd.DataFrame, *, column: str) -> FrozenCategoryMap:
@@ -251,16 +244,32 @@ def persist_category_maps(
     maps: dict[str, FrozenCategoryMap],
     artifact_path: str | Path,
 ) -> None:
-    """frozen category maps を joblib で永続化する。
+    """frozen category maps を JSON（sort_keys=True・byte-reproducible・human-auditable）で
+    永続化する（CR-04 / 03-05 gap-closure・pickle ACE vector 解消）。
 
     Parquet snapshot と同 snapshot_id で紐付け（例:
-    ``snapshots/category_map_<snapshot_id>.joblib``）。Phase 4 モデルは本 artifact を
-    ``load_category_maps`` で読込・val/test のコード化に使用する。
+    ``snapshots/category_map_<snapshot_id>.json``・従来 ``.joblib`` から移行）。Phase 4
+    モデルは本 artifact を ``load_category_maps`` で JSON として読込・val/test のコード化に
+    使用する。``FrozenCategoryMap`` は ``.items()`` を持つため ``dict(m.items()`` で
+    JSON-serialisable dict に変換できる。
+
+    artifact 拡張子は ``.json``（従来 ``.joblib`` から移行・CR-04）。
     """
     Path(artifact_path).parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(maps, artifact_path)
+    serialisable = {col: dict(m.items()) for col, m in maps.items()}
+    Path(artifact_path).write_text(
+        json.dumps(serialisable, sort_keys=True, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
 
 def load_category_maps(artifact_path: str | Path) -> dict[str, FrozenCategoryMap]:
-    """永続化された frozen category maps を読み込む（Phase 4 モデル学習時使用）。"""
-    return joblib.load(artifact_path)
+    """永続化された frozen category maps を JSON から読込む（Phase 4 モデル学習時使用・
+    CR-04 / 03-05 gap-closure・joblib/pickle 不使用・ACE vector 解消）。
+
+    ``load_category_maps`` は ``json.loads`` で dict[str, dict[str, int]] を読込み、
+    各カラムを ``FrozenCategoryMap(m)`` で再構築する（``__getstate__`` / ``__setstate__``
+    不要・pickle 直列化経路は廃止）。artifact 拡張子は ``.json``。
+    """
+    raw = json.loads(Path(artifact_path).read_text(encoding="utf-8"))
+    return {col: FrozenCategoryMap(m) for col, m in raw.items()}

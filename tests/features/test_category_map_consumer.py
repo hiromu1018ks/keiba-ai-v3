@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import inspect
+import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -123,3 +125,129 @@ def test_build_frozen_maps_raises_on_missing_race_date():
     assert "raise ValueError" in src and "race_date" in src, (
         "race_date 欠損で ValueError を raise しない（CR-03 違反）"
     )
+
+
+# ---------------------------------------------------------------------------
+# CR-04 (03-05 gap-closure): pickle ACE 解消 — JSON への移行
+# ---------------------------------------------------------------------------
+def test_persist_and_load_category_maps_json_roundtrip(tmp_path: Path):
+    """合成 dict[str, FrozenCategoryMap] を persist → load した結果が元と等価であること
+    （CR-04・JSON round-trip 等価性）。永続化ファイルが JSON であること（json.loads で
+    parse 可能・拡張子 ``.json``）も assert。
+    """
+    cmc = _get_category_map_consumer()
+    train_df = pd.DataFrame({
+        "horse_id": ["H1", "H2", "H3"],
+        "jockey_id": ["J1", "J2", "J3"],
+        "trainer_id": ["T1", "T2", "T3"],
+        "sire_id": ["S1", "S2", "S3"],
+        "bms_id": ["B1", "B2", "B3"],
+        "race_date": ["2020-01-01", "2020-06-01", "2021-01-01"],
+    })
+    original_maps = {}
+    for col in ["horse_id", "jockey_id", "trainer_id", "sire_id", "bms_id"]:
+        original_maps[col] = cmc.fit_category_map(train_df, column=col)
+
+    artifact_path = tmp_path / "category_map_test.json"
+    cmc.persist_category_maps(original_maps, artifact_path)
+
+    # 永続化ファイルが JSON であること
+    assert artifact_path.suffix == ".json", (
+        f"artifact 拡張子が .json でない: {artifact_path.suffix} (CR-04 違反)"
+    )
+    raw = json.loads(artifact_path.read_text(encoding="utf-8"))  # parse 可能・pickle でない
+    assert isinstance(raw, dict)
+    assert set(raw.keys()) == set(original_maps.keys())
+
+    loaded_maps = cmc.load_category_maps(artifact_path)
+    # round-trip 等価性: 各カラムで sentinel/category の code 値が完全一致
+    assert set(loaded_maps.keys()) == set(original_maps.keys())
+    for col in original_maps:
+        assert dict(loaded_maps[col].items()) == dict(original_maps[col].items()), (
+            f"CR-04 JSON round-trip 不整合: col={col}"
+        )
+
+
+def test_load_category_maps_does_not_use_joblib():
+    """``category_map_consumer`` module に ``joblib`` import / call 依存が完全に
+    除去されていること、``json.load`` または ``json.loads`` が含まれることを assert
+    （CR-04 regression guard）。
+
+    docstring 中の「joblib 廃止」説明 comment は許容する（実コード依存ではない）ため、
+    AST 解析で ``Import`` / ``Call`` ノードのみを検査する。
+    """
+    import ast
+
+    cmc = _get_category_map_consumer()
+    module_src = inspect.getsource(cmc)
+    tree = ast.parse(module_src)
+
+    # import 文で joblib が読み込まれていないこと
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                assert alias.name != "joblib", (
+                    f"category_map_consumer が 'import {alias.name}' で joblib を import（CR-04 違反）"
+                )
+        elif isinstance(node, ast.ImportFrom):
+            assert node.module != "joblib", (
+                f"category_map_consumer が 'from joblib import ...'（CR-04 違反）"
+            )
+        elif isinstance(node, ast.Attribute):
+            # joblib.load / joblib.dump 等の attribute access を禁止
+            if isinstance(node.value, ast.Name) and node.value.id == "joblib":
+                raise AssertionError(
+                    f"category_map_consumer が joblib.{node.attr} を呼出（CR-04 違反・pickle ACE）"
+                )
+
+    assert "json.load" in module_src or "json.loads" in module_src, (
+        "category_map_consumer に JSON 読込が無い（CR-04 違反）"
+    )
+
+    # load_category_maps / persist_category_maps が joblib.* を呼び出していないことを
+    # AST で検査（docstring の「joblib 廃止」説明は許容）
+    for func in (cmc.load_category_maps, cmc.persist_category_maps):
+        func_tree = ast.parse(inspect.getsource(func))
+        for node in ast.walk(func_tree):
+            if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+                assert node.value.id != "joblib", (
+                    f"{func.__name__} が joblib.{node.attr} を呼出（CR-04 違反）"
+                )
+
+    persist_src = inspect.getsource(cmc.persist_category_maps)
+    assert "json.dumps" in persist_src and "sort_keys=True" in persist_src, (
+        "persist_category_maps に json.dumps(sort_keys=True) が無い（byte-reproducible JSON でない・CR-04）"
+    )
+
+
+def test_persisted_artifact_is_human_auditable_json(tmp_path: Path):
+    """永続化ファイルが sort_keys=True の JSON であり、sentinel key
+    （``__UNSEEN__`` / ``__MISSING__``）が人間可読な形で含まれることを assert
+    （CR-04 副次効果・byte-reproducible & human-auditable）。"""
+    cmc = _get_category_map_consumer()
+    from src.utils.category_map import MISSING, UNSEEN
+
+    train_df = pd.DataFrame({
+        "horse_id": ["H1", "H2", None],  # 欠損 -> __MISSING__ sentinel
+        "race_date": ["2020-01-01", "2020-06-01", "2021-01-01"],
+    })
+    original_map = cmc.fit_category_map(train_df, column="horse_id")
+    # UNSEEN sentinel は fit_category_map の戻りに必ず含まれる
+    assert "__UNSEEN__" in dict(original_map.items())
+    # MISSING sentinel も含まれるはず（欠損行あり）
+    assert "__MISSING__" in dict(original_map.items()), (
+        f"欠損行を渡したのに __MISSING__ sentinel が無い: {dict(original_map.items())}"
+    )
+
+    artifact_path = tmp_path / "category_map_audit.json"
+    cmc.persist_category_maps({"horse_id": original_map}, artifact_path)
+    text = artifact_path.read_text(encoding="utf-8")
+    # sentinel key が人間可読な文字列として JSON に現れる
+    assert "__UNSEEN__" in text, (
+        "artifact JSON に __UNSEEN__ sentinel key が無い（human-auditable でない・CR-04）"
+    )
+    assert "__MISSING__" in text, (
+        "artifact JSON に __MISSING__ sentinel key が無い（human-auditable でない・CR-04）"
+    )
+    # JSON として parse 可能（整形式）
+    json.loads(text)
