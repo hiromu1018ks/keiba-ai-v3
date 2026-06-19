@@ -95,7 +95,7 @@ Plans:
 **Wave 1**
 
 - [x] 03-01-PLAN.md — Wave 1 基盤（features package + feature_availability.yaml 25エントリ source_role taxonomy + cutoff_semantics strict_less_than + availability loader + assert_matrix_columns_registered + 5-row adversarial rolling builder + RED テスト stub 集群 SC#1-#4/D-03/D-04/D-05/D-06/D-09 + REVIEWS HIGH #1/#2/#3/#4/#5/#6）— FEAT-01/02
-- [ ] 03-02-PLAN.md — Wave 1 Phase 2 負債解消（label_race_date_backfill.py・staging-swap idempotent・cutoff 前提・MEDIUM #7 disposition 追加）— FEAT-01 前提
+- [x] 03-02-PLAN.md — Wave 1 Phase 2 負債解消（label_race_date_backfill.py・staging-swap idempotent・cutoff 前提・MEDIUM #7 disposition 追加）— FEAT-01 前提（実 DB で race_date 全 554267 行 backfill 済・2回実行 idempotent verify + raw 不変性 PASS）
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
