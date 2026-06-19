@@ -143,13 +143,19 @@ _UMA_RACE_COLUMNS = [
 
 
 def _create_table_ddl(table: str, columns: list[str]) -> str:
-    """CREATE TABLE DDL を構築。PK 制約付き。"""
+    """CREATE TABLE DDL を構築。PK 制約付き。
+
+    ``table`` は正規テーブル名（``n_race`` / ``n_uma_race``）でも staging 名
+    （``n_race_staging``）でもよい。staging-swap が staging を最新 DDL で作るため、
+    staging 名の suffix ``_staging`` を除去して PK 定義を lookup する（Phase 03.1 Plan 01）。
+    """
     pk_cols = {
         "n_race": "PRIMARY KEY (year, jyocd, kaiji, nichiji, racenum)",
         "n_uma_race": "PRIMARY KEY (year, jyocd, kaiji, nichiji, racenum, umaban, kettonum)",
     }
+    base = table[:-len("_staging")] if table.endswith("_staging") else table
     cols_sql = ",\n  ".join(columns)
-    pk = pk_cols.get(table, "")
+    pk = pk_cols.get(base, "")
     body = cols_sql + (",\n  " + pk if pk else "")
     return f"CREATE TABLE IF NOT EXISTS normalized.{table} (\n  {body}\n)"
 
@@ -365,6 +371,19 @@ def _transform_uma_race_df(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # HIGH #5: idempotent staging-swap
 # ---------------------------------------------------------------------------
+# DDL 駆動 staging 作成のための table → DDL 列 mapping（Phase 03.1 Plan 01）。
+# 従来 ``LIKE normalized.<table> INCLUDING ALL`` で staging を作っていたが、これは
+# 「既存テーブルの古いスキーマ」をコピーするため、SELECT/DDL/INSERT 定義に新カラム
+# （timediff/baba3 等）を追加しても既存 DB の normalized.<table> が古いままだと
+# staging も古いスキーマになり ``column ... does not exist`` で INSERT が失敗した。
+# staging を常に最新の ``_RACE_COLUMNS`` / ``_UMA_RACE_COLUMNS`` DDL で作ることで、
+# DROP + RENAME swap 後の本番テーブルも最新スキーマに更新される（前進的マイグレーション）。
+_TABLE_DDL_COLUMNS: dict[str, list[str]] = {
+    "n_race": _RACE_COLUMNS,
+    "n_uma_race": _UMA_RACE_COLUMNS,
+}
+
+
 def _idempotent_load(
     write_cur: Cursor,
     table: str,
@@ -376,13 +395,16 @@ def _idempotent_load(
     Steps（同一トランザクション内）:
       0. ``SELECT pg_advisory_xact_lock(hashtext('normalized.<table>'))``
          （CR-04: 同一テーブルに対する並行 ETL 実行を直列化）
-      1. ``CREATE TABLE IF NOT EXISTS normalized.<table>_staging (LIKE normalized.<table> INCLUDING ALL)``
-      2. ``TRUNCATE normalized.<table>_staging``
+      1. ``DROP TABLE IF EXISTS normalized.<table>_staging``
+         （前回 run の残骸が古いスキーマの場合を排除するため IF NOT EXISTS でなく DROP）
+      2. ``CREATE TABLE normalized.<table>_staging`` を最新 DDL（``_TABLE_DDL_COLUMNS``）で作成
       3. ``INSERT INTO normalized.<table>_staging (...) VALUES (...)``
       4. ``DROP TABLE IF EXISTS normalized.<table>``
       5. ``ALTER TABLE normalized.<table>_staging RENAME TO <table>``
 
     atomic に commit されるため、外部からは常に ``<table>`` として見える。再実行で重複しない。
+    staging を ``LIKE`` ではなく DDL 直接生成するため、SELECT/DDL/INSERT に新カラムを
+    追加した run の初回から最新スキーマが本番テーブルに反映される（Phase 03.1 Plan 01）。
 
     CR-04 hardening:
       - 空入力（``rows == []``）の場合は ``RuntimeError`` で即座に fail する。
@@ -413,16 +435,20 @@ def _idempotent_load(
             "Investigate read pool / transform — silent data loss prevented (CR-04)."
         )
 
-    # IF NOT EXISTS で対象テーブルが存在しなければ作成（初回）
-    write_cur.execute(
-        f"CREATE TABLE IF NOT EXISTS normalized.{table} (LIKE normalized.{table} INCLUDING ALL)"
-    )
-    # staging を作成（既存定義を LIKE で継承・PK も含む）
-    write_cur.execute(
-        f"CREATE TABLE IF NOT EXISTS normalized.{staging} (LIKE normalized.{table} INCLUDING ALL)"
-    )
-    # TRUNCATE staging（同一トランザクション内で安全）
-    write_cur.execute(f"TRUNCATE normalized.{staging}")
+    # staging を最新 DDL で作成（Phase 03.1 Plan 01）。
+    # ``LIKE normalized.<table> INCLUDING ALL`` だと既存テーブルの古いスキーマが
+    # コピーされ新カラム追加時に INSERT が失敗する。代わりに ``_TABLE_DDL_COLUMNS``
+    # の最新 DDL で常に再作成する。本番テーブル未存在（初回）の場合もこの DDL が
+    # スキーマの真の源となる。残骸 staging が残っていると ``CREATE`` が衝突するため
+    # 先に DROP する（同一トランザクション内なので安全）。
+    ddl_columns = _TABLE_DDL_COLUMNS.get(table)
+    if ddl_columns is None:
+        raise RuntimeError(
+            f"_idempotent_load('{table}'): DDL columns not registered in "
+            f"_TABLE_DDL_COLUMNS (known: {sorted(_TABLE_DDL_COLUMNS)})"
+        )
+    write_cur.execute(f"DROP TABLE IF EXISTS normalized.{staging}")
+    write_cur.execute(_create_table_ddl(staging, ddl_columns))
 
     # INSERT INTO staging
     cols_sql = ", ".join(columns)
