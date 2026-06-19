@@ -4,13 +4,13 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Phase 3 context gathered
-last_updated: "2026-06-18T22:26:35.124Z"
-last_activity: 2026-06-18 -- Phase 03 planning complete
+last_updated: "2026-06-19T00:02:22.184Z"
+last_activity: 2026-06-18 -- Phase 03 execution started
 progress:
   total_phases: 8
   completed_phases: 2
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 12
+  completed_plans: 9
   percent: 25
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-16)
 
 **Core value:** オッズ非依存の確率 `p_fukusho_hit` と固定オッズ時点のEVで、過小評価されている馬の複勝払戻対象入り可能性をリークなく検出し、race_id単位・時系列順の再現可能なバックテストで定量評価できること。リーク防止と再現性だけは必ず守る。
-**Current focus:** Phase 02 — fukusho-labels
+**Current focus:** Phase 03 — as-of-features-snapshots
 
 ## Current Position
 
-Phase: 3
-Plan: Not started
+Phase: 03 (as-of-features-snapshots) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-06-18 -- Phase 03 planning complete
+Last activity: 2026-06-18 -- Phase 03 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -61,6 +61,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P02 | 6 | 2 tasks | 1 files |
 | Phase 02 P03 | 12m | 2 tasks | 4 files |
 | Phase 02 P04 | 36 | 3 tasks | 3 files |
+| Phase 03 P01 | 7m | 2 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -85,6 +86,7 @@ Recent decisions affecting current work:
 - [Phase ?]: RED テスト collection 保証のため module-level import を遅延 import 化（Plan 02-02）
 - [Phase ?]: Phase 2 Plan 03 GREEN: fukusho_label ETL 実装完了・27 unit tests GREEN・REVIEWS HIGH #1/#3/#4/#5/#6 + NEW HIGH #2/#3 解決・Task 3 実DB実行は checkpoint:human-verify で停止
 - [Phase ?]: 02-04: LABEL-03 gate PASSES live (100% agreement, 6 BLOCK checks green). Drift BLOCK->INFO per Rule 1 (drift is D-04-legitimate, label correctness via precision/recall BLOCK)
+- [Phase ?]: 03-01: rolling 8 systems x 3 axes (24) + static 15 + running_style 1 = 40 features; source_role taxonomy [HIGH #4]; strict < cutoff unified [HIGH #2]
 
 ### Pending Todos
 
@@ -104,6 +106,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-18T13:27:58.303Z
+Last session: 2026-06-19T00:02:22.180Z
 Stopped at: Phase 3 context gathered
 Resume file: .planning/phases/03-as-of-features-snapshots/03-CONTEXT.md

@@ -24,8 +24,8 @@
 
 ### 特徴量・as-of (FEAT)
 
-- [ ] **FEAT-01**: 各特徴量に `as_of_datetime`/`feature_cutoff_datetime`/`feature_snapshot_id`/`feature_availability`（`available_from_timing`/`leakage_risk_level` を含む）を付与し、point-in-time 正確性を保証して未来情報リークを防止できる
-- [ ] **FEAT-02**: Phase 1-A の特徴量を、当日馬場/天候/馬体重/当日オッズ/人気集中度/レース後通過順・上がり・走破タイム/当日レース結果由来集計 を除外して生成できる
+- [x] **FEAT-01**: 各特徴量に `as_of_datetime`/`feature_cutoff_datetime`/`feature_snapshot_id`/`feature_availability`（`available_from_timing`/`leakage_risk_level` を含む）を付与し、point-in-time 正確性を保証して未来情報リークを防止できる
+- [x] **FEAT-02**: Phase 1-A の特徴量を、当日馬場/天候/馬体重/当日オッズ/人気集中度/レース後通過順・上がり・走破タイム/当日レース結果由来集計 を除外して生成できる
 
 ### モデル・予測 (MODL)
 
@@ -118,8 +118,8 @@
 | LABEL-02 | Phase 2: Fukusho Labels | Complete |
 | LABEL-03 | Phase 2: Fukusho Labels | Complete |
 | LABEL-04 | Phase 2: Fukusho Labels | Complete |
-| FEAT-01 | Phase 3: As-of Features & Snapshots | Pending |
-| FEAT-02 | Phase 3: As-of Features & Snapshots | Pending |
+| FEAT-01 | Phase 3: As-of Features & Snapshots | Complete |
+| FEAT-02 | Phase 3: As-of Features & Snapshots | Complete |
 | MODL-01 | Phase 4: Model & Prediction | Pending |
 | MODL-02 | Phase 4: Model & Prediction | Pending |
 | MODL-03 | Phase 4: Model & Prediction | Pending |
