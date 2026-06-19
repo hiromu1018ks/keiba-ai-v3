@@ -124,10 +124,17 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
+**Wave 1**
 
 - [ ] 03.1-01-PLAN.md — Wave 1: normalize.py ETL 拡張（n_uma_race に timediff(varchar4)・n_race に baba3(sibababacd/dirtbabacd/trackcd・全varchar) を SELECT/DDL/INSERT 定義に追加・raw 不変・staging-swap idempotent 再利用）
 - [ ] 03.1-02-PLAN.md — Wave 1: run_feature_build.py CR-01新（persist→manifest 順序化 + exists assert + repo-root 相対パス）+ test_snapshot_repro.py（stale 参照整理 + CR-01新 回帰テスト）
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 03.1-03-PLAN.md — Wave 2: feature core + advisory hardening（builder.py: timediff parse + babacd trackcd 分岐派生 + WR-01'/WR-02 fail-loud・rolling.py: 8系統化 + WR-03 vector化・availability/yaml×2: 3者 parity 再登録・label_spec: sentinel 0000・テスト5関数更新）— Plan 01 に依存
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 03.1-04-PLAN.md — Wave 3: live snapshot rebuild + SC#3/SC#4 検証（checkpoint:human-verify・許可済み live-DB で ETL 再実行 + snapshot rebuild + byte-repro + parity・SC#1-#4 実証）— Plan 01/02/03 に依存
 
 ### Phase 4: Model & Prediction
