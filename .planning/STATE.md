@@ -3,16 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: 03.1
-status: verifying
+current_phase_name: timediff-babacd-rolling-restoration
+status: executing
 stopped_at: Phase 03.1 context gathered
-last_updated: "2026-06-19T07:16:16.838Z"
+last_updated: "2026-06-19T08:56:44.362Z"
 last_activity: 2026-06-19
-last_activity_desc: Phase 03.1 planning complete
+last_activity_desc: Phase 03.1 execution started
 progress:
   total_phases: 9
   completed_phases: 3
-  total_plans: 13
-  completed_plans: 13
+  total_plans: 17
+  completed_plans: 14
   percent: 33
 ---
 
@@ -23,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-16)
 
 **Core value:** オッズ非依存の確率 `p_fukusho_hit` と固定オッズ時点のEVで、過小評価されている馬の複勝払戻対象入り可能性をリークなく検出し、race_id単位・時系列順の再現可能なバックテストで定量評価できること。リーク防止と再現性だけは必ず守る。
-**Current focus:** Phase 03 — as-of-features-snapshots (gap-closure 完了・Phase 3 verification 再判定待ち)
+**Current focus:** Phase 03.1 — timediff-babacd-rolling-restoration
 
 ## Current Position
 
-Phase: 03.1
-Plan: Not started
-Status: Phase 03 gap-closure 完了・verification で must-have #1 PARTIAL→VERIFIED 判定待ち
-Last activity: 2026-06-19 — Phase 03.1 planning complete
+Phase: 03.1 (timediff-babacd-rolling-restoration) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-06-19 — Phase 03.1 execution started
 
 Progress: [████░░░░░░░] 24%
 
@@ -69,6 +70,7 @@ Progress: [████░░░░░░░] 24%
 | Phase 03 P03 | 13m | 3 tasks | 4 files |
 | Phase 03 P04 | 25m | 4 tasks | 8 files |
 | Phase 03 P05 | 45m | 3 tasks | 14 files |
+| Phase 03.1 P01 | 15m | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -98,6 +100,8 @@ Recent decisions affecting current work:
 - [Phase 03]: plan 03-03: rolling.py は per-observation latest-K algorithm (obs_id=(race_nkey,kettonum) group・pit_join_backward 不使用) で CYCLE-2 HIGH #1 cross-obs leak を閉鎖・running_style は dict-list + 純粋閾値関数 (テスト契約優先)・builder は COPY-NOT-RENAME (HIGH #5) + HIGH #3 出力カラム全登録検査・39/39 GREEN (10 RED は 03-04 スコープ)
 - [Phase 03]: race_nkey は DB カラムでなく予約済み canonical key — make_race_nkey(year,jyocd,kaiji,nichiji,racenum) で pandas 構築 (BUG A fix)
 - [Phase 03]: normalized 層に babacd/timediff/datakubun は存在しない — 当該 rolling 系統は D-13 sentinel で fallback
+- [Phase 03.1]: plan 03.1-01: timediff/baba3 を normalized ETL へ raw varchar pass-through で取り込み（D-01/D-03）・parse/派生は後続 Plan 03 builder 側
+- [Phase 03.1]: plan 03.1-01: staging-swap を LIKE から DDL 駆動に変更（_TABLE_DDL_COLUMNS）・新カラム追加が即時本番スキーマへ反映（Rule 3 blocking fix）
 - [Phase 03]: COPY-NOT-RENAME raw ID 原列は _RAW_ID_KEPT_COLUMNS で明示許可 (HIGH #5・banned source は防御的 assert で排除)
 - [Phase 03]: plan 03-05 (gap-closure): CR-01 は REVIEW option (c) 採用 — rolling timediff/babacd 6エントリ削除 + Deferred note で Phase 3.1 で再登録（source カラムが normalized 層に揃った段階）
 - [Phase 03]: plan 03-05: estimated_running_style は rolling と同一 PIT pre-filter (strict < cutoff) を groupby 前に適用 (WR-01・registry 宣言と一致・obs_id 構築不要・kettonum 単位 per-horse style)
@@ -126,6 +130,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-19T06:30:39.942Z
+Last session: 2026-06-19T08:56:44.358Z
 Stopped at: Phase 03.1 context gathered
 Resume file: .planning/phases/03.1-timediff-babacd-rolling-restoration/03.1-CONTEXT.md

@@ -121,12 +121,12 @@ Plans:
   3. 新 snapshot で6 feature 列が（source が存在する行で）non-null を持ち、end-to-end regression guard test（`test_no_registered_feature_column_all_nan_end_to_end`）が GREEN を維持
   4. manifest `feature_count` が rolling 18 → 24 を反映し、registry↔Parquet parity（宣言 feature 数 == populated feature 列数）が保たれる
 
-**Plans**: 4 plans
+**Plans**: 1/4 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 03.1-01-PLAN.md — Wave 1: normalize.py ETL 拡張（n_uma_race に timediff(varchar4)・n_race に baba3(sibababacd/dirtbabacd/trackcd・全varchar) を SELECT/DDL/INSERT 定義に追加・raw 不変・staging-swap idempotent 再利用）
+- [x] 03.1-01-PLAN.md — Wave 1: normalize.py ETL 拡張（n_uma_race に timediff(varchar4)・n_race に baba3(sibababacd/dirtbabacd/trackcd・全varchar) を SELECT/DDL/INSERT 定義に追加・raw 不変・staging-swap idempotent 再利用）
 - [ ] 03.1-02-PLAN.md — Wave 1: run_feature_build.py CR-01新（persist→manifest 順序化 + exists assert + repo-root 相対パス）+ test_snapshot_repro.py（stale 参照整理 + CR-01新 回帰テスト）
 
 **Wave 2** *(blocked on Wave 1 completion)*
