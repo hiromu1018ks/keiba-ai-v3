@@ -58,27 +58,28 @@ def test_backfill_public_signature() -> None:
 # Test 1: CR-04(a) 空入力 RuntimeError
 # ---------------------------------------------------------------------------
 def test_backfill_refuses_empty_input() -> None:
-    """``_idempotent_backfill_label`` は事前 SELECT で0行の場合 ``RuntimeError`` を送出。
+    """``_idempotent_backfill_label`` は expected_rowcount==0 の場合 ``RuntimeError`` を送出。
 
-    mock cursor で read 側が0行を返したケースを模倣し、staging swap が実行されない
-    （silent data loss 防止・Phase 2 test_normalized_etl.py:29-53 と同形式）。
+    呼出元（``backfill_label_race_date``）が事前 SELECT で取得した rowcount が 0 の場合、
+    staging swap は silent data loss になるため即座に fail する
+    （CR-04(a)・Phase 2 test_normalized_etl.py:29-53 と同形式）。
     """
     from src.etl.label_race_date_backfill import _idempotent_backfill_label
 
     write_cur = MagicMock()
-    # 事前 rowcount SELECT が0を返す → 空入力として拒否
-    # mock の fetchone は (0,) を返す
-    write_cur.fetchone.return_value = (0,)
 
     with pytest.raises(RuntimeError, match="refusing to swap to empty"):
         _idempotent_backfill_label(write_cur, expected_rowcount=0, reader_role="keiba_readonly")
 
     # atomic swap の DROP / RENAME / GRANT は発行されない（fail-fast）
     executed_sql = " ".join(str(c.args[0]) for c in write_cur.execute.call_args_list)
-    assert "DROP TABLE" not in executed_sql.upper(), (
-        "空入力は swap 前に raise するべき（CR-04(a)）"
-    )
+    assert "DROP TABLE" not in executed_sql.upper(), "空入力は swap 前に raise するべき（CR-04(a)）"
     assert "RENAME" not in executed_sql.upper(), "空入力は rename 前に raise するべき（CR-04(a)）"
+    # advisory lock は取得される（順序の検証）
+    advisory_calls = [
+        c for c in write_cur.execute.call_args_list if "pg_advisory_xact_lock" in str(c.args[0])
+    ]
+    assert advisory_calls, "advisory lock を取得すべき（CR-04(b)）"
 
 
 # ---------------------------------------------------------------------------
@@ -136,9 +137,7 @@ def test_backfill_does_not_mutate_raw() -> None:
         "DELETE FROM public.n_",
     ]
     found = [f for f in forbidden if f in src]
-    assert not found, (
-        f"raw 層への書込 SQL が検出された（D-06 違反）: {found}"
-    )
+    assert not found, f"raw 層への書込 SQL が検出された（D-06 違反）: {found}"
 
 
 # ---------------------------------------------------------------------------
@@ -176,17 +175,17 @@ def test_backfill_uses_etl_role_only() -> None:
 # ---------------------------------------------------------------------------
 def test_backfill_rowcount_verify() -> None:
     """staging INSERT 後に ``SELECT count(*) FROM label.fukusho_label_staging`` を発行し、
-    expected rowcount と不一致で ``RuntimeError("WR-06 rowcount verification")`` を raise。"""
+    expected rowcount と不一致で ``RuntimeError("WR-06 rowcount verification")`` を raise。
+
+    ``_idempotent_backfill_label`` は expected_rowcount を引数で受け取る（呼出元が
+    事前 SELECT で取得済）。従って mock cursor の fetchone は staging INSERT 後の
+    ``SELECT count(*) FROM label.fukusho_label_staging`` の1回のみ発行される。
+    """
     from src.etl.label_race_date_backfill import _idempotent_backfill_label
 
     write_cur = MagicMock()
-    # 事前 SELECT count(*) で expected_rowcount=100 を返す（空入力回避）
-    # → staging INSERT 後の SELECT count(*) で actual=80（不一致）を返す
-    # mock cursor の fetchone は順次呼ばれる: 1回目=pre-count, 2回目=post-INSERT count
-    write_cur.fetchone.side_effect = [
-        (100,),  # pre-count SELECT（空入力でない）
-        (80,),   # staging INSERT 後の SELECT count(*) → 不一致
-    ]
+    # staging INSERT 後の SELECT count(*) で actual=80（expected=100 と不一致）
+    write_cur.fetchone.return_value = (80,)
 
     with pytest.raises(RuntimeError, match="WR-06 rowcount verification"):
         _idempotent_backfill_label(write_cur, expected_rowcount=100, reader_role="keiba_readonly")
@@ -210,13 +209,14 @@ def test_backfill_returns_final_rowcount_on_success() -> None:
     from src.etl.label_race_date_backfill import _idempotent_backfill_label
 
     write_cur = MagicMock()
-    # pre-count=100, staging count=100（一致）, final count=100
+    # staging count=100（expected=100 と一致）, final count after RENAME=100
     write_cur.fetchone.side_effect = [
-        (100,),  # pre-count
-        (100,),  # staging count verify
+        (100,),  # staging count verify（一致）
         (100,),  # final count after RENAME
     ]
-    result = _idempotent_backfill_label(write_cur, expected_rowcount=100, reader_role="keiba_readonly")
+    result = _idempotent_backfill_label(
+        write_cur, expected_rowcount=100, reader_role="keiba_readonly"
+    )
     assert result == 100, f"final rowcount を返すべき: {result}"
 
 
