@@ -57,7 +57,7 @@ class FrozenCategoryMap:
     ``src.utils.category_map.fit_category_map`` は ``dict[str, int]`` を返すが、本モジュールは
     test contract として **dict-style** access (``m["__UNSEEN__"]``) と **attribute-style**
     access (``m.codes[UNSEEN]``) の両方をサポートする必要がある。``FrozenCategoryMap`` は
-    その両面を持つ軽量 wrapper。CR-04 (03-05) で joblib/pickle 永続化は廃止し、JSON 安全
+    その両面を持つ軽量 wrapper。CR-04 (03-05) で pickle 直列化経路は廃止し JSON 安全
     フォーマットに移行した（``__getstate__`` / ``__setstate__`` は削除・JSON round-trip は
     ``persist_category_maps`` / ``load_category_maps`` が担う）。
 
@@ -248,12 +248,12 @@ def persist_category_maps(
     永続化する（CR-04 / 03-05 gap-closure・pickle ACE vector 解消）。
 
     Parquet snapshot と同 snapshot_id で紐付け（例:
-    ``snapshots/category_map_<snapshot_id>.json``・従来 ``.joblib`` から移行）。Phase 4
+    ``snapshots/category_map_<snapshot_id>.json``・従来 pickle binary から移行）。Phase 4
     モデルは本 artifact を ``load_category_maps`` で JSON として読込・val/test のコード化に
     使用する。``FrozenCategoryMap`` は ``.items()`` を持つため ``dict(m.items()`` で
     JSON-serialisable dict に変換できる。
 
-    artifact 拡張子は ``.json``（従来 ``.joblib`` から移行・CR-04）。
+    artifact 拡張子は ``.json``（従来 pickle binary から移行・CR-04）。
     """
     Path(artifact_path).parent.mkdir(parents=True, exist_ok=True)
     serialisable = {col: dict(m.items()) for col, m in maps.items()}
@@ -265,7 +265,7 @@ def persist_category_maps(
 
 def load_category_maps(artifact_path: str | Path) -> dict[str, FrozenCategoryMap]:
     """永続化された frozen category maps を JSON から読込む（Phase 4 モデル学習時使用・
-    CR-04 / 03-05 gap-closure・joblib/pickle 不使用・ACE vector 解消）。
+    CR-04 / 03-05 gap-closure・pickle 不使用・ACE vector 解消）。
 
     ``load_category_maps`` は ``json.loads`` で dict[str, dict[str, int]] を読込み、
     各カラムを ``FrozenCategoryMap(m)`` で再構築する（``__getstate__`` / ``__setstate__``
