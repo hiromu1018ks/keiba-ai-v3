@@ -6,14 +6,14 @@ current_phase: 03.1
 current_phase_name: timediff-babacd-rolling-restoration
 status: executing
 stopped_at: Phase 03.1 context gathered
-last_updated: "2026-06-19T09:01:15.771Z"
+last_updated: "2026-06-19T09:12:51.091Z"
 last_activity: 2026-06-19
 last_activity_desc: Phase 03.1 execution started
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 17
-  completed_plans: 15
+  completed_plans: 16
   percent: 33
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 03.1 (timediff-babacd-rolling-restoration) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-06-19 — Phase 03.1 execution started
 
@@ -72,6 +72,7 @@ Progress: [████░░░░░░░] 24%
 | Phase 03 P05 | 45m | 3 tasks | 14 files |
 | Phase 03.1 P01 | 15m | 2 tasks | 1 files |
 | Phase 03.1 P02 | 8m | 2 tasks | 2 files |
+| Phase 03.1 P03 | 約30分 | 4 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -109,6 +110,7 @@ Recent decisions affecting current work:
 - [Phase 03]: plan 03-05: category_map artifact は JSON (sort_keys=True・byte-reproducible・human-auditable) で永続化 (CR-04・pickle ACE vector 完全解消・joblib 廃止)
 - [Phase 03]: plan 03-05: CR-04 regression guard は AST 解析で Import/ImportFrom/Attribute を検査 (docstring の「joblib 廃止」説明は許容・実コード依存のみを検出)
 - [Phase 03.1]: [Phase 03.1] plan 03.1-02: persist-exists-manifest 順序化（CR-01新・partial-failure 抑止）・AST テストで行順序機械保証
+- [Phase ?]: Phase 03.1-03: timediff/babacd rolling 復元完了（rolling 18→24 features・3者 parity・WR-01'/WR-02/WR-03 advisory hardening 3件）
 
 ### Pending Todos
 
@@ -132,6 +134,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-19T09:00:41.860Z
+Last session: 2026-06-19T09:12:51.086Z
 Stopped at: Phase 03.1 context gathered
-Resume file: .planning/phases/03.1-timediff-babacd-rolling-restoration/03.1-CONTEXT.md
+Resume file: Completed 03.1-03-PLAN.md

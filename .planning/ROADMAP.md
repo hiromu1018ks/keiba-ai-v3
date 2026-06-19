@@ -121,7 +121,7 @@ Plans:
   3. 新 snapshot で6 feature 列が（source が存在する行で）non-null を持ち、end-to-end regression guard test（`test_no_registered_feature_column_all_nan_end_to_end`）が GREEN を維持
   4. manifest `feature_count` が rolling 18 → 24 を反映し、registry↔Parquet parity（宣言 feature 数 == populated feature 列数）が保たれる
 
-**Plans**: 2/4 plans executed
+**Plans**: 3/4 plans executed
 
 Plans:
 **Wave 1**
@@ -131,7 +131,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 03.1-03-PLAN.md — Wave 2: feature core + advisory hardening（builder.py: timediff parse + babacd trackcd 分岐派生 + WR-01'/WR-02 fail-loud・rolling.py: 8系統化 + WR-03 vector化・availability/yaml×2: 3者 parity 再登録・label_spec: sentinel 0000・テスト5関数更新）— Plan 01 に依存
+- [x] 03.1-03-PLAN.md — Wave 2: feature core + advisory hardening（builder.py: timediff parse + babacd trackcd 分岐派生 + WR-01'/WR-02 fail-loud・rolling.py: 8系統化 + WR-03 vector化・availability/yaml×2: 3者 parity 再登録・label_spec: sentinel 0000・テスト5関数更新）— Plan 01 に依存
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
