@@ -303,9 +303,18 @@ def build_rolling_features(observations: pd.DataFrame, history: pd.DataFrame) ->
     ``test_pit_cutoff.py`` が builder 経由で rolling を呼び出すための薄ラッパ。
     入力を rolling 実装に渡す前に PIT join 用の sortedness を担保する（``sort_values``
     を呼出・regression guard・HIGH #1/#3）。
+
+    WR-06 (03-REVIEW): history に ``as_of_datetime`` 列が無い場合、``sort_values`` が
+    ``KeyError`` を raise するのを ``ValueError`` で wrap する（PIT filter 適用不可を
+    明示化・将来 refactor での silent leak 防止・呼出側で例外型を揃える）。
     """
     obs_sorted = observations.sort_values("feature_cutoff_datetime").reset_index(drop=True)
     if len(history) > 0:
+        if "as_of_datetime" not in history.columns:
+            raise ValueError(
+                "history に as_of_datetime 列が無い・sort_values できない "
+                "(WR-06・PIT filter 適用不可・将来 refactor での silent leak 防止)"
+            )
         hist_sorted = history.sort_values("as_of_datetime").reset_index(drop=True)
     else:
         hist_sorted = history
@@ -393,6 +402,12 @@ def build_feature_matrix(
         )
 
     # --- Step 3: cutoff 計算（D-06・HIGH #2: race_date - 1 day・JST midnight・strict <） ---
+    # WR-05 (03-REVIEW) 明記: feature_cutoff_datetime / as_of_datetime は naive datetime
+    # （tz_localize 未適用）。CUTOFF_SEMANTICS["timezone"]="Asia/Tokyo" は JRA データが全て
+    # JST であり same-day 同一 JST midnight 境界で運用される前提の宣言。実データは全て JST
+    # 発走時刻であり tz 情報を持たないため、naive 同士の比較で日付境界が明確（race_date は
+    # date 型・発走時刻も JST 固定）。将来マルチタイムゾーンデータが混入する場合は
+    # .dt.tz_localize("Asia/Tokyo") の適用が必要（advisory・現状は実害軽微のため naive 運用）。
     feature_matrix["feature_cutoff_datetime"] = (
         pd.to_datetime(feature_matrix["race_date"]) - pd.Timedelta(days=1)
     )

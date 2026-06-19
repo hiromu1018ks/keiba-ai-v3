@@ -384,9 +384,10 @@ def test_wr01_prime_raises_on_missing_as_of_datetime():
     builder._fetch_feature_sources = lambda read_pool: observations_df.copy()
     builder._fetch_history = lambda read_pool: bad_history.copy()
     try:
-        # rolling/推定脚質いずれかのステップで as_of_datetime 不在が fail-loud 検出される。
-        # ValueError(WR-01' message) または KeyError(rolling sort_values) のいずれか。
-        with pytest.raises((ValueError, KeyError)) as exc_info:
+        # WR-06 (03-REVIEW): as_of_datetime 不在は rolling 入力検証または推定脚質ステップの
+        # いずれかで明示的な ValueError として fail-loud される。KeyError 受け入れを廃止し
+        # ValueError + match="as_of_datetime" に絞る（regression 検出感度の向上）。
+        with pytest.raises(ValueError, match="as_of_datetime") as exc_info:
             builder.build_feature_matrix(
                 read_pool=None, snapshot_id="test-snap",
                 label_version="v1.0.0", fa_version="0.2.0",
