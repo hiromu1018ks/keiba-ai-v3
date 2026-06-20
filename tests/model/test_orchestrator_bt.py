@@ -31,20 +31,22 @@ def _make_feature_frame(n_per_year: int = 100) -> pd.DataFrame:
     """
     dates = pd.date_range("2019-01-01", "2025-12-31", freq="W")
     n = min(n_per_year * 7, len(dates))
-    return pd.DataFrame({
-        "race_key": [f"RK{i:05d}" for i in range(n)],
-        "race_date": dates[:n],
-        "year": dates[:n].year,
-        "jyocd": "05",
-        "kaiji": 1,
-        "nichiji": "06",
-        "racenum": 1,
-        "umaban": [1] * n,
-        "kettonum": [100 + i for i in range(n)],
-        # HIGH-A cycle-2: category_map plumbing テスト用（生 ID + _code 列）
-        "jockey_id": [f"J{i % 10:03d}" for i in range(n)],
-        "jockey_id_code": [i % 10 for i in range(n)],
-    })
+    return pd.DataFrame(
+        {
+            "race_key": [f"RK{i:05d}" for i in range(n)],
+            "race_date": dates[:n],
+            "year": dates[:n].year,
+            "jyocd": "05",
+            "kaiji": 1,
+            "nichiji": "06",
+            "racenum": 1,
+            "umaban": [1] * n,
+            "kettonum": [100 + i for i in range(n)],
+            # HIGH-A cycle-2: category_map plumbing テスト用（生 ID + _code 列）
+            "jockey_id": [f"J{i % 10:03d}" for i in range(n)],
+            "jockey_id_code": [i % 10 for i in range(n)],
+        }
+    )
 
 
 def test_split_3way_periods_injection():
@@ -92,7 +94,10 @@ def test_split_3way_periods_strict_later_guard():
         "calib": ("2022-07-01", "2022-12-31"),
         "test": ("2023-01-01", "2023-12-31"),
     }
-    with pytest.raises(ValueError, match="完全時系列条件違反|strict.*chronological|train_max.*calib_min"):
+    with pytest.raises(
+        ValueError,
+        match="完全時系列条件違反|strict.*chronological|train_max.*calib_min",
+    ):
         split_3way(frame, periods=overlapping_periods)
 
 
@@ -191,14 +196,18 @@ def test_train_and_predict_category_map_plumbing():
     from src.utils.category_map import UNSEEN, fit_category_map
 
     # 合成 feature_df: train 窓には J000-J009・test 窓にだけ J_UNSEEN_999 を含める
-    train_rows = pd.DataFrame({
-        "jockey_id": [f"J{i:03d}" for i in range(10)] * 5,  # 50 行・train 窓
-        "jockey_id_code": list(range(10)) * 5,
-    })
-    test_rows = pd.DataFrame({
-        "jockey_id": ["J000", "J001", "J_UNSEEN_999", "J002"],  # J_UNSEEN_999 は train に無い
-        "jockey_id_code": [0, 1, 999, 2],  # 既存 _code（map 適用で上書きされる）
-    })
+    train_rows = pd.DataFrame(
+        {
+            "jockey_id": [f"J{i:03d}" for i in range(10)] * 5,  # 50 行・train 窓
+            "jockey_id_code": list(range(10)) * 5,
+        }
+    )
+    test_rows = pd.DataFrame(
+        {
+            "jockey_id": ["J000", "J001", "J_UNSEEN_999", "J002"],  # J_UNSEEN_999 は train に無い
+            "jockey_id_code": [0, 1, 999, 2],  # 既存 _code（map 適用で上書きされる）
+        }
+    )
     feature_df = pd.concat(
         [
             train_rows.assign(_split="train"),
@@ -226,7 +235,7 @@ def test_train_and_predict_category_map_plumbing():
     )
 
     # 既知 ID（J000/J001/J002）は train 窓で fit した code に mapping される
-    for jid, expected_code_suffix in [("J000", 0), ("J001", 1), ("J002", 2)]:
+    for jid in ("J000", "J001", "J002"):
         idx = test_jockey_ids.index(jid)
         # fit_category_map は sorted 後に連番を振るため J000=0, J001=1, ... になる
         actual_code = test_codes[idx]
@@ -261,5 +270,6 @@ def test_train_and_predict_category_map_none_default():
     result = _apply_category_map(df.copy(), None)
     # jockey_id_code 列が元のままであることを検証（map 適用なし）
     assert result["jockey_id_code"].tolist() == [0, 1], (
-        "category_map=None で _apply_category_map が _code 列を変更した（A5 違反・Phase 4 等価でない）"
+        "category_map=None で _apply_category_map が _code 列を変更した"
+        "（A5 違反・Phase 4 等価でない）"
     )

@@ -499,29 +499,87 @@ def prepare_model_matrix(
 # ---------------------------------------------------------------------------
 # split_3way — review MEDIUM#5 完全時系列条件 + 正準 race_key disjoint
 # ---------------------------------------------------------------------------
-def split_3way(frame: pd.DataFrame) -> dict[str, pd.DataFrame]:
+# Phase 5 D-03: BT窓再学習ループ用の periods パラメータ（後方互換 A5）。
+# periods=None の場合は Phase 4 ハードコード区間を使用（SC#4 bit-identical 回帰防止）。
+# periods 指定時は BT窓区間で frame を filter するが・既存の完全時系列条件 guard +
+# race_key pairwise disjoint guard は BT窓でも同一保証（HIGH-4: train/calib 重複で
+# ValueError が raise され look-ahead leak が構造的ブロックされる）。
+_DEFAULT_PERIODS: dict[str, tuple[str, str]] = {
+    "train": ("2016-07-01", "2023-12-31"),
+    "calib": ("2024-01-01", "2024-06-30"),
+    "test": ("2024-07-01", "2024-12-31"),
+}
+# holdout 区間は Phase 4 固定（Phase 5 BT 温存・periods では上書き不可）
+_HOLDOUT_START = "2025-01-01"
+
+
+def split_3way(
+    frame: pd.DataFrame,
+    *,
+    periods: dict[str, tuple[str, str]] | None = None,
+) -> dict[str, pd.DataFrame]:
     """D-02b 推奨案で frame を train/calib/test/holdout_2025_plus に分割する。
 
-    区間:
+    区間（``periods=None`` 既定・Phase 4 ハードコード）:
       - train:             race_date in [2016-07-01, 2023-12-31]
       - calib:             race_date in [2024-01-01, 2024-06-30]
       - test:              race_date in [2024-07-01, 2024-12-31]
       - holdout_2025_plus: race_date >= 2025-01-01（Phase 5 BT 温存・学習/評価に使わない）
 
+    **Phase 5 D-03 BT窓再学習（``periods`` パラメータ）:**
+
+    ``periods`` に ``{"train": (start, end), "calib": (start, end), "test": (start, end)}``
+    を渡すと BT窓区間で frame を filter する。後方互換 A5: ``periods=None`` の場合は
+    上記 Phase 4 ハードコード区間（``_DEFAULT_PERIODS``）を使用する（SC#4 bit-identical
+    回帰防止）。holdout 区間は ``periods`` で上書き不可（常に ``>= 2025-01-01``）。
+
     **完全時系列条件（review MEDIUM#5）** を ``raise ValueError`` で保証:
         ``train_max < calib_min < calib_max < test_min <= test_max``
-    （``python -O`` で生存・``assert`` でない）。
+    （``python -O`` で生存・``assert`` でない）。BT窓（``periods`` 指定）でも同一保証
+    （HIGH-4: train/calib 重複 periods を渡すと ValueError が raise され look-ahead leak
+    が構造的ブロックされる）。
 
     **正準 race_key pairwise disjoint（review HIGH#9）** を ``raise ValueError`` で保証:
-    train/calib/test の ``race_key`` 集合は pairwise disjoint（``race_nkey`` でなく）。
+    train/calib/test の ``race_key`` 集合は pairwise disjoint（``race_nkey`` でない）。
 
     各戻り値 DataFrame は ``sort_values(["race_start_datetime","race_key"])`` 済み
     （CatBoost ``has_time=True`` 前提の入力整列・trainer.py が再 sort するが入力も整列済みを保証）。
+
+    Parameters
+    ----------
+    frame : pd.DataFrame
+        label-joined frame（``race_date``・``race_key`` 列を含む）。
+    periods : dict[str, tuple[str, str]] | None
+        BT窓区間（``"train"``/``"calib"``/``"test"`` キー・各値は ``(start_date, end_date)``
+        文字列ペア）。``None`` の場合は Phase 4 ハードコード（``_DEFAULT_PERIODS``）を使用
+        （後方互換 A5）。BT窓例::
+
+            periods = {
+                "train": ("2019-06-01", "2022-06-30"),
+                "calib": ("2022-07-01", "2022-12-31"),
+                "test":  ("2023-01-01", "2023-12-31"),
+            }
+
+        HIGH-4: train と calib が重複する（``train_end >= calib_start`` 等）場合は完全時系列
+        条件 guard が ``ValueError`` を raise する（look-ahead leak 構造的ブロック）。
+
+    Returns
+    -------
+    dict[str, pd.DataFrame]
+        ``train``/``calib``/``test``/``holdout_2025_plus`` の4分割 dict。
+
+    Raises
+    ------
+    ValueError
+        いずれかの区間が空の時・完全時系列条件違反（``train_max < calib_min < calib_max <
+        test_min <= test_max`` でない）・正準 race_key が pairwise disjoint でない時。
     """
-    train = frame[frame["race_date"].between("2016-07-01", "2023-12-31")].copy()
-    calib = frame[frame["race_date"].between("2024-01-01", "2024-06-30")].copy()
-    test = frame[frame["race_date"].between("2024-07-01", "2024-12-31")].copy()
-    holdout = frame[frame["race_date"] >= "2025-01-01"].copy()
+    # Phase 5 D-03: periods=None は Phase 4 ハードコード（_DEFAULT_PERIODS）を使用（A5 後方互換）
+    effective_periods = _DEFAULT_PERIODS if periods is None else periods
+    train = frame[frame["race_date"].between(*effective_periods["train"])].copy()
+    calib = frame[frame["race_date"].between(*effective_periods["calib"])].copy()
+    test = frame[frame["race_date"].between(*effective_periods["test"])].copy()
+    holdout = frame[frame["race_date"] >= _HOLDOUT_START].copy()
 
     for name, df_part in (
         ("train", train),

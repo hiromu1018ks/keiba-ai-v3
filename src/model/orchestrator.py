@@ -87,6 +87,79 @@ from src.model.trainer import (
 # run_train_predict --check-reproduce と本モジュールの _assert_deterministic が使用。
 FIXED_REPRODUCE_TS: datetime = datetime(2026, 6, 20, 0, 0, 0, tzinfo=UTC)
 
+# HIGH-A cycle-2: 生 ID 列 → _code 列 の mapping（trainer.HIGH_CARD_CODE_COLS と対称）。
+# trainer.HIGH_CARD_CODE_COLS = ["jockey_id_code", "trainer_id_code", "sire_id_code",
+#                                 "bms_id_code", "horse_id_code"]
+# これらの _code 列は Phase 3 builder で生 ID 列から fit_category_map で構築済みだが・
+# Phase 5 D-03 BT窓再学習では train_and_predict(category_map=bt_fit_map) で BT-train-only
+# の frozen map を渡して _code 列を再構築する（test 窓未観測 ID → __UNSEEN__ sentinel）。
+_RAW_ID_TO_CODE_COLS: dict[str, str] = {
+    "jockey_id": "jockey_id_code",
+    "trainer_id": "trainer_id_code",
+    "sire_id": "sire_id_code",
+    "bms_id": "bms_id_code",
+    "horse_id": "horse_id_code",
+}
+
+
+def _apply_category_map(
+    feature_df: pd.DataFrame,
+    category_map: dict[str, Any] | None,
+) -> pd.DataFrame:
+    """HIGH-A cycle-2: BT-train-only frozen category_map を feature_df の ``_code`` 列に適用。
+
+    ``category_map`` が ``None`` の場合は **no-op** で ``feature_df`` をそのまま返す
+    (Phase 4 等価・A5 後方互換)。feature_df は Phase 3 builder が構築済みの ``_code`` 列
+    (例: ``jockey_id_code``) を保持しており・本関数はそれを上書きしない。
+
+    ``category_map`` が渡された場合 (``{raw_id_col: dict[str, int]}`` 形式) は・
+    ``feature_df`` に対応する生 ID 列 (例: ``jockey_id``) が存在する時に限り・
+    ``src.utils.category_map.apply_category_map`` で ``_code`` 列を再構築して上書きする。
+    これにより BT-train-only で fit した frozen map が model 前処理パスで消費される
+    (silent 無視厳禁・HIGH-A cycle-2)。test 窓の未観測 ID は ``__UNSEEN__`` sentinel に
+    mapping される (§14.3 leak-safe categorical handling)。
+
+    生 ID 列が ``feature_df`` に存在しない場合は当該 raw_id_col を silent skip する
+    (feature_df が _code 列のみを持つ Phase 3 snapshot 由来の場合への後方互換)。
+    ただし ``category_map`` 自体が ``None`` でない以上・呼出側が意図的に BT-train-only
+    map を渡したことは ``category_map_source='bt_train_only'`` stamp で記録される。
+
+    Parameters
+    ----------
+    feature_df : pd.DataFrame
+        label-joined frame (``build_training_frame`` の出力)。``_code`` 列を含む。
+        生 ID 列 (``jockey_id`` 等) を含む場合はそれらを使って ``_code`` 列を再構築。
+    category_map : dict[str, Any] | None
+        ``{raw_id_col: dict[str, int]}`` 形式の BT-train-only frozen map。
+        ``None`` の場合は no-op (Phase 4 等価)。
+
+    Returns
+    -------
+    pd.DataFrame
+        ``_code`` 列が (category_map 指定時) BT-train-only map で再構築された frame。
+        ``category_map=None`` の場合は入力そのまま (コピーも返さない・呼出側で copy 済み前提)。
+    """
+    if category_map is None:
+        # Phase 4 等価 (A5)・feature snapshot 構築済み _code 列をそのまま使用
+        return feature_df
+
+    from src.utils.category_map import apply_category_map
+
+    for raw_id_col, frozen_map in category_map.items():
+        code_col = _RAW_ID_TO_CODE_COLS.get(raw_id_col)
+        if code_col is None:
+            # trainer.HIGH_CARD_CODE_COLS に対応しない raw_id_col は skip
+            # (将来拡張時に _RAW_ID_TO_CODE_COLS を更新すること)
+            continue
+        if raw_id_col not in feature_df.columns:
+            # feature_df が生 ID 列を持たない (Phase 3 snapshot が _code のみ保持等) 場合は
+            # 当該 raw_id_col を skip。feature_df が生 ID 列を含むテストシナリオでのみ消費。
+            continue
+        # 供給 frozen map で _code 列を再構築 (test 窓未観測 ID → __UNSEEN__ sentinel)
+        feature_df[code_col] = apply_category_map(feature_df[raw_id_col], frozen_map).to_numpy()
+
+    return feature_df
+
 
 # ---------------------------------------------------------------------------
 # _merge_params — default_params に override を merge し seed / thread count を固定
@@ -161,6 +234,8 @@ def train_and_predict(
     eval_fraction: float = 0.2,
     params_override: dict[str, Any] | None = None,
     as_of_datetime: datetime | None = None,
+    split_periods: dict[str, tuple[str, str]] | None = None,
+    category_map: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """``trainer`` + ``calibrate_model`` + ``predict_p_fukusho`` を統合し・行整列保証付きで
     予測 DataFrame を返す orchestrator (review HIGH#2 / HIGH#7 / HIGH#12 / SC#4)。
@@ -186,6 +261,25 @@ def train_and_predict(
     ``align_predictions`` で復元した予測値・LightGBM の場合 ``calibrated.predict_proba`` の
     算出値を一貫して注入し・再予測で整列が捨てられる回帰を閉塞する。
 
+    **Phase 5 D-03 BT窓再学習 (``split_periods`` パラメータ・後方互換 A5):**
+
+    ``split_periods`` に ``{"train": (start, end), "calib": (start, end), "test": (start, end)}``
+    を渡すと ``split_3way`` に ``periods=split_periods`` として伝播し・BT窓区間で
+    train/calib/test を分割する。``None`` (既定) の場合は Phase 4 ハードコード区間を使用
+    (A5 後方互換・SC#4 bit-identical 回帰防止)。HIGH-4: train/calib 重複 periods は
+    ``split_3way`` の完全時系列条件 guard が ``ValueError`` で拒否 (look-ahead leak 構造的ブロック)。
+
+    **Phase 5 HIGH-A cycle-2 (``category_map`` パラメータ・BT-train-only frozen map plumbing):**
+
+    ``category_map`` に ``{raw_id_col: dict[str, int]}`` 形式の BT-train-only frozen map を
+    渡すと ``_apply_category_map(feature_df, category_map)`` が model 前処理パスで供給 map を
+    **消費** して ``_code`` 列を再構築する (silent 無視厳禁・§14.3 leak-safe categorical)。
+    ``None`` (既定) の場合は orchestrator 内部で従来どおり feature snapshot 構築済みの
+    ``_code`` 列をそのまま使用 (Phase 4 等価・A5)。供給 map は train 窓のみで ``fit_category_map``
+    された辞書で・test 窓の未観測 ID は ``__UNSEEN__`` sentinel に mapping される
+    (§14.3 / CLAUDE.md leak-safe categorical handling)。model_version メタに
+    ``category_map_source`` を stamp する (``'bt_train_only'`` / ``'orchestrator_internal'``)。
+
     Parameters
     ----------
     feature_df : pd.DataFrame
@@ -207,6 +301,13 @@ def train_and_predict(
         予測 provenance の as_of_datetime。``None`` の場合は ``datetime.now(UTC)``。
         reproduce smoke では固定値 (``FIXED_REPRODUCE_TS``) を渡して bit-identical を保証
         (review HIGH#7 / T-04-25b)。
+    split_periods : dict[str, tuple[str, str]] | None
+        Phase 5 D-03 BT窓区間 (``"train"``/``"calib"``/``"test"`` キー)。``None`` の場合は
+        Phase 4 ハードコード (後方互換 A5)。
+    category_map : dict[str, Any] | None
+        Phase 5 HIGH-A cycle-2 BT-train-only frozen category map
+        (``{raw_id_col: dict[str, int]}``・例: ``{"jockey_id": {...}}``)。``None`` の場合は
+        Phase 4 等価 (feature snapshot 構築済み ``_code`` 列をそのまま使用)。
 
     Returns
     -------
@@ -219,6 +320,8 @@ def train_and_predict(
         - ``splits``: ``split_3way`` の戻り dict
         - ``_aligned_pred_proba``: orchestrator 内部で align / 算出した pred_proba Series
           (test で Cycle 2 NEW HIGH-1 の実証に使用・本番 pipeline は消費しない)
+        - ``category_map_source``: HIGH-A cycle-2 provenance
+          (``"bt_train_only"`` / ``"orchestrator_internal"``)
 
     Raises
     ------
@@ -242,8 +345,19 @@ def train_and_predict(
     else:
         as_of_dt = as_of_datetime
 
+    # --- HIGH-A cycle-2: BT-train-only frozen category_map を model 前処理で消費 ---
+    # category_map が渡された場合・feature_df の生 ID 列 (jockey_id 等) から _code 列を再構築
+    # して model 前処理 (LightGBM categorical_feature / CatBoost cat_features) に供給する。
+    # silent 無視厳禁 (HIGH-A cycle-2)・test 窓未観測 ID は __UNSEEN__ sentinel に mapping。
+    # category_map=None の場合は Phase 4 等価 (feature snapshot 構築済み _code 列をそのまま使用)。
+    category_map_source = "orchestrator_internal"
+    if category_map is not None:
+        feature_df = _apply_category_map(feature_df, category_map)
+        category_map_source = "bt_train_only"
+
     # --- split_3way で train/calib/test に分割 (正準 race_key 時系列条件保証済み) ---
-    splits = split_3way(feature_df)
+    # Phase 5 D-03: split_periods を periods=split_periods として伝播 (後方互換 A5)
+    splits = split_3way(feature_df, periods=split_periods)
     train_df = splits["train"]
     calib_df = splits["calib"]
     test_df = splits["test"]
@@ -449,6 +563,8 @@ def train_and_predict(
         "splits": splits,
         # _aligned_pred_proba: Cycle 2 NEW HIGH-1 実証用の内部参照 (test が消費)
         "_aligned_pred_proba": pred_proba,
+        # HIGH-A cycle-2: category_map provenance stamp
+        "category_map_source": category_map_source,
     }
 
 
@@ -620,13 +736,16 @@ def _assert_deterministic(
     version_n: int = 1,
     seed: int = 42,
     as_of_datetime: datetime = FIXED_REPRODUCE_TS,
+    split_periods: dict[str, tuple[str, str]] | None = None,
+    category_map: dict[str, Any] | None = None,
 ) -> None:
     """SC#4 reproduce smoke: 固定 seed + 固定 thread count + 固定 as_of_datetime で2回
     ``train_and_predict`` を呼出し・戻り prediction の ``p_fukusho_hit`` 列が
     ``np.array_equal`` (bit-identical) になることを検証する (review HIGH#7・§19.1 構造的ブロック)。
 
-    失敗時は ``RuntimeError``。run_train_predict ``--check-reproduce`` と unit test
-    (``test_reproduce_bit_identical``) が使用。
+    Phase 5 D-03 / HIGH-A cycle-2: BT窓再学習 (``split_periods``) と BT-train-only
+    category_map (``category_map``) を指定しても bit-identical が維持されることを検証。
+    失敗時は ``RuntimeError``。
 
     Parameters
     ----------
@@ -636,6 +755,10 @@ def _assert_deterministic(
         label-joined frame (``train_and_predict`` と同一契約)。
     as_of_datetime : datetime
         固定 as_of_datetime (デフォルト ``FIXED_REPRODUCE_TS``・review HIGH#7)。
+    split_periods : dict | None
+        Phase 5 D-03 BT窓区間 (``None`` の場合は Phase 4 ハードコード)。
+    category_map : dict | None
+        Phase 5 HIGH-A cycle-2 BT-train-only frozen category map。
     """
     result1 = train_and_predict(
         feature_df,
@@ -644,6 +767,8 @@ def _assert_deterministic(
         version_n=version_n,
         seed=seed,
         as_of_datetime=as_of_datetime,
+        split_periods=split_periods,
+        category_map=category_map,
     )
     result2 = train_and_predict(
         feature_df,
@@ -652,6 +777,8 @@ def _assert_deterministic(
         version_n=version_n,
         seed=seed,
         as_of_datetime=as_of_datetime,
+        split_periods=split_periods,
+        category_map=category_map,
     )
 
     pred1 = result1["pred_df"]["p_fukusho_hit"].to_numpy()
@@ -670,5 +797,6 @@ __all__ = [
     "FIXED_REPRODUCE_TS",
     "train_and_predict",
     "_merge_params",
+    "_apply_category_map",
     "_assert_deterministic",
 ]
