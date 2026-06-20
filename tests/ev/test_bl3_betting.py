@@ -71,3 +71,42 @@ def test_bl3_caveat():
     # 厳密な文言でなく意味的合致を検証
     caveat_lower = BL3_BETTING_CAVEAT.lower()
     assert "情報" in BL3_BETTING_CAVEAT or "condition" in caveat_lower or "市場" in BL3_BETTING_CAVEAT
+
+
+def test_bl3_odds_policy_confirmed():
+    """``odds_snapshot_policy='confirmed'`` sentinel で JODDS 時点非依存を明示（D-04）。
+
+    BL-3 は確定オッズ（レース後確定）を使用するため・JODDS 時点（30min/10min）に
+    非依存。戻り値の ``odds_snapshot_policy`` 列が ``'confirmed'`` sentinel であることを検証。
+    """
+    from src.ev.bl3_betting import select_bl3_bets
+
+    df = pd.DataFrame([
+        _make_market_row(umaban=1, fukuoddslow=1.5),
+        _make_market_row(umaban=2, fukuoddslow=2.5),
+    ])
+    selected = select_bl3_bets(df, max_bets_per_race=2)
+    # 全行が odds_snapshot_policy='confirmed' sentinel
+    assert (selected["odds_snapshot_policy"] == "confirmed").all(), (
+        f"BL-3 odds_snapshot_policy は 'confirmed' sentinel でなければならない: "
+        f"{selected['odds_snapshot_policy'].unique().tolist()}"
+    )
+
+
+def test_bl3_model_type():
+    """``model_type='bl3'`` で BL-3 を区別（20 backtest 行列とは別枠・D-04）。
+
+    主モデルは ``'lightgbm'`` / ``'catboost'``・BL-3 は ``'bl3'`` sentinel。
+    """
+    from src.ev.bl3_betting import select_bl3_bets
+
+    df = pd.DataFrame([
+        _make_market_row(umaban=1, fukuoddslow=1.5),
+        _make_market_row(umaban=2, fukuoddslow=2.5),
+    ])
+    selected = select_bl3_bets(df, max_bets_per_race=2)
+    assert (selected["model_type"] == "bl3").all(), (
+        f"BL-3 model_type は 'bl3' でなければならない: "
+        f"{selected['model_type'].unique().tolist()}"
+    )
+
