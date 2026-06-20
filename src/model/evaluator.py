@@ -65,6 +65,13 @@ SUM_P_BOUNDS: dict[str, tuple[float, float]] = {
 }
 
 # METRIC_COLUMNS — 比較表の指標列 (D-04 事前登録の素材)
+# - calibration_max_dev:        事前登録定義 (ガードなし)。docstring 通りに実装された
+#   「sklearn.calibration_curve(strategy='uniform', n_bins=10) の max|mean_pred - frac_pos|」。
+#   極小サンプル bin の統計ノイズが無防備に現れるが・D-04 事前登録の指標定義として固定 (後知恵
+#   すり替え防止 T-04-24)。
+# - calibration_max_dev_guarded: 事前登録 docstring が意図した MIN_BIN_COUNT=30 per-bin ガード
+#   を実装した補助指標 (debug: calib-maxdev-vs-baselines)。両指標を併記し・ガードの有無による
+#   差を観察可能にする。比較表では両者を隣接列で提示。
 METRIC_COLUMNS: list[str] = [
     "brier",
     "logloss",
@@ -74,6 +81,7 @@ METRIC_COLUMNS: list[str] = [
     "sum_p_p10",
     "sum_p_p90",
     "calibration_max_dev",
+    "calibration_max_dev_guarded",
 ]
 
 # binning 契約 (review MEDIUM: 固定値で明示・再現性保証)
@@ -161,7 +169,11 @@ def compute_metrics(
     -------
     dict
         ``brier`` / ``logloss`` / ``auc`` / ``sum_p_mean`` / ``sum_p_median`` /
-        ``sum_p_p10`` / ``sum_p_p90`` / ``calibration_max_dev`` / ``sum_p_note`` キー。
+        ``sum_p_p10`` / ``sum_p_p90`` / ``calibration_max_dev`` /
+        ``calibration_max_dev_guarded`` / ``sum_p_note`` キー。
+        ``calibration_max_dev`` は事前登録定義 (ガードなし)・
+        ``calibration_max_dev_guarded`` は MIN_BIN_COUNT=30 per-bin ガード付き補助指標
+        (debug: calib-maxdev-vs-baselines)。両者を併記しガード有無の差を観察する。
         ``sum_p_note`` には review MEDIUM の診断注記を付与。
     """
     y_true_arr = np.asarray(y_true)
@@ -200,7 +212,12 @@ def compute_metrics(
     metrics.update(sum_p_stats)
 
     # calibration_max_dev (review MEDIUM: binning 契約固定)
+    # 事前登録定義 (ガードなし) と docstring が意図した MIN_BIN_COUNT=30 ガード付き補助指標を併記
+    # (debug: calib-maxdev-vs-baselines)。後知恵すり替え防止のため事前登録指標は不変。
     metrics["calibration_max_dev"] = _compute_calibration_max_dev(y_true_arr, y_pred_arr)
+    metrics["calibration_max_dev_guarded"] = _compute_calibration_max_dev_guarded(
+        y_true_arr, y_pred_arr
+    )
 
     # review MEDIUM: sum(p) 診断注記
     metrics["sum_p_note"] = SUM_P_DIAGNOSTIC_NOTE
@@ -214,8 +231,11 @@ def _compute_calibration_max_dev(y_true: np.ndarray, y_pred: np.ndarray) -> floa
     ``CALIBRATION_CURVE_BINS`` / ``CALIBRATION_CURVE_STRATEGY`` 定数を使用し・run 毎の
     bin 数・strategy 変更を防止する。
 
-    bin サンプル数が ``CALIBRATION_CURVE_MIN_BIN_COUNT`` 未満の場合は・信頼性が低いため
-    NaN を返す (空 bin や極小 bin での false alarm 防止)。
+    **注意 (事前登録定義・ガードなし):** 本関数は D-04 事前登録の指標定義として固定されており・
+    bin サンプル数によるガードを行わない。従って ``CALIBRATION_CURVE_MIN_BIN_COUNT`` 定数を
+    参照しない。極小サンプル bin (例: count=13) の統計ノイズが max_dev に無防備に反映されるが・
+    これは事前登録時点の仕様 (後知恵すり替え防止 T-04-24)。
+    ガード付き補助指標は :func:`_compute_calibration_max_dev_guarded` を参照のこと。
 
     single-class の場合は定義不可・NaN を返す。
     """
@@ -234,6 +254,85 @@ def _compute_calibration_max_dev(y_true: np.ndarray, y_pred: np.ndarray) -> floa
     if len(frac_pos) == 0:
         return float("nan")
     return float(np.max(np.abs(mean_pred - frac_pos)))
+
+
+def _compute_calibration_max_dev_guarded(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """calibration curve の max |mean_pred - frac_pos| を計算 (MIN_BIN_COUNT per-bin ガード付き).
+
+    :func:`_compute_calibration_max_dev` と同じ binning 契約
+    (``CALIBRATION_CURVE_BINS`` / ``CALIBRATION_CURVE_STRATEGY``) を使用するが・各 bin の
+    サンプル数が ``CALIBRATION_CURVE_MIN_BIN_COUNT`` (30) 未満の bin を max 計算から除外する。
+    全ての bin が基準未満 (残り 0 bin) の場合は NaN を返す。
+
+    **実装 (Specialist SUGGEST_CHANGE 準拠・bit-identical 再現性):**
+      sklearn 1.9 の ``calibration_curve`` は count を返さず・空 bin を除外して整列を返すため・
+      bin と count の対応付けが自明でない。本関数は ``calibration_curve`` を呼ばず・
+      ``np.linspace(0, 1, n_bins+1)`` + ``np.digitize`` + ``np.bincount`` で bin ごとに
+      (mean_pred, frac_pos, count) を自前計算する。これにより戻り値と count 配列は構造的に
+      整列する (pandas.groupby/sort は等値要素の index 依存で再現性リスク → 不使用)。
+      境界値 ``y_pred == 1.0`` は ``np.digitize`` で out-of-range になるため ``np.clip`` で
+      ``[0, n_bins-1]`` にクリップ (LightGBM worst bin の mean_pred=1.0 の count を正確に捕捉)。
+
+    **非対称性に関する注記 (debug: calib-maxdev-vs-baselines):**
+      本ガードは LightGBM の worst bin (count=13 < 30) を除外し max_dev を
+      0.2308 → 0.1005 に改善する。一方 CatBoost の worst bin (count=59 > 30) はガード対象外
+      のため 0.2579 のまま変化しない。これは CatBoost の高確率域 (pred > 0.7) に残存する
+      **本質的 miscalibration** (副因 C・Phase 6 領域) を示唆するものであり・ガードの不備ではない。
+
+    single-class の場合は定義不可・NaN を返す。
+    """
+    if len(np.unique(y_true)) < 2:
+        return float("nan")
+
+    n_bins = CALIBRATION_CURVE_BINS
+    strategy = CALIBRATION_CURVE_STRATEGY
+    if strategy != "uniform":
+        # 本関数は strategy='uniform' を前提とする (bin_edges を linspace で構築)。
+        # 'quantile' は別途 data-driven な bin_edges が必要になるため未サポート。
+        return float("nan")
+
+    min_bin_count = CALIBRATION_CURVE_MIN_BIN_COUNT
+
+    # bin ごとに (mean_pred, frac_pos, count) を自前計算
+    bin_edges = np.linspace(0.0, 1.0, n_bins + 1)
+    # 境界値 1.0 が out-of-range になるのを防ぐため digitize 後に clip
+    bin_idx_full = np.digitize(y_pred, bins=bin_edges[1:-1], right=False)
+    bin_idx_clipped = np.clip(bin_idx_full, 0, n_bins - 1)
+
+    y_true_f = y_true.astype(float)
+    # 各 bin のサンプル数・正例数・予測確率和
+    counts_full = np.bincount(bin_idx_clipped, minlength=n_bins).astype(float)
+    pos_sum_full = np.bincount(bin_idx_clipped, weights=y_true_f, minlength=n_bins)
+    pred_sum_full = np.bincount(bin_idx_clipped, weights=y_pred, minlength=n_bins)
+
+    # 空でない bin のみ抽出 (count > 0)
+    nonempty_mask = counts_full > 0
+    counts = counts_full[nonempty_mask]
+    pos_sums = pos_sum_full[nonempty_mask]
+    pred_sums = pred_sum_full[nonempty_mask]
+
+    if len(counts) == 0:
+        return float("nan")
+
+    frac_pos = pos_sums / counts
+    mean_pred = pred_sums / counts
+
+    # 戻り値と count 配列の整列を assert (off-by-one 防止・Specialist 指摘 (b))
+    # 自前計算のため構造的に整列するが・念のため長さを検証
+    assert len(counts) == len(frac_pos) == len(mean_pred), (
+        f"_compute_calibration_max_dev_guarded: alignment mismatch "
+        f"len(counts)={len(counts)}, len(frac_pos)={len(frac_pos)}, "
+        f"len(mean_pred)={len(mean_pred)}"
+    )
+
+    # MIN_BIN_COUNT 未満の bin を除外
+    keep_mask = counts >= min_bin_count
+    if not np.any(keep_mask):
+        # 全 bin が基準未満 → 信頼できる bin が無い
+        return float("nan")
+
+    devs = np.abs(mean_pred[keep_mask] - frac_pos[keep_mask])
+    return float(np.max(devs))
 
 
 # ---------------------------------------------------------------------------
