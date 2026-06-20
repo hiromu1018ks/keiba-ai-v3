@@ -105,3 +105,35 @@ def test_purchase_no_sale():
     ])
     selected = select_bets(df)
     assert len(selected) == 0
+
+
+def test_purchase_no_bet_excluded():
+    """``fuku_odds_lower=NaN`` (no_bet sentinel) → 除外（§11.3）。
+
+    ``select_bets`` は事前 filter で ``fuku_odds_lower.notna()`` を適用し・
+    ``no_bet`` 行を選択対象外にする（silent fallback 禁止・D-13）。
+    """
+    from src.ev.purchase_simulator import select_bets
+
+    df = pd.DataFrame([
+        _make_race_row(umaban=1, ev_lower=1.20, p=0.20, odds_lower=float("nan")),
+    ])
+    selected = select_bets(df)
+    assert len(selected) == 0
+
+
+def test_purchase_stable_mergesort():
+    """``select_bets`` の実装が ``kind='mergesort'`` を使用し安定ソートであること。
+
+    共有パターン7（決定論的タイブレーク）: pandas default は quicksort（非安定）だが・
+    ``kind='mergesort'`` で seed 非依存の決定論化（§19.1 再現性・RESEARCH §4.3）。
+    """
+    import inspect
+    from src.ev.purchase_simulator import select_bets
+
+    source = inspect.getsource(select_bets)
+    assert "kind='mergesort'" in source or 'kind="mergesort"' in source, (
+        "select_bets は sort_values(..., kind='mergesort') を使用しなければならない "
+        "（決定論的タイブレーク・共有パターン7）"
+    )
+

@@ -101,3 +101,65 @@ def test_metrics_counts():
     assert metrics["effective_bet_count"] == 2
     assert metrics["refund_count"] == 1
     assert metrics["hit_count"] == 1
+
+
+def test_metrics_zero_division():
+    """全件 ``effective_stake=0`` (全件返還) → ``recovery_rate=0.0`` (ゼロ除算回避・§8.3)。"""
+    from src.ev.metrics import compute_backtest_metrics
+
+    df = pd.DataFrame([
+        _make_bet_row(umaban=1, refund_flag=True, refund_amount=100,
+                       payout_amount=0, profit=0, effective_stake=0,
+                       fukusho_hit_validated=0),
+        _make_bet_row(umaban=2, refund_flag=True, refund_amount=100,
+                       payout_amount=0, profit=0, effective_stake=0,
+                       fukusho_hit_validated=0),
+    ])
+    metrics = compute_backtest_metrics(df)
+    assert metrics["recovery_rate"] == 0.0
+    assert metrics["effective_bet_count"] == 0
+
+
+def test_metrics_profit_invariant():
+    """行 profit と集計 profit が混在シナリオで恒等的に等しい（MEDIUM-02・T-05-05b mitigate）。
+
+    合成 selected_with_accounting で通常的中 / 不的中 / 返還 / 競走中止 を混在させ・
+    ``sum(row.profit) == sum(payout_amount) + sum(refund_amount) - sum(stake)``
+    が成立することを assert。refund 行や dead-loss 行で行ベース会計と集計会計が
+    分岐しないことを担保する。
+    """
+    from src.ev.metrics import compute_backtest_metrics
+
+    # 混在シナリオ:
+    # - umaban=1: 通常的中 (stake=100, payout=200, refund=0, profit=100, effective_stake=100)
+    # - umaban=2: 通常不的中 (stake=100, payout=0, refund=0, profit=-100, effective_stake=100)
+    # - umaban=3: 返還 (stake=100, payout=0, refund=100, profit=0, effective_stake=0)
+    # - umaban=4: 競走中止 (stake=100, payout=0, refund=0, profit=-100, effective_stake=100)
+    df = pd.DataFrame([
+        _make_bet_row(umaban=1, stake=100, payout_amount=200, refund_amount=0,
+                       profit=100, effective_stake=100, fukusho_hit_validated=1),
+        _make_bet_row(umaban=2, stake=100, payout_amount=0, refund_amount=0,
+                       profit=-100, effective_stake=100, fukusho_hit_validated=0),
+        _make_bet_row(umaban=3, stake=100, payout_amount=0, refund_amount=100,
+                       refund_flag=True, profit=0, effective_stake=0,
+                       fukusho_hit_validated=0),
+        _make_bet_row(umaban=4, stake=100, payout_amount=0, refund_amount=0,
+                       profit=-100, effective_stake=100, fukusho_hit_validated=0),
+    ])
+    metrics = compute_backtest_metrics(df)
+
+    # 不変量: sum(row.profit) == sum(payout) + sum(refund) - sum(stake)
+    sum_row_profit = int(df["profit"].sum())
+    sum_payout = int(df["payout_amount"].sum())
+    sum_refund = int(df["refund_amount"].sum())
+    sum_stake = int(df["stake"].sum())
+    expected_profit_loss = sum_payout + sum_refund - sum_stake
+    assert sum_row_profit == expected_profit_loss, (
+        f"行 profit 合計 {sum_row_profit} != 集計 profit {expected_profit_loss} "
+        f"(MEDIUM-02: refund/dead-loss 行で会計分岐)"
+    )
+    # metrics の profit_loss も同一値（集計式）であることを cross-check
+    assert metrics["profit_loss"] == expected_profit_loss, (
+        f"metrics.profit_loss {metrics['profit_loss']} != 期待値 {expected_profit_loss}"
+    )
+
