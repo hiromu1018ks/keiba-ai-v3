@@ -11,10 +11,11 @@
 参考: 04-RESEARCH.md D-10 確定事項 / D-05 prediction provenance /
       04-04-PLAN.md Task 1 behavior/action.
 """
+# ruff: noqa: E501  (docstring に長い provenance 列リストを保持するため行長は緩和)
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import numpy as np
 import pandas as pd
@@ -23,12 +24,11 @@ from sklearn.linear_model import LogisticRegression
 
 from src.model.predict import (
     MODEL_TYPE_TO_SHORT,
-    PREDICTION_COLUMNS,
     PK_COLUMNS,
+    PREDICTION_COLUMNS,
     make_model_version,
     predict_p_fukusho,
 )
-
 
 # ---------------------------------------------------------------------------
 # helpers — 合成 calibrated estimator と feature DataFrame
@@ -102,7 +102,7 @@ def test_provenance_columns():
     est = _make_synthetic_estimator()
     X, race_df = _make_synthetic_feature_df(n=10)
 
-    fixed_as_of = datetime(2026, 6, 20, 12, 0, 0, tzinfo=timezone.utc)
+    fixed_as_of = datetime(2026, 6, 20, 12, 0, 0, tzinfo=UTC)
     df = predict_p_fukusho(
         est,
         X,
@@ -135,10 +135,7 @@ def test_provenance_columns():
     assert (df["p_fukusho_hit"] >= 0).all() and (df["p_fukusho_hit"] <= 1).all()
 
     # PK 11 カラムで一意
-    pk_11 = (
-        ["model_type", "model_version", "feature_snapshot_id", "as_of_datetime"]
-        + PK_COLUMNS
-    )
+    pk_11 = ["model_type", "model_version", "feature_snapshot_id", "as_of_datetime"] + PK_COLUMNS
     assert df.duplicated(subset=pk_11).sum() == 0, "PK 11 columns not unique"
 
 
@@ -166,7 +163,7 @@ def test_predict_uses_injected_pred_proba():
     # 手動で expected 予測値を算出
     expected = est.predict_proba(X)[:, 1]
 
-    fixed_as_of = datetime(2026, 6, 20, 12, 0, 0, tzinfo=timezone.utc)
+    fixed_as_of = datetime(2026, 6, 20, 12, 0, 0, tzinfo=UTC)
     common_kwargs = dict(
         model_type="lightgbm",
         model_version="20260620-1a-postreview-v2-lgb-v1",
