@@ -1,3 +1,4 @@
+# ruff: noqa: E501  (長い docstring / SQL リテラルを保持するため行長は緩和)
 """Phase 4 model data layer: stamped Parquet 読込 + label join + allowlist + 3way split.
 
 成功基準#1 (SC#1) / §13.4 / D-01 / D-02b / D-07 / MODL-01 を実装する service 層。
@@ -60,7 +61,6 @@ import yaml
 
 from src.features.availability import (
     _CATEGORY_COLUMNS,
-    _RAW_ID_KEPT_COLUMNS,
     _RESERVED_NON_FEATURE_COLUMNS,
     assert_matrix_columns_registered,
     banned_features,
@@ -84,46 +84,55 @@ LABEL_PK_COLUMNS = ["year", "jyocd", "kaiji", "nichiji", "racenum"]
 # raw ID 原列（モデル入力から除外・Pitfall 4 / T-04-07）。
 # availability._RAW_ID_KEPT_COLUMNS は kettonum も含むが kettonum は canonical key のため
 # モデル入力除外対象は kisyucode/chokyosicode/ketto3infohansyokunum1/2 の4列のみ。
-RAW_ID_COLUMNS: frozenset[str] = frozenset({
-    "kisyucode",
-    "chokyosicode",
-    "ketto3infohansyokunum1",
-    "ketto3infohansyokunum2",
-})
+RAW_ID_COLUMNS: frozenset[str] = frozenset(
+    {
+        "kisyucode",
+        "chokyosicode",
+        "ketto3infohansyokunum1",
+        "ketto3infohansyokunum2",
+    }
+)
 
 # label 系列列名（build_training_frame で feature 側に付与・make_X_y で FEATURE から除外）
-LABEL_COLUMNS: frozenset[str] = frozenset({
-    "fukusho_hit_validated",
-    "fukusho_hit_raw",
-    "is_model_eligible",
-    "label_validation_status",
-    "is_fukusho_sale_available",
-    "fukusho_payout_places",
-    "sales_start_entry_count",
-    "final_starter_count",
-    "sales_start_entry_count_source",
-    "sales_start_entry_count_confidence",
-    "ineligibility_reason",
-    "is_scratch_cancel",
-    "is_race_excluded",
-    "is_dead_loss",
-    "is_race_cancelled",
-    "is_dead_heat",
-    "label_generation_version",
-})
+LABEL_COLUMNS: frozenset[str] = frozenset(
+    {
+        "fukusho_hit_validated",
+        "fukusho_hit_raw",
+        "is_model_eligible",
+        "label_validation_status",
+        "is_fukusho_sale_available",
+        "fukusho_payout_places",
+        "sales_start_entry_count",
+        "final_starter_count",
+        "sales_start_entry_count_source",
+        "sales_start_entry_count_confidence",
+        "ineligibility_reason",
+        "is_scratch_cancel",
+        "is_race_excluded",
+        "is_dead_loss",
+        "is_race_cancelled",
+        "is_dead_heat",
+        "label_generation_version",
+    }
+)
 
 # metadata / key / provenance 列（FEATURE から除外・review HIGH#9: metadata/label/raw-ID 混入防止）
 # 注意: registry 登録 feature (umaban/wakuban/barei/sexcd/futan/class_code_normalized) は
 # 本集合に含めない（feature として扱う）。META_KEY_COLUMNS は registry 非登録の純粋 meta/key 列のみ。
-META_KEY_COLUMNS: frozenset[str] = frozenset({
-    "race_nkey",  # 参考専用・disjoint 検査には使わない（review HIGH#9）
-    "as_of_datetime",
-    "feature_cutoff_datetime",
-    "feature_snapshot_id",
-    "feature_availability_version",
-    "label_generation_version",  # snapshot 側の stamp（label 側の同名列と同名・meta 扱い）
-    "prediction_timing",
-}) | _RESERVED_NON_FEATURE_COLUMNS  # race_nkey/kettonum/year/jyocd/kaiji/nichiji/racenum/
+META_KEY_COLUMNS: frozenset[str] = (
+    frozenset(
+        {
+            "race_nkey",  # 参考専用・disjoint 検査には使わない（review HIGH#9）
+            "as_of_datetime",
+            "feature_cutoff_datetime",
+            "feature_snapshot_id",
+            "feature_availability_version",
+            "label_generation_version",  # snapshot 側の stamp（label 側の同名列と同名・meta 扱い）
+            "prediction_timing",
+        }
+    )
+    | _RESERVED_NON_FEATURE_COLUMNS
+)  # race_nkey/kettonum/year/jyocd/kaiji/nichiji/racenum/
 #   race_date/race_start_datetime/obs_id(削除) + rolling_*_count_5 8列
 # (umaban/wakuban は _RESERVED_NON_FEATURE_COLUMNS に含まれないため feature 扱い)
 
@@ -367,10 +376,16 @@ def build_training_frame(
 
 
 def filter_eligible(frame: pd.DataFrame) -> pd.DataFrame:
-    """``is_model_eligible == True`` かつ ``label_validation_status in {'ok','computed'}``
-    の行のみ残す（label_spec.yaml / D-04）。"""
+    """``is_model_eligible == True`` かつ ``label_validation_status in {'validated','inferred','dead_heat'}``
+    の行のみ残す（label_spec.yaml / D-04）。
+
+    label_validation_status の正準4値は ``{validated, inferred, dead_heat, unresolved}``
+    (src/etl/fukusho_label.py:399 D-04 固定4値)。``is_model_eligible == True`` と同義なのは
+    ``label_validation_status in (validated, inferred, dead_heat)`` (fukusho_label.py:514)。
+    ``unresolved`` は学習対象外。本 filter は両条件の積を取る (二重防御)。
+    """
     mask = frame["is_model_eligible"].astype(bool) & (
-        frame["label_validation_status"].astype(str).isin({"ok", "computed"})
+        frame["label_validation_status"].astype(str).isin({"validated", "inferred", "dead_heat"})
     )
     out = frame[mask].copy()
     if len(out) == 0:
@@ -402,9 +417,7 @@ def make_X_y(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     assert_matrix_columns_registered(spec, FEATURE_COLUMNS)
     banned = banned_features(spec)
     if banned:
-        raise ValueError(
-            f"banned features が混入 (D-07/§13.4 odds-free allowlist 違反): {banned}"
-        )
+        raise ValueError(f"banned features が混入 (D-07/§13.4 odds-free allowlist 違反): {banned}")
 
     X = frame[FEATURE_COLUMNS].copy()
     # 完全一致（集合 + 順序）assert・review HIGH#9
@@ -413,6 +426,38 @@ def make_X_y(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
             "make_X_y: X.columns が FEATURE_COLUMNS と完全一致しない (review HIGH#9): "
             f"X.columns={list(X.columns)} FEATURE_COLUMNS={FEATURE_COLUMNS}"
         )
+
+    # build_training_frame が PK 列 (umaban 含む) を str 化する副作用に対する numeric 復元
+    # (Rule 3 blocking fix: 実データで umaban が str になり LightGBM が "bad pandas dtypes"
+    # で失敗するのを防止)。categorical 列 (LOW_CARD_CAT_COLS + HIGH_CARD_CODE_COLS) 以外の
+    # FEATURE_COLUMNS は numeric (int/float) に復元する。
+    _categorical_feature_cols = {
+        "sexcd",
+        "class_code_normalized",
+        "estimated_running_style",
+        "rolling_jyocd_mode_5",
+        "rolling_jyocd_latest_5",
+        "jockey_id_code",
+        "trainer_id_code",
+        "sire_id_code",
+        "bms_id_code",
+        "horse_id_code",
+    }
+    for col in FEATURE_COLUMNS:
+        if col in _categorical_feature_cols:
+            continue
+        # pandas StringDtype / object / str 系の dtype を numeric に復元
+        # (build_training_frame が PK 列 umaban を str 化する副作用対策・Rule 3 blocking fix)。
+        col_dtype_str = str(X[col].dtype)
+        if (
+            X[col].dtype == object
+            or col_dtype_str == "str"
+            or col_dtype_str == "string"
+            or col_dtype_str.startswith("string")
+        ):
+            # str → numeric 復元 (umaban 等の PK 起源列)。変換失敗は ValueError (fail-loud)。
+            X[col] = pd.to_numeric(X[col], errors="raise")
+
     y = frame["fukusho_hit_validated"].astype(int)
     return X, y
 
@@ -485,13 +530,9 @@ def split_3way(frame: pd.DataFrame) -> dict[str, pd.DataFrame]:
         ("holdout_2025_plus", holdout),
     ):
         if len(df_part) == 0:
-            raise ValueError(
-                f"split_3way: {name} 区間が空 (frame の race_date 分布異常の可能性)"
-            )
+            raise ValueError(f"split_3way: {name} 区間が空 (frame の race_date 分布異常の可能性)")
         if "race_start_datetime" in df_part.columns:
-            df_part.sort_values(
-                ["race_start_datetime", "race_key"], kind="mergesort", inplace=True
-            )
+            df_part.sort_values(["race_start_datetime", "race_key"], kind="mergesort", inplace=True)
         else:
             df_part.sort_values(["race_key"], kind="mergesort", inplace=True)
         df_part.reset_index(drop=True, inplace=True)

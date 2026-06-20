@@ -1,3 +1,4 @@
+# ruff: noqa: E501, B007  (長い docstring / SQL リテラル・groupby loop var を保持するため緩和)
 """Phase 4 baseline: BL-1..5 計算（MODL-02 / SC#2 / §14.2 / D-07 / D-08）.
 
 成功基準#2 (SC#2) と MODL-02 を実装する service 層。BL-1..5 全5つのベースライン確率を算出し、
@@ -81,9 +82,7 @@ def _payout_places(entry_count: int) -> int:
     fukusho_payout_places 列があれば優先するが・本関数は entry_count から推定する基本版。
     """
     if entry_count is None or pd.isna(entry_count):
-        raise ValueError(
-            f"_payout_places: entry_count が NaN/None (fukusho_label の必須列・D-08)"
-        )
+        raise ValueError("_payout_places: entry_count が NaN/None (fukusho_label の必須列・D-08)")
     ec = int(entry_count)
     if ec >= 8:
         return 3
@@ -124,9 +123,7 @@ def compute_bl1(
         places = _payout_places_from_row(row)
         ec = int(row[entry_count_col])
         if ec <= 0:
-            raise ValueError(
-                f"compute_bl1: entry_count={ec} <= 0 (idx={idx}・D-08)"
-            )
+            raise ValueError(f"compute_bl1: entry_count={ec} <= 0 (idx={idx}・D-08)")
         out.at[idx] = places / ec
     return out
 
@@ -233,46 +230,68 @@ def compute_bl4(
 
     # review HIGH#2: X/y 行整列
     if not X_train.index.equals(y_train.index):
-        raise ValueError(
-            "compute_bl4: X_train.index と y_train.index が一致しない (review HIGH#2)"
-        )
+        raise ValueError("compute_bl4: X_train.index と y_train.index が一致しない (review HIGH#2)")
 
     X_train_bl4 = X_train[BL4_FEATURES].copy()
     X_test_bl4 = X_test[BL4_FEATURES].copy()
 
     # class_code_normalized は categorical 扱い（low-cardinality）・One-Hot で処理
-    # 欠損は "__MISSING__" sentinel
-    for col in ["class_code_normalized"]:
+    # 欠損は "__MISSING__" sentinel。Rule 3 blocking fix: 文字列化後に One-Hot 化しないと
+    # LogisticRegression が文字列を数値に変換できず ValueError になる。pd.get_dummies で
+    # train ∪ test の全カテゴリで One-Hot 化する (train/test 列整合を保つため union)。
+    cat_cols_bl4 = ["class_code_normalized"]
+    for col in cat_cols_bl4:
         if col in X_train_bl4.columns:
             X_train_bl4[col] = X_train_bl4[col].fillna("__MISSING__").astype(str)
             X_test_bl4[col] = X_test_bl4[col].fillna("__MISSING__").astype(str)
+    # One-Hot 化 (train ∪ test の全カテゴリで列整合)
+    all_cat_df = pd.concat([X_train_bl4[cat_cols_bl4], X_test_bl4[cat_cols_bl4]], axis=0)
+    dummies_all = pd.get_dummies(all_cat_df, columns=cat_cols_bl4, dummy_na=False)
+    train_dummies = dummies_all.iloc[: len(X_train_bl4)].reset_index(drop=True)
+    test_dummies = dummies_all.iloc[len(X_train_bl4) :].reset_index(drop=True)
+    # numeric 列はそのまま (One-Hot 置換対象外)
+    numeric_cols = [c for c in X_train_bl4.columns if c not in cat_cols_bl4]
+    X_train_bl4_final = pd.concat(
+        [X_train_bl4[numeric_cols].reset_index(drop=True), train_dummies], axis=1
+    )
+    X_test_bl4_final = pd.concat(
+        [X_test_bl4[numeric_cols].reset_index(drop=True), test_dummies], axis=1
+    )
+    X_train_bl4_final.index = X_train_bl4.index
+    X_test_bl4_final.index = X_test_bl4.index
 
     model = LogisticRegression(max_iter=1000, random_state=42)
-    model.fit(X_train_bl4, y_train)
+    model.fit(X_train_bl4_final, y_train)
 
     if calibrate:
         if X_calib is None or y_calib is None:
             raise ValueError(
                 "compute_bl4: calibrate=True の場合 X_calib / y_calib が必須 (review MEDIUM)"
             )
-        from src.utils.calibrator import fit_prefit_calibrator
 
         X_calib_bl4 = X_calib[BL4_FEATURES].copy()
         if "class_code_normalized" in X_calib_bl4.columns:
             X_calib_bl4["class_code_normalized"] = (
                 X_calib_bl4["class_code_normalized"].fillna("__MISSING__").astype(str)
             )
+        # X_calib も One-Hot 化 (train と同一カテゴリで変換)
+        calib_dummies = pd.get_dummies(
+            X_calib_bl4[cat_cols_bl4], columns=cat_cols_bl4, dummy_na=False
+        )
+        calib_numeric = X_calib_bl4[numeric_cols].reset_index(drop=True)
+        X_calib_bl4_final = pd.concat([calib_numeric, calib_dummies], axis=1)
+        X_calib_bl4_final.index = X_calib_bl4.index
+        # train と列整合 (train に無い列は 0 補完・train に有る列のみ保持)
+        for col in X_train_bl4_final.columns:
+            if col not in X_calib_bl4_final.columns:
+                X_calib_bl4_final[col] = 0
+        X_calib_bl4_final = X_calib_bl4_final[X_train_bl4_final.columns]
         # calibrator は race_dates_calib と train_max_date を要求するが・BL 評価は
         # 主モデルの calib slice をそのまま使うため・caller が正当な calib slice を渡した前提
-        # （strict-later 検証は fit_prefit_calibrator 内部で実施）
-        # ここでは train_max_date として X_train の race_date max を渡す必要があるが・
-        # BL-4 の fit 関数は race_date 列を持たない可能性があるため・caller 責任で検証済みの
-        # calib slice を渡す前提とする（簡素化・主モデルと同一 calib slice を再利用）
-        # 実運用では calibrate_model 経由で wrap して race_dates を渡す。
-        calibrator = _fit_bl_calibrator(model, X_calib_bl4, y_calib)
-        proba = calibrator.predict_proba(X_test_bl4)[:, 1]
+        calibrator = _fit_bl_calibrator(model, X_calib_bl4_final, y_calib)
+        proba = calibrator.predict_proba(X_test_bl4_final)[:, 1]
     else:
-        proba = model.predict_proba(X_test_bl4)[:, 1]
+        proba = model.predict_proba(X_test_bl4_final)[:, 1]
 
     return pd.Series(proba, index=X_test.index, name="p_bl4")
 
@@ -285,7 +304,6 @@ def _fit_bl_calibrator(base_estimator: Any, X_calib: pd.DataFrame, y_calib: pd.S
     それを使い・無ければ caller が既に strict-later を保証した前提で ``Timestamp.min`` /
     ``Timestamp.max`` をダミー値として渡す（主モデルと同一 calib slice を使うため）。
     """
-    from datetime import date
 
     from src.utils.calibrator import fit_prefit_calibrator
 
@@ -296,9 +314,7 @@ def _fit_bl_calibrator(base_estimator: Any, X_calib: pd.DataFrame, y_calib: pd.S
         # （実際の運用では race_dates.min() の1日前を train_max_date に設定）
         train_max = race_dates.min() - pd.Timedelta(days=1)
     else:
-        race_dates = pd.Series(
-            [pd.Timestamp("2024-01-01")] * len(X_calib), index=X_calib.index
-        )
+        race_dates = pd.Series([pd.Timestamp("2024-01-01")] * len(X_calib), index=X_calib.index)
         train_max = pd.Timestamp("2023-12-31")
 
     return fit_prefit_calibrator(
@@ -335,9 +351,7 @@ def compute_bl5(
 
     # review HIGH#2: X/y 行整列
     if not X_train.index.equals(y_train.index):
-        raise ValueError(
-            "compute_bl5: X_train.index と y_train.index が一致しない (review HIGH#2)"
-        )
+        raise ValueError("compute_bl5: X_train.index と y_train.index が一致しない (review HIGH#2)")
 
     X_train_bl5 = X_train[BL5_FEATURES].copy()
     X_test_bl5 = X_test[BL5_FEATURES].copy()

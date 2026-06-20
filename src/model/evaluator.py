@@ -106,6 +106,32 @@ SUM_P_DIAGNOSTIC_NOTE = (
 )
 
 
+def _df_to_markdown_table(df: pd.DataFrame) -> str:
+    """DataFrame を Markdown 表形式文字列に変換する (tabulate 非依存・Rule 3 auto-fix)。
+
+    ``df.to_markdown()`` は optional dependency の ``tabulate`` を要求するが・本プロジェクトの
+    pyproject.toml は ``tabulate`` を含まない。依存関係追加を避けるため・手動で Markdown 表を
+    構築する (PLAN 05 E2E 実行の blocking issue 解消)。
+    """
+    cols = list(df.columns)
+    header = "| " + " | ".join(str(c) for c in cols) + " |"
+    separator = "| " + " | ".join("---" for _ in cols) + " |"
+    rows = []
+    for _, row in df.iterrows():
+        cells = []
+        for c in cols:
+            v = row[c]
+            if isinstance(v, float):
+                if pd.isna(v):
+                    cells.append("nan")
+                else:
+                    cells.append(f"{v:.6f}")
+            else:
+                cells.append(str(v))
+        rows.append("| " + " | ".join(cells) + " |")
+    return "\n".join([header, separator] + rows)
+
+
 # ---------------------------------------------------------------------------
 # compute_metrics — Brier/LogLoss/AUC/sum(p)/calibration_max_dev
 # ---------------------------------------------------------------------------
@@ -182,9 +208,7 @@ def compute_metrics(
     return metrics
 
 
-def _compute_calibration_max_dev(
-    y_true: np.ndarray, y_pred: np.ndarray
-) -> float:
+def _compute_calibration_max_dev(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """calibration curve の max |mean_pred - frac_pos| を計算 (review MEDIUM: binning 契約固定).
 
     ``CALIBRATION_CURVE_BINS`` / ``CALIBRATION_CURVE_STRATEGY`` 定数を使用し・run 毎の
@@ -217,9 +241,7 @@ def _compute_calibration_max_dev(
 # ---------------------------------------------------------------------------
 
 
-def check_sum_p_distribution(
-    df: pd.DataFrame, p_col: str, entry_count_col: str
-) -> dict[str, Any]:
+def check_sum_p_distribution(df: pd.DataFrame, p_col: str, entry_count_col: str) -> dict[str, Any]:
     """race_key groupby で sum(p) を計算し §15.2 理論値を機械検査 (review MEDIUM: 診断的).
 
     8頭以上は [2.7, 3.3]・5-7頭は [1.8, 2.2] を機械検査するが・fail-loud でなく
@@ -372,7 +394,7 @@ def write_eval_report(
     md_lines.append("\n")
     md_lines.append("## 比較表 (BL-1..5 + 主モデル)\n")
     md_lines.append("\n")
-    md_lines.append(comparison_df.to_markdown(index=False))
+    md_lines.append(_df_to_markdown_table(comparison_df))
     md_lines.append("\n\n")
     md_lines.append("## §15.2 sum(p) 分布検査結果\n")
     md_lines.append("\n")
@@ -460,18 +482,14 @@ def evaluate_all_models(
     # 主評価は test split (§15.4)
     y_test = y_true_by_split.get("test")
     if y_test is None:
-        raise ValueError(
-            "evaluate_all_models: y_true_by_split must contain 'test' split (§15.4)"
-        )
+        raise ValueError("evaluate_all_models: y_true_by_split must contain 'test' split (§15.4)")
 
     for model_name, pred_df in predictions_by_model.items():
         # 予測 df の test split 抽出
         test_mask = pred_df["split"] == "test"
         pred_test = pred_df.loc[test_mask]
         if len(pred_test) == 0:
-            metrics_dict[model_name] = {
-                col: float("nan") for col in METRIC_COLUMNS
-            }
+            metrics_dict[model_name] = {col: float("nan") for col in METRIC_COLUMNS}
             metrics_dict[model_name]["sum_p_note"] = SUM_P_DIAGNOSTIC_NOTE
             continue
 
@@ -482,13 +500,9 @@ def evaluate_all_models(
         else:
             y_true = y_test.reindex(pred_test.index).to_numpy()
 
-        race_keys = (
-            pred_test["race_key"].to_numpy() if "race_key" in pred_test.columns else None
-        )
+        race_keys = pred_test["race_key"].to_numpy() if "race_key" in pred_test.columns else None
         entry_counts = (
-            pred_test["entry_count"].to_numpy()
-            if "entry_count" in pred_test.columns
-            else None
+            pred_test["entry_count"].to_numpy() if "entry_count" in pred_test.columns else None
         )
 
         metrics_dict[model_name] = compute_metrics(

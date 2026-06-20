@@ -223,7 +223,7 @@ def _make_synthetic_labels(feature_df: pd.DataFrame) -> pd.DataFrame:
         "fukusho_hit_validated": rng.integers(0, 2, size=n).astype(int),
         "fukusho_hit_raw": rng.integers(0, 2, size=n).astype(int),
         "is_model_eligible": True,
-        "label_validation_status": "ok",
+        "label_validation_status": "validated",
         "is_fukusho_sale_available": True,
         "fukusho_payout_places": 3,
         "sales_start_entry_count": 12,

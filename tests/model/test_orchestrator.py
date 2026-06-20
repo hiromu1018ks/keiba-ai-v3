@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import inspect
 import sys
-from datetime import UTC, datetime
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -38,7 +38,6 @@ from src.model.orchestrator import (  # noqa: E402
     _merge_params,
     train_and_predict,
 )
-
 
 # ---------------------------------------------------------------------------
 # 共通 helper: 合成 label-joined feature_df (race_key 時系列・categorical 含む)
@@ -67,17 +66,13 @@ def _build_label_joined_feature_df(
     rng = np.random.default_rng(seed)
     rows: list[dict] = []
 
-    def _add_period(
-        n_races: int, start: str, end: str, period_seed_offset: int
-    ) -> None:
+    def _add_period(n_races: int, start: str, end: str, period_seed_offset: int) -> None:
         start_ts = pd.Timestamp(start)
         end_ts = pd.Timestamp(end)
         span_days = max(1, (end_ts - start_ts).days)
         for race_i in range(n_races):
             # period 内に一様に分散
-            race_dt = start_ts + pd.Timedelta(
-                days=int(span_days * race_i / max(1, n_races))
-            )
+            race_dt = start_ts + pd.Timedelta(days=int(span_days * race_i / max(1, n_races)))
             jyocd = (race_i % 10) + 1
             kaiji = ((race_i // 10) % 8) + 1
             nichiji = ((race_i // 80) % 12) + 1
@@ -106,105 +101,43 @@ def _build_label_joined_feature_df(
                             rng.integers(1, 100_000_000)
                         ),  # PK 一意性のためにレース内で異なる値
                         "sexcd": str(int(rng.choice([1, 2, 3]))),
-                        "class_code_normalized": str(
-                            int(rng.choice([703, 701, 5, 10, 999]))
-                        ),
-                        "estimated_running_style": str(
-                            int(rng.choice([1, 2, 3, 4, 5]))
-                        ),
-                        "rolling_jyocd_mode_5": str(
-                            int(rng.choice([5, 6, 7, 8, 9]))
-                        ),
-                        "rolling_jyocd_latest_5": str(
-                            int(rng.choice([5, 6, 7, 8, 9]))
-                        ),
-                        "jockey_id_code": np.int32(
-                            rng.integers(0, 100)
-                        ),
-                        "trainer_id_code": np.int32(
-                            rng.integers(0, 80)
-                        ),
-                        "sire_id_code": np.int32(
-                            rng.integers(0, 500)
-                        ),
-                        "bms_id_code": np.int32(
-                            rng.integers(0, 500)
-                        ),
-                        "horse_id_code": np.int32(
-                            rng.integers(0, 2000)
-                        ),
+                        "class_code_normalized": str(int(rng.choice([703, 701, 5, 10, 999]))),
+                        "estimated_running_style": str(int(rng.choice([1, 2, 3, 4, 5]))),
+                        "rolling_jyocd_mode_5": str(int(rng.choice([5, 6, 7, 8, 9]))),
+                        "rolling_jyocd_latest_5": str(int(rng.choice([5, 6, 7, 8, 9]))),
+                        "jockey_id_code": np.int32(rng.integers(0, 100)),
+                        "trainer_id_code": np.int32(rng.integers(0, 80)),
+                        "sire_id_code": np.int32(rng.integers(0, 500)),
+                        "bms_id_code": np.int32(rng.integers(0, 500)),
+                        "horse_id_code": np.int32(rng.integers(0, 2000)),
                         "barei": int(rng.integers(2, 9)),
                         "futan": int(rng.integers(48, 58)),
                         "wakuban": int(rng.integers(1, 9)),
                         # rolling_* numeric features (FEATURE_COLUMNS に含まれる全て)
-                        "rolling_babacd_latest_5": float(
-                            rng.normal(0.5, 0.1)
-                        ),
-                        "rolling_babacd_mean_5": float(
-                            rng.normal(0.5, 0.1)
-                        ),
-                        "rolling_babacd_sd_5": float(
-                            rng.normal(0.05, 0.01)
-                        ),
-                        "rolling_days_since_prev_latest_5": int(
-                            rng.integers(7, 60)
-                        ),
-                        "rolling_days_since_prev_mean_5": float(
-                            rng.normal(30.0, 5.0)
-                        ),
-                        "rolling_days_since_prev_sd_5": float(
-                            rng.normal(10.0, 2.0)
-                        ),
-                        "rolling_harontimel3_latest_5": float(
-                            rng.normal(35.0, 1.0)
-                        ),
-                        "rolling_harontimel3_mean_5": float(
-                            rng.normal(35.0, 1.0)
-                        ),
-                        "rolling_harontimel3_sd_5": float(
-                            rng.normal(0.5, 0.1)
-                        ),
-                        "rolling_jyuni3c_jyuni4c_latest_5": float(
-                            rng.normal(5.0, 2.0)
-                        ),
-                        "rolling_jyuni3c_jyuni4c_mean_5": float(
-                            rng.normal(5.0, 2.0)
-                        ),
-                        "rolling_jyuni3c_jyuni4c_sd_5": float(
-                            rng.normal(2.0, 0.5)
-                        ),
-                        "rolling_kakuteijyuni_latest_5": float(
-                            rng.normal(5.0, 2.0)
-                        ),
-                        "rolling_kakuteijyuni_mean_5": float(
-                            rng.normal(5.0, 2.0)
-                        ),
-                        "rolling_kakuteijyuni_sd_5": float(
-                            rng.normal(2.0, 0.5)
-                        ),
-                        "rolling_kyori_latest_5": int(
-                            rng.choice([1400, 1600, 1800, 2000])
-                        ),
-                        "rolling_kyori_mean_5": float(
-                            rng.normal(1800.0, 100.0)
-                        ),
-                        "rolling_kyori_sd_5": float(
-                            rng.normal(100.0, 20.0)
-                        ),
-                        "rolling_timediff_latest_5": float(
-                            rng.normal(0.0, 0.5)
-                        ),
-                        "rolling_timediff_mean_5": float(
-                            rng.normal(0.0, 0.3)
-                        ),
-                        "rolling_timediff_sd_5": float(
-                            rng.normal(0.3, 0.05)
-                        ),
+                        "rolling_babacd_latest_5": float(rng.normal(0.5, 0.1)),
+                        "rolling_babacd_mean_5": float(rng.normal(0.5, 0.1)),
+                        "rolling_babacd_sd_5": float(rng.normal(0.05, 0.01)),
+                        "rolling_days_since_prev_latest_5": int(rng.integers(7, 60)),
+                        "rolling_days_since_prev_mean_5": float(rng.normal(30.0, 5.0)),
+                        "rolling_days_since_prev_sd_5": float(rng.normal(10.0, 2.0)),
+                        "rolling_harontimel3_latest_5": float(rng.normal(35.0, 1.0)),
+                        "rolling_harontimel3_mean_5": float(rng.normal(35.0, 1.0)),
+                        "rolling_harontimel3_sd_5": float(rng.normal(0.5, 0.1)),
+                        "rolling_jyuni3c_jyuni4c_latest_5": float(rng.normal(5.0, 2.0)),
+                        "rolling_jyuni3c_jyuni4c_mean_5": float(rng.normal(5.0, 2.0)),
+                        "rolling_jyuni3c_jyuni4c_sd_5": float(rng.normal(2.0, 0.5)),
+                        "rolling_kakuteijyuni_latest_5": float(rng.normal(5.0, 2.0)),
+                        "rolling_kakuteijyuni_mean_5": float(rng.normal(5.0, 2.0)),
+                        "rolling_kakuteijyuni_sd_5": float(rng.normal(2.0, 0.5)),
+                        "rolling_kyori_latest_5": int(rng.choice([1400, 1600, 1800, 2000])),
+                        "rolling_kyori_mean_5": float(rng.normal(1800.0, 100.0)),
+                        "rolling_kyori_sd_5": float(rng.normal(100.0, 20.0)),
+                        "rolling_timediff_latest_5": float(rng.normal(0.0, 0.5)),
+                        "rolling_timediff_mean_5": float(rng.normal(0.0, 0.3)),
+                        "rolling_timediff_sd_5": float(rng.normal(0.3, 0.05)),
                         "is_model_eligible": True,
                         "label_validation_status": "ok",
-                        "fukusho_hit_validated": int(
-                            rng.random() < 0.21
-                        ),
+                        "fukusho_hit_validated": int(rng.random() < 0.21),
                     }
                 )
 
@@ -395,8 +328,8 @@ def test_no_circular_import():
     calibrator は orchestrator を import しない。
     """
     # 両モジュールが import 可能
-    import src.model.orchestrator as orch_mod
     import src.model.calibrator as cal_mod
+    import src.model.orchestrator as orch_mod
 
     # orchestrator の source に calibrator import がある (一方向)
     orch_source = inspect.getsource(orch_mod)
@@ -492,18 +425,14 @@ def test_merge_params_overrides_seed_and_threads():
     from src.model.trainer import CB_INIT_PARAMS, LGB_INIT_PARAMS
 
     # LightGBM: override を merge しても seed=42 / num_threads=1 が維持される
-    merged_lgb = _merge_params(
-        LGB_INIT_PARAMS, {"learning_rate": 0.1, "num_leaves": 31}, seed=42
-    )
+    merged_lgb = _merge_params(LGB_INIT_PARAMS, {"learning_rate": 0.1, "num_leaves": 31}, seed=42)
     assert merged_lgb["seed"] == 42
     assert merged_lgb["num_threads"] == 1
     assert merged_lgb["learning_rate"] == 0.1  # override 反映
     assert merged_lgb["num_leaves"] == 31  # override 反映
 
     # CatBoost: 同様
-    merged_cb = _merge_params(
-        CB_INIT_PARAMS, {"learning_rate": 0.1, "depth": 8}, seed=42
-    )
+    merged_cb = _merge_params(CB_INIT_PARAMS, {"learning_rate": 0.1, "depth": 8}, seed=42)
     assert merged_cb["random_seed"] == 42
     assert merged_cb["thread_count"] == 1
     assert merged_cb["learning_rate"] == 0.1

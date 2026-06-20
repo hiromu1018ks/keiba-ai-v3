@@ -64,8 +64,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from src.model.calibrator import calibrate_model
-from src.model.data import FEATURE_COLUMNS, make_X_y, split_3way
+from src.model.calibrator import CalibrationResult, calibrate_model
+from src.model.data import make_X_y, split_3way
 from src.model.predict import make_model_version, predict_p_fukusho
 from src.model.trainer import (
     CB_INIT_PARAMS,
@@ -74,7 +74,6 @@ from src.model.trainer import (
     _prepare_lightgbm_train_eval,
     _split_train_eval_tail,
     align_predictions,
-    assert_eval_disjoint,
     train_catboost,
     train_lightgbm,
 )
@@ -260,13 +259,9 @@ def train_and_predict(
             "train_and_predict: X_train_full.index != y_train_full.index (review HIGH#2)"
         )
     if not X_calib.index.equals(y_calib.index):
-        raise RuntimeError(
-            "train_and_predict: X_calib.index != y_calib.index (review HIGH#2)"
-        )
+        raise RuntimeError("train_and_predict: X_calib.index != y_calib.index (review HIGH#2)")
     if not X_test.index.equals(y_test.index):
-        raise RuntimeError(
-            "train_and_predict: X_test.index != y_test.index (review HIGH#2)"
-        )
+        raise RuntimeError("train_and_predict: X_test.index != y_test.index (review HIGH#2)")
 
     # --- race_df (PK + race_date) の index equality assert (review HIGH#2) ---
     # predict_p_fukusho が race_df の PK 列 + race_date を参照するため・X_test と一致が必要。
@@ -286,9 +281,7 @@ def train_and_predict(
     # X_train に meta 列を付与した frame を渡す。FEATURE_COLUMNS は meta 列を含まないため・
     # 元 train_df から必要列を結合する。
     train_meta_cols = [
-        c
-        for c in ("race_start_datetime", "race_key", "race_date")
-        if c in train_df.columns
+        c for c in ("race_start_datetime", "race_key", "race_date") if c in train_df.columns
     ]
     # _split_train_eval_tail に渡す frame: X_train_full + meta 列 (race_key 単位の時系列分割用)
     train_split_frame = X_train_full.copy()
@@ -304,7 +297,9 @@ def train_and_predict(
     y_train_tail = y_train_full.loc[X_train_tail.index]
 
     # --- eval set 分離 guard (review Cross-Plan #8) 用の race_key 集合 ---
-    eval_race_keys = set(train_tail_df["race_key"]) if "race_key" in train_tail_df.columns else set()
+    eval_race_keys = (
+        set(train_tail_df["race_key"]) if "race_key" in train_tail_df.columns else set()
+    )
     calib_race_keys = set(calib_df["race_key"]) if "race_key" in calib_df.columns else set()
     test_race_keys = set(test_df["race_key"]) if "race_key" in test_df.columns else set()
 
@@ -364,17 +359,30 @@ def train_and_predict(
     # 同一の categorical dtype に前処理してから calibrator / predict に渡す。これにより
     # CalibratedClassifierCV 経由の predict で "train and valid dataset categorical_feature
     # do not match" エラーを回避する (LightGBM 4.6 が categorical dtype 完全一致を要求)。
+    #
+    # CatBoost + CalibratedClassifierCV 互換性 (Rule 3 auto-fix): CatBoost estimator を
+    # FrozenEstimator でラップして CalibratedClassifierCV.fit(X_calib) すると・fit 内部で
+    # CatBoost が DataFrame を受け取り cat_features 認識なしに Pool を作ろうとし・StringDtype
+    # 列の pd.NA で "must be real number, not NAType" エラーになる。そのため CatBoost の場合は
+    # calibrate_model を経由せず・base estimator で calib Pool の生予測を算出してから手動で
+    # isotonic/sigmoid calibrator を fit する (_calibrate_catboost_manual helper)。
     if model_type == "lightgbm":
         _, X_calib_lgb = _prepare_lightgbm_train_eval(X_train_core, X_calib)
-    else:
-        X_calib_lgb = X_calib
-    calib_result = calibrate_model(
-        estimator,
-        X_calib_lgb,
-        y_calib,
-        race_dates_calib=calib_df.loc[X_calib.index, "race_date"],
-        train_max_date=train_df["race_date"].max(),
-    )
+        calib_result = calibrate_model(
+            estimator,
+            X_calib_lgb,
+            y_calib,
+            race_dates_calib=calib_df.loc[X_calib.index, "race_date"],
+            train_max_date=train_df["race_date"].max(),
+        )
+    else:  # catboost
+        calib_result = _calibrate_catboost_manual(
+            estimator,
+            X_calib,
+            y_calib,
+            calib_df,
+            train_df,
+        )
 
     # --- 予測 (review HIGH#2 + HIGH#12 CatBoost 行順序復元 + Cycle 2 NEW HIGH-1) ---
     if model_type == "lightgbm":
@@ -394,7 +402,14 @@ def train_and_predict(
             if c in test_df.columns:
                 X_test_cb[c] = test_df.loc[X_test.index, c].values
         pool_test, sorted_test_idx = _prepare_catboost_pool(X_test_cb, sort=True)
-        raw_pred_sorted = calib_result.calibrated.predict_proba(pool_test)[:, 1]
+        # CatBoost の CalibratedClassifierCV は predict_proba に DataFrame を渡すと
+        # 内部で cat_features 認識なしに Pool を作ろうとして StringDtype の pd.NA で
+        # "must be real number, not NAType" エラーになる (CatBoost + sklearn
+        # CalibratedClassifierCV 互換性制約・Rule 3 auto-fix)。そのため base estimator
+        # で Pool を直接予測し・calibrator (isotonic/sigmoid) を手動適用する。
+        raw_pred_sorted = _catboost_calibrated_predict_proba(
+            calib_result.calibrated, estimator, pool_test
+        )
         pred_proba = align_predictions(
             pd.Series(raw_pred_sorted, index=sorted_test_idx, name="p_fukusho_hit"),
             sorted_test_idx,
@@ -435,6 +450,163 @@ def train_and_predict(
         # _aligned_pred_proba: Cycle 2 NEW HIGH-1 実証用の内部参照 (test が消費)
         "_aligned_pred_proba": pred_proba,
     }
+
+
+def _calibrate_catboost_manual(
+    base_estimator: Any,
+    X_calib: pd.DataFrame,
+    y_calib: pd.Series,
+    calib_df: pd.DataFrame,
+    train_df: pd.DataFrame,
+) -> CalibrationResult:
+    """CatBoost の場合の手動 calibration (Rule 3 auto-fix: CatBoost + CalibratedClassifierCV
+    互換性問題回避)。
+
+    CatBoost estimator を FrozenEstimator + CalibratedClassifierCV で fit すると・fit 内部で
+    CatBoost が DataFrame を受け取り cat_features 認識なしに Pool を作ろうとし・StringDtype 列の
+    pd.NA で失敗する。本関数は以下の手順で手動 calibration を実施する:
+
+      1. X_calib を _prepare_catboost_pool で cat_features 指定済み Pool に変換
+      2. base_estimator.predict_proba(pool) で生のクラス1確率を算出
+      3. §15.2 推奨に従り calib sample 件数で isotonic/sigmoid を切替
+      4. sklearn の _SigmoidCalibration / IsotonicRegression を生予測 → y_calib で fit
+      5. CalibratedClassifierCV 互換のラッパー (ManualCalibratedEstimator) を構築して返す
+
+    strict-later disjoint guard (train_max_date < calib_min_date) は calib_df / train_df の
+    race_date から検証する (calibrate_model / fit_prefit_calibrator と同等の保証)。
+
+    Returns
+    -------
+    CalibrationResult
+        ``calibrated`` (ManualCalibratedEstimator・predict_proba 可能) + ``calib_method``。
+    """
+    from sklearn.isotonic import IsotonicRegression
+
+    # strict-later disjoint guard (fit_prefit_calibrator と同等)
+    calib_min_date = calib_df.loc[X_calib.index, "race_date"].min()
+    train_max_date = train_df["race_date"].max()
+    if not (train_max_date < calib_min_date):
+        raise ValueError(
+            "_calibrate_catboost_manual: strict-later disjoint 違反 "
+            f"(train_max_date={train_max_date} >= calib_min_date={calib_min_date}・"
+            "§15.2 / SC#4・look-ahead leak prevented)"
+        )
+
+    # 1. X_calib を Pool 化 (cat_features 指定・fillna 前処理)
+    X_calib_cb = X_calib.copy()
+    for c in ("race_start_datetime", "race_key"):
+        if c in calib_df.columns:
+            X_calib_cb[c] = calib_df.loc[X_calib.index, c].values
+    calib_pool, _ = _prepare_catboost_pool(X_calib_cb, sort=False)
+
+    # 2. base estimator で生予測
+    raw_proba = base_estimator.predict_proba(calib_pool)[:, 1]
+
+    # 3. §15.2: calib sample 件数で isotonic/sigmoid 切替
+    calib_method = "isotonic" if len(X_calib) >= 1000 else "sigmoid"
+
+    # 4. calibrator を fit
+    if calib_method == "isotonic":
+        calibrator = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
+        calibrator.fit(raw_proba, y_calib.to_numpy())
+    else:  # sigmoid
+        from sklearn.calibration import _SigmoidCalibration
+
+        calibrator = _SigmoidCalibration()
+        calibrator.fit(raw_proba, y_calib.to_numpy())
+
+    # 5. CalibratedClassifierCV 互換のラッパーを構築
+    calibrated = _ManualCatBoostCalibrated(
+        base_estimator=base_estimator,
+        calibrator=calibrator,
+    )
+
+    return CalibrationResult(calibrated=calibrated, calib_method=calib_method)
+
+
+class _ManualCatBoostCalibrated:
+    """CatBoost + 手動 calibrator のラッパー (CalibratedClassifierCV 互換インターフェース)。
+
+    ``predict_proba(pool)`` を呼ぶと (a) base estimator で Pool 予測 (b) calibrator で変換
+    した calibrated なクラス確率を返す。Pool を直接受け取ることで CatBoost の cat_features
+    認識問題を回避する (Rule 3 auto-fix)。
+
+    predict_p_fukusho は本クラスの calibrated_estimator.predict_proba(X) を呼ぶが・
+    orchestrator の CatBoost 予測パスでは本クラスを使わず _catboost_calibrated_predict_proba
+    で Pool を直接渡す (DataFrame を渡すと cat_features 認識問題が再発するため)。
+    """
+
+    def __init__(self, base_estimator: Any, calibrator: Any) -> None:
+        self.base_estimator = base_estimator
+        self.calibrator = calibrator
+        # CalibratedClassifierCV 互換属性 (artifact.save_native_artifact が参照)
+        self.estimator = base_estimator
+        self.calibrated_classifiers_ = [self]  # artifact.py が参照
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        """X (Pool or DataFrame) を受け取り calibrated なクラス確率 [n, 2] を返す。"""
+        from catboost import Pool
+
+        if isinstance(X, Pool):
+            pool = X
+        else:
+            # DataFrame の場合は cat_features 認識問題を回避するため Pool 化は呼出側責任
+            # (orchestrator は直接 Pool を渡す・本メソッドは fallback 用)
+            pool, _ = _prepare_catboost_pool(X, sort=False)
+        raw = self.base_estimator.predict_proba(pool)[:, 1]
+        calibrated = self.calibrator.predict(raw)
+        return np.column_stack([1.0 - calibrated, calibrated])
+
+
+def _catboost_calibrated_predict_proba(
+    calibrated_estimator: Any,
+    base_estimator: Any,
+    pool: Any,
+) -> np.ndarray:
+    """CatBoost の CalibratedClassifierCV 互換性問題を回避し・base estimator で Pool 予測してから
+    calibrator (isotonic/sigmoid) を手動適用してクラス1確率を返す (Rule 3 auto-fix)。
+
+    ``calibrated_estimator`` が ``_ManualCatBoostCalibrated`` の場合は内部 calibrator を使用。
+    CalibratedClassifierCV の場合は ``calibrated_classifiers_[0].calibrators[0]`` から取得。
+
+    Parameters
+    ----------
+    calibrated_estimator : CalibratedClassifierCV | _ManualCatBoostCalibrated
+        ``calibrate_model`` または ``_calibrate_catboost_manual`` の戻り値。
+    base_estimator : CatBoostClassifier
+        ``train_catboost`` の戻り値。Pool を直接予測可能。
+    pool : catboost.Pool
+        ``_prepare_catboost_pool`` の戻り値。sort 済み・cat_features 指定済み。
+
+    Returns
+    -------
+    np.ndarray
+        calibrated なクラス1確率 (shape=[n_rows])。
+    """
+    # _ManualCatBoostCalibrated の場合は calibrator を直接使用
+    if hasattr(calibrated_estimator, "calibrator") and hasattr(
+        calibrated_estimator, "base_estimator"
+    ):
+        raw_proba = base_estimator.predict_proba(pool)[:, 1]
+        return calibrated_estimator.calibrator.predict(raw_proba)
+
+    # CalibratedClassifierCV の場合 (fallback)
+    raw_proba = base_estimator.predict_proba(pool)[:, 1]
+    calibrated_classifiers = getattr(calibrated_estimator, "calibrated_classifiers_", None)
+    if not calibrated_classifiers:
+        raise RuntimeError(
+            "_catboost_calibrated_predict_proba: CalibratedClassifierCV に "
+            "calibrated_classifiers_ が無い (sklearn API 変更の可能性)"
+        )
+    cc = calibrated_classifiers[0]
+    calibrators = getattr(cc, "calibrators", None)
+    if not calibrators:
+        raise RuntimeError(
+            "_catboost_calibrated_predict_proba: _CalibratedClassifier に "
+            "calibrators が無い (sklearn API 変更の可能性)"
+        )
+    calibrator = calibrators[0]
+    return calibrator.predict(raw_proba)
 
 
 # ---------------------------------------------------------------------------
