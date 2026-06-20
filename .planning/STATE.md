@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 4
-current_phase_name: Model & Prediction
+current_phase: 04
+current_phase_name: model-prediction
 status: executing
 stopped_at: Phase 4 context gathered
-last_updated: "2026-06-20T05:23:16.947Z"
-last_activity: 2026-06-19
-last_activity_desc: Phase 03.1 complete, transitioned to Phase 4
+last_updated: "2026-06-20T08:04:37.764Z"
+last_activity: 2026-06-20
+last_activity_desc: Phase 04 execution started
 progress:
   total_phases: 9
   completed_phases: 4
-  total_plans: 17
+  total_plans: 23
   completed_plans: 17
   percent: 44
 ---
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-16)
 
 **Core value:** オッズ非依存の確率 `p_fukusho_hit` と固定オッズ時点のEVで、過小評価されている馬の複勝払戻対象入り可能性をリークなく検出し、race_id単位・時系列順の再現可能なバックテストで定量評価できること。リーク防止と再現性だけは必ず守る。
-**Current focus:** Phase 03.1 — timediff-babacd-rolling-restoration
+**Current focus:** Phase 04 — model-prediction
 
 ## Current Position
 
-Phase: 4 — Model & Prediction
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-19 — Phase 03.1 complete, transitioned to Phase 4
+Phase: 04 (model-prediction) — EXECUTING
+Plan: 1 of 6
+Status: Executing Phase 04
+Last activity: 2026-06-20 — Phase 04 execution started
 
 Progress: [████░░░░░░░] 35%
 
@@ -113,8 +113,8 @@ Recent decisions affecting current work:
 - [Phase 03]: plan 03-05: CR-04 regression guard は AST 解析で Import/ImportFrom/Attribute を検査 (docstring の「joblib 廃止」説明は許容・実コード依存のみを検出)
 - [Phase 03.1]: [Phase 03.1] plan 03.1-02: persist-exists-manifest 順序化（CR-01新・partial-failure 抑止）・AST テストで行順序機械保証
 - [Phase ?]: Phase 03.1-03: timediff/babacd rolling 復元完了（rolling 18→24 features・3者 parity・WR-01'/WR-02/WR-03 advisory hardening 3件）
-- [Phase 03.1]: plan 03.1-04: live-DB で normalized ETL 再実行 + snapshot rebuild を実証（snapshot-id=20260619-1a-v3・feature_count=63・SHA256=42865b9a…321516 byte-repro・registry parity PASS・raw 不変）・Phase 4 入力確立
-- [Phase 03.1]: plan 03.1-04: PLAN acceptance criteria feature_count 24→63 を実装実態（rolling 32 + 静的/PK/label/meta 31 = 全 Parquet 列数）に一致（commit 5535bc5・実装不変・文書のみ）
+- [Phase 03.1]: plan 03.1-04: live-DB で normalized ETL 再実行 + snapshot rebuild を実証（当初 snapshot-id=中間版・feature_count=63・SHA256=42865b9a…321516 byte-repro・registry parity PASS・raw 不変）・Phase 4 入力は D-01 で `20260620-1a-postreview-v2`（feature_count=62・fa_version 0.3.0・SHA256=26c685f0…ecbdd2）に確定（feature 63→62 は CR-02 rolling_jyocd mean→mode rename + sd remove・§13.4 odds-free allowlist 違反なし・D-02 研究者確定）
+- [Phase 03.1]: plan 03.1-04: PLAN acceptance criteria feature_count 24→62 を実装実態（rolling 32 + 静的/PK/label/meta 30 = 全 Parquet 列数）に一致（commit 5535bc5・実装不変・文書のみ・postreview-v2 で 63→62 に更新: rolling_jyocd_mean→mode rename + sd remove）
 
 ### Pending Todos
 
