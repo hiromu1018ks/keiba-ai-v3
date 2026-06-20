@@ -73,7 +73,7 @@ Phase 03-VERIFICATION.md (status: passed, 4/4 must-haves) が記録する 5 advi
 
 ### UAT で発見した確認事項（Phase 4 前推奨）
 
-6. **SHA256 drift (0.2.0 vs 0.3.0)** — postreview-v1 (fa 0.2.0, sha256=65426387461b05fb...) と uat (fa 0.3.0, sha256=8ed8829cd259904b...) で SHA256 が異なる。ef635b6 の snapshot.py diff は fa_version デフォルト引数変更のみで data 書き方に無関係・feature 定義も実質同じ（feature_count 62・jyocd categorical + obs_id 除外は両 snapshot で適用済み）。同一 0.3.0 プロセス内の再現性は write#1==write#2 で証明済み (byte-repro PASS)。異なる時点間の drift 原因は要追跡（source データ変化 or jyocd mode 集計の tie-break 非決定性の可能性）。Core Value「再現性」に関わるため、Phase 4 学習前に固定 source での 0.3.0 再生成 SHA256 安定性を要確認。
+6. **SHA256 drift (0.2.0 vs 0.3.0)** — 【原因判明・UAT 深掘り】postreview-v1 (sha256=65426387461b...) と uat (sha256=8ed8829cd259904b...) の Parquet を比較: rows/cols/型/sort 後 key 全て一致、差分は data column の `feature_snapshot_id`（snapshot_id 固有値）と `feature_availability_version`（0.2.0 vs 0.3.0）の 2 列のみで、他 60 列（実 feature data）は完全一致。CR-04 SHA256 scope (parquet_data_only_metadata_excluded) は Parquet schema metadata(key-value) を除外するが、feature_matrix の data column に stamp された識別子は含まれるため、SHA256 が snapshot_id と fa_version に依存する。データ破損/jyocd 非決定性ではなく識別子の差。同一 snapshot_id+fa_version+source で再生成 → 同じ SHA256 (write#1==write#2 で証明) で再現性 Core Value の最小要件は満たす。Phase 4 で SHA256 を「純粋なデータ同一性判定」に使う場合、識別子列を SHA256 計算から除外する設計変更（または識別子を data column でなく schema metadata のみに格納）を推奨。
 
 ## Gaps
 
