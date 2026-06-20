@@ -153,11 +153,25 @@ Plans:
 **Plans**: 6 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 04-01-PLAN.md — 基盤（lightgbm/catboost pin + prediction DDL/GRANT + RED stubs + v3 ドリフト修正）
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 04-02-PLAN.md — data.py + calibrator.py + artifact.py（SC#1 stamped Parquet・3way split・prefit wrapper）
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 04-03-PLAN.md — trainer.py + baseline.py（SC#3 leak diagnostic・LightGBM native + CatBoost has_time・BL-1..5）
 - [ ] 04-04-PLAN.md — predict.py + prediction_load.py + evaluator.py（provenance・staging-swap・比較表）
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 04-05-PLAN.md — run_train_predict.py + SC#4 reproduce smoke（両モデル統合・bit-identical）
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 04-06-PLAN.md — SC#3/SC#4 構造的ブロック GREEN + ROADMAP 更新（Phase 4 完了宣言）
 
 ### Phase 5: EV & Backtest
