@@ -174,3 +174,20 @@ Result: **0 MISSING existing-project symbols** → no hard-block. The 3 cycle-2 
 | Partially resolved HIGHs | 0 | 1 (HIGH-5 → HIGH-A) |
 
 Net progress: 4 of 5 cycle-1 HIGHs fully closed; HIGH-5 narrowed from "category-map refit not an acceptance criterion" to "orchestrator `category_map` parameter plumbing unspecified" (a smaller, more actionable gap). 3 NEW HIGHs surfaced in the integration layer (05-05 `run_backtest.py`) that were not visible in cycle 1 because cycle 1 focused on the per-module contracts (05-03/04) before the integration script existed in reviewable form.
+
+---
+
+## Orchestrator source-grounding (cycle 2, effective authority = `grep`)
+
+Verdicts for existing-project symbols the cycle-2 HIGHs depend on:
+
+| Symbol | Kind | Verdict | Evidence |
+|---|---|---|---|
+| `train_and_predict` | function | VERIFIED | `src/model/orchestrator.py:154` (`def train_and_predict`) — 05-04 extends this |
+| `as_of_datetime` param | kwarg | VERIFIED | `src/model/orchestrator.py:163` (param exists from Phase 4) — 05-05 reuses it |
+| `category_map` param | kwarg | **MISSING** | ABSENT anywhere in `src/model/orchestrator.py` — confirms HIGH-A: 05-05 calls `train_and_predict(..., category_map=bt_fit_map)` but no plan adds the param. 05-04 must add it (+ plumbing test). |
+| `PayFukusyoUmaban1..5`, `PayFukusyoPay1..5` | DB columns | VERIFIED | `05-RESEARCH.md:221-222` — race-level slot records (paying umaban in slots, no `umaban` column) — confirms HIGH-C: HARAI is race-level, not horse-level |
+| `split_periods` param | kwarg | UNCHECKABLE | newly added by 05-04 revision; grep authority cannot assert the orchestrator consumes it — listed for the checker to hold |
+| `_carve_calib_from_train_tail` | function | excluded (NEW) | declared artifact of 05-05 — typo (train_start vs train_end) is a spec concern, not a symbol-existence one |
+
+Result: 1 MISSING kwarg (`category_map`) — but it is a parameter the plan is **supposed to add** (HIGH-A's required fix), not a hallucinated reference to existing code. So it is a revision-loop defect, not an abort. No hard-block on existing symbols. All 3 cycle-2 HIGHs are real (verified against source) and route to revision.
