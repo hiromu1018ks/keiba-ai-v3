@@ -245,3 +245,17 @@ Verdicts for existing-project symbols the cycle-2 HIGHs depend on:
 | `_carve_calib_from_train_tail` | function | excluded (NEW) | declared artifact of 05-05 — typo (train_start vs train_end) is a spec concern, not a symbol-existence one |
 
 Result: 1 MISSING kwarg (`category_map`) — but it is a parameter the plan is **supposed to add** (HIGH-A's required fix), not a hallucinated reference to existing code. So it is a revision-loop defect, not an abort. No hard-block on existing symbols. All 3 cycle-2 HIGHs are real (verified against source) and route to revision.
+
+---
+
+## Orchestrator source-grounding (cycle 3, effective authority = `grep`)
+
+The 2 cycle-3 concerns cite plan-text/internal-logic, not new existing symbols:
+
+| Symbol | Kind | Verdict | Evidence |
+|---|---|---|---|
+| `is_fukusho_sale_available` | label column | VERIFIED | `src/config/label_spec.yaml:38` + consumed in `src/etl/label_reconcile.py:540,547`, `src/etl/fukusho_label.py:17` — the column `determine_stake_payout` branches on is real |
+| `determine_stake_payout` | function | excluded (NEW) | not in `src/` — declared artifact of 05-03; the MEDIUM concern (no `selected_flag` branch → fake accounting on non-selected rows) is internal-logic, not symbol-existence |
+| 05-05 acceptance line 146 | plan text | n/a (internal) | the HIGH concern is an internal contradiction between two parts of the same plan's acceptance text — a text edit, no symbol to verify |
+
+Result: **0 MISSING** existing symbols → no hard-block. Both cycle-3 concerns are plan-text / new-artifact-logic defects (one acceptance-text contradiction, one missing branch in a new function). Neither affects ROI (metrics filter `selected_flag=True`); both are real and route to the max-cycles escalation gate.
