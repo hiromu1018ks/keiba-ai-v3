@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 05
 current_phase_name: ev-backtest
 status: executing
-stopped_at: Completed 05-02-PLAN.md
-last_updated: "2026-06-20T23:34:58.072Z"
+stopped_at: Completed 05-04-PLAN.md
+last_updated: "2026-06-20T23:48:16.000Z"
 last_activity: 2026-06-20
-last_activity_desc: Completed 05-01-PLAN.md
+last_activity_desc: Completed 05-04-PLAN.md
 progress:
   total_phases: 9
   completed_phases: 5
   total_plans: 29
-  completed_plans: 26
-  percent: 56
+  completed_plans: 27
+  percent: 59
 ---
 
 # Project State
@@ -29,11 +29,11 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 05 (ev-backtest) — EXECUTING
-Plan: 4 of 6
-Status: Plan 05-01 complete (BT窓ヘルパ + Wave 0 RED stub)
-Last activity: 2026-06-20 — Completed 05-01-PLAN.md
+Plan: 5 of 6
+Status: Plan 05-04 complete (backtest 永続化 + split_3way/orchestrator periods 拡張)
+Last activity: 2026-06-20 — Completed 05-04-PLAN.md
 
-Progress: [████████░░] 83%
+Progress: [█████████░] 86%
 
 ## Performance Metrics
 
@@ -86,8 +86,7 @@ Progress: [████████░░] 83%
 | Phase 05 P02 | 5m | - tasks | - files |
 | Phase 05 P02 | 5m | 3 tasks | 9 files |
 | Phase 05 P03 | 7m | 2 tasks | 4 files |
-
-## Accumulated Context
+| Phase 05 P04 | 10m | 2 tasks | 9 files |
 
 ### Decisions
 
@@ -154,6 +153,12 @@ Recent decisions affecting current work:
 - [Phase ?]: 05-03: cross-plan contract — select_odds_snapshot 戻り値は snake_case fuku_odds_lower/fuku_odds_upper（JODDS raw を rename・T-05-SC2 mitigate）
 - [Phase ?]: 05-03: merge_asof by=['race_key','umaban'] — HIGH-1 馬単位 odds 保証（T-05-06b mitigate）
 - [Phase ?]: 05-03: 特払（TokubaraiFlag2='1'）は的中フラグ非依存・HARAI PayFukusyoPay 一次契約（§2.4・T-05-23 mitigate）
+- [Phase ?]: 05-04: split_3way periods=None は Phase 4 ハードコード（_DEFAULT_PERIODS）を使用（A5 後方互換・SC#4 回帰防止）・holdout 区間（>=2025-01-01）は固定
+- [Phase ?]: 05-04: 完全時系列条件 guard（max(train)<min(calib)<max(calib)<min(test)<=test(test)）は BT窓でも同一保証（HIGH-4: train/calib 重複 periods は ValueError で look-ahead leak 構造的ブロック）
+- [Phase ?]: 05-04: category_map plumbing は _apply_category_map(feature_df, category_map) helper で実装・None は no-op（Phase 4 等価・A5）・test 窓未観測 ID → __UNSEEN__ sentinel（§14.3 leak-safe categorical・HIGH-A cycle-2 silent 無視厳禁）
+- [Phase ?]: 05-04: backtest_id scoped staging-swap（review HIGH#1 と同一方針・同一 backtest_id のみ DELETE→INSERT・他 backtest_id 行は保持）・PK は backtest_id + RACE_KEY 7 の 8カラム（§19.1 再現性聖域・silent 履歴破壊防止）
+- [Phase ?]: 05-04: MEDIUM-04 odds_missing_reason は NULL 可能・normal 候補は NULL・no_bet/special_value/no_sale/scratch_cancel sentinel で埋まる・selected_flag=False 除外候補行も永続化（§11.3 odds_missing_policy=no_bet 監査性担保）
+- [Phase ?]: 05-04: live-DB への CREATE TABLE/GRANT 適用は後続 Plan 05-06（checkpoint:human-verify）のスコープ・本 plan は unit test（KEIBA_SKIP_DB_TESTS で skip される requires_db テストを含む）で検証
 
 ### Pending Todos
 
@@ -177,6 +182,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-20T23:34:38.144Z
-Stopped at: Completed 05-02-PLAN.md
+Last session: 2026-06-20T23:48:16.000Z
+Stopped at: Completed 05-04-PLAN.md
 Resume file: None

@@ -202,7 +202,7 @@ Plans:
 
 **Wave 3**（blocked on Wave 2 完了）
 
-- [ ] 05-04-PLAN.md — Wave 3 backtest 永続化（schema/settings/connection/backtest_load）+ split_3way/orchestrator periods 拡張（後方互換 A5）— BACK-03/D-03 — Plan 01/02/03 に依存
+- [x] 05-04-PLAN.md — Wave 3 backtest 永続化（schema/settings/connection/backtest_load）+ split_3way/orchestrator periods 拡張（後方互換 A5）— BACK-03/D-03 — Plan 01/02/03 に依存
 
 **Wave 4**（blocked on Wave 3 完了）
 
