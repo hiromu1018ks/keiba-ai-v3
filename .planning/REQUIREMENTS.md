@@ -30,8 +30,8 @@
 ### モデル・予測 (MODL)
 
 - [ ] **MODL-01**: 出馬表・馬番・枠番確定後に利用可能なデータのみで `p_fukusho_hit` を推定する Phase 1-A モデルを学習・予測できる（当日オッズを特徴量に使わない）
-- [ ] **MODL-02**: ベースラインモデル BL-1（頭数別一定）〜BL-5（LightGBM最小特徴量）を評価し、AIモデルが単純モデル/市場情報に対して付加価値を持つかを比較できる
-- [ ] **MODL-03**: LightGBM/CatBoost の時系列安全なカテゴリ・欠損処理（target encoding禁止・負値コード回避・欠損理由の区別・CatBoost `has_time`/LightGBMネイティブカテゴリ）を実装できる
+- [x] **MODL-02**: ベースラインモデル BL-1（頭数別一定）〜BL-5（LightGBM最小特徴量）を評価し、AIモデルが単純モデル/市場情報に対して付加価値を持つかを比較できる
+- [x] **MODL-03**: LightGBM/CatBoost の時系列安全なカテゴリ・欠損処理（target encoding禁止・負値コード回避・欠損理由の区別・CatBoost `has_time`/LightGBMネイティブカテゴリ）を実装できる
 
 ### EV・推奨ランク (EV)
 
@@ -121,7 +121,7 @@
 | FEAT-01 | Phase 3: As-of Features & Snapshots | Complete |
 | FEAT-02 | Phase 3: As-of Features & Snapshots | Complete |
 | MODL-01 | Phase 4: Model & Prediction | In Progress (基盤 + data/calibrator/artifact 完了・学習/予測は後続 wave 03-06) |
-| MODL-02 | Phase 4: Model & Prediction | Pending |
+| MODL-02 | Phase 4: Model & Prediction | Complete |
 | MODL-03 | Phase 4: Model & Prediction | In Progress (data API + calibrator prefit wrapper 完了・LightGBM/CatBoost 本体は wave 03) |
 | EV-01 | Phase 5: EV & Backtest | Pending |
 | EV-02 | Phase 5: EV & Backtest | Pending |

@@ -6,14 +6,14 @@ current_phase: 04
 current_phase_name: model-prediction
 status: executing
 stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-06-20T08:30:28.080Z"
+last_updated: "2026-06-20T09:53:09.047Z"
 last_activity: 2026-06-20
-last_activity_desc: Phase 04 execution started
+last_activity_desc: Plan 04-02 executed (src/model/{data,calibrator,artifact}.py + 10 test GREEN)
 progress:
   total_phases: 9
   completed_phases: 4
   total_plans: 23
-  completed_plans: 18
+  completed_plans: 20
   percent: 44
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 04 (model-prediction) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Plan 04-02 complete (data/calibrator/artifact GREEN)・ready for 04-03 (trainer/baseline)
 Last activity: 2026-06-20 — Plan 04-02 executed (src/model/{data,calibrator,artifact}.py + 10 test GREEN)
 
@@ -77,6 +77,7 @@ Progress: [█████░░░░░░] 42%
 | Phase 03.1 P04 | 約20分 | 1 task | 3 files (snapshots) |
 | Phase 04 P01 | 12m | 3 tasks | 15 files |
 | Phase 04 P02 | 13m | 2 tasks | 6 files |
+| Phase 04 P03 | 34m | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -124,6 +125,8 @@ Recent decisions affecting current work:
 - [Phase 04]: plan 04-02: review HIGH#5/D-06 対応 — save_native_artifact が CalibratedClassifierCV を base native + calibrator.joblib + metadata.json に分離保存 + load_native_artifact が真正再構築（Cycle 2 NEW-5/NEW-M1/NEW-L1・scikit-learn==1.9.0 pin 安定性保証）
 - [Phase 04]: plan 04-02 Rule 3 fix — FEATURE_COLUMNS 数「42」は v3/feature_count=63 時代の旧情報・postreview-v2 実データ値 35 が正（registry derived allowlist の正適用）
 - [Phase 04]: plan 04-02 Rule 1 fix — verify_snapshot_sha256 が生ファイル bytes で計算していたのを Phase 3 snapshot.write_snapshot と同一手順（metadata 除外・決定論的書込設定）で再計算するよう修正
+- [Phase ?]: D-04-03: LightGBM native cat + CatBoost has_time + HIGH_CARD_CODE_COLS を cat_features に含め (review HIGH#6/MODL-03)・align_predictions 5条件厳密置換 guard (Cycle 2 NEW-2)・eval_max_date <= train_max_date (review Cross-Plan #8)
+- [Phase ?]: D-04-03 baseline: BL-1..5 全計算・市場データ (fukuoddslow/ninki) は feature 非混入 (D-07/MODL-01)・BL-4/5 calibrate 引数 + bl_calib_note 列でキャリブレーション状態明示 (review MEDIUM)
 
 ### Pending Todos
 
@@ -147,6 +150,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-20T08:48:00.000Z
+Last session: 2026-06-20T09:53:02.006Z
 Stopped at: Completed 04-02-PLAN.md (src/model/{data,calibrator,artifact}.py + 10 test GREEN)
 Resume file: None

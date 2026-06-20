@@ -150,7 +150,7 @@ Plans:
   3. Categorical/missing handling is leak-safe: LightGBM uses native categorical with non-negative codes and explicit `__MISSING__`/`__UNSEEN__` sentinels (NaN→-1 forbidden); CatBoost uses `cat_features` + `has_time=True` on a Pool sorted by `race_start_datetime`; NO target/mean encoding anywhere (verified by a leak diagnostic where rare categories shrink toward the mean rather than match their own label)
   4. Calibration uses `CalibratedClassifierCV(cv='prefit', method='isotonic')` on a strictly-later disjoint slice, with a unit test asserting `max(train.race_date) < min(calib.race_date)` — and a reproduce-smoke-test (fixed seeds → identical predictions on re-run) passes
 
-**Plans**: 2/6 plans executed
+**Plans**: 3/6 plans executed
 
 Plans:
 **Wave 1**
@@ -163,7 +163,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 04-03-PLAN.md — trainer.py + baseline.py（SC#3 leak diagnostic・LightGBM native + CatBoost has_time・BL-1..5）
+- [x] 04-03-PLAN.md — trainer.py + baseline.py（SC#3 leak diagnostic・LightGBM native + CatBoost has_time・BL-1..5）
 - [ ] 04-04-PLAN.md — predict.py + prediction_load.py + evaluator.py（provenance・staging-swap・比較表）
 
 **Wave 4** *(blocked on Wave 3 completion)*
@@ -240,7 +240,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 2. Fukusho Labels | 4/4 | Complete    | 2026-06-18 |
 | 3. As-of Features & Snapshots | 5/5 | Complete    | 2026-06-19 |
 | 3.1 Timediff/Babacd Rolling Restoration (INSERTED) | 4/4 | Complete    | 2026-06-19 |
-| 4. Model & Prediction | 1/6 | In Progress|  |
+| 4. Model & Prediction | 3/6 | In Progress|  |
 | 5. EV & Backtest | 0/TBD | Not started | - |
 | 6. Evaluation & Calibration Gates | 0/TBD | Not started | - |
 | 7. Presentation | 0/TBD | Not started | - |
