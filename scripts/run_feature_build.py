@@ -79,8 +79,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--fa-version",
-        default="0.2.0",
-        help="feature_availability.yaml schema_version (§12.4 metadata, default: 0.2.0)",
+        default="0.3.0",
+        help="feature_availability.yaml schema_version (§12.4 metadata, default: 0.3.0)",
     )
     parser.add_argument(
         "--train-period",

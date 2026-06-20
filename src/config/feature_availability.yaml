@@ -1,7 +1,8 @@
 # Keiba AI v3 — feature_availability registry（§13.3 / §13.5・Phase 3 Plan 03-01）
 #
 # Phase 3 で枠（features: []）から §13.5 全 feature エントリに拡充。
-# schema_version 0.1.0 → 0.2.0（Phase 3 で初めて features を埋めた印・§19.1 再現性）。
+# schema_version 0.1.0 → 0.2.0 → 0.3.0（Phase 3 features 拡充後・CR-02 で rolling_jyocd を
+# categorical 化し obs_id を中間処理用に除外・feature 定義が変わった印・§19.1 再現性）。
 # 各 feature エントリは7項目スキーマ（feature_name / feature_group / available_from_timing /
 # source_role / source_table / cutoff_rule / leakage_risk_level）を持つ。
 #
@@ -11,7 +12,7 @@
 #                  registry 未登録・babacd（過去走 source）は history_allowed_post_race。
 # D-07: available_from_timing は {entry_confirmed, post_position_confirmed} のみ許可。
 
-schema_version: "0.2.0"
+schema_version: "0.3.0"
 
 # ---------------------------------------------------------------------------
 # REVIEWS HIGH #2: cutoff semantics の仕様化（厳密 `<`・JST midnight 解釈）

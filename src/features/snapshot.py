@@ -147,7 +147,7 @@ def write_snapshot(
     created_at_fixed: str,
     return_manifest: bool = False,
     label_version: str = "v1.0.0",
-    fa_version: str = "0.2.0",
+    fa_version: str = "0.3.0",
     train_period: str = "2016-07-01/2023-12-31",
     validation_period: str = "2024-01-01/2024-12-31",
     dataset_version: str = "v1.0.0",

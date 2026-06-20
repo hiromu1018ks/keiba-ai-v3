@@ -173,7 +173,7 @@ def test_no_registered_feature_column_all_nan_end_to_end():
             read_pool=None,  # monkey-patch 済みなので DB 不要
             snapshot_id="test-snap",
             label_version="v1.0.0",
-            fa_version="0.2.0",
+            fa_version="0.3.0",
         )
     finally:
         builder._fetch_feature_sources = orig_fetch_sources
@@ -390,7 +390,7 @@ def test_wr01_prime_raises_on_missing_as_of_datetime():
         with pytest.raises(ValueError, match="as_of_datetime") as exc_info:
             builder.build_feature_matrix(
                 read_pool=None, snapshot_id="test-snap",
-                label_version="v1.0.0", fa_version="0.2.0",
+                label_version="v1.0.0", fa_version="0.3.0",
             )
         # as_of_datetime に関連するエラーであることを検証
         msg = str(exc_info.value)
@@ -416,7 +416,7 @@ def test_wr02_raises_on_empty_feature_source():
         with pytest.raises(RuntimeError, match="WR-02"):
             builder.build_feature_matrix(
                 read_pool=None, snapshot_id="test-snap",
-                label_version="v1.0.0", fa_version="0.2.0",
+                label_version="v1.0.0", fa_version="0.3.0",
             )
     finally:
         builder._fetch_feature_sources = orig_fetch_sources
@@ -486,7 +486,7 @@ def test_cr01_rolling_aligned_by_canonical_key_across_distinct_cutoffs():
     try:
         result = builder.build_feature_matrix(
             read_pool=None, snapshot_id="test-snap",
-            label_version="v1.0.0", fa_version="0.2.0",
+            label_version="v1.0.0", fa_version="0.3.0",
         )
     finally:
         builder._fetch_feature_sources = orig_fetch_sources
