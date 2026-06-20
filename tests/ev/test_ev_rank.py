@@ -65,3 +65,22 @@ def test_rank_B_no_odds_threshold():
     df = _make_input(p=0.16, odds_lower=7.0, odds_upper=9.0)
     out = compute_ev_and_rank(df)
     assert out["recommend_rank"].iloc[0] == "B"
+
+
+def test_rank_no_bet_is_D():
+    """``fuku_odds_lower=NaN`` (no_bet sentinel) → rank='D'（選択対象外・§11.3/§3.3）。
+
+    §11.5 階層判定において ``odds_lower`` が NaN の行は EV 計算不可のため
+    強制的に 'D' となることを検証（RESEARCH §3.3 Pitfall）。
+    """
+    from src.ev.ev_rank import compute_ev_and_rank
+
+    df = pd.DataFrame(
+        {
+            "p_fukusho_hit": [0.30],
+            "fuku_odds_lower": [float("nan")],
+            "fuku_odds_upper": [float("nan")],
+        }
+    )
+    out = compute_ev_and_rank(df)
+    assert out["recommend_rank"].iloc[0] == "D"
