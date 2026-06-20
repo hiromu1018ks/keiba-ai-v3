@@ -150,7 +150,15 @@ Plans:
   3. Categorical/missing handling is leak-safe: LightGBM uses native categorical with non-negative codes and explicit `__MISSING__`/`__UNSEEN__` sentinels (NaN→-1 forbidden); CatBoost uses `cat_features` + `has_time=True` on a Pool sorted by `race_start_datetime`; NO target/mean encoding anywhere (verified by a leak diagnostic where rare categories shrink toward the mean rather than match their own label)
   4. Calibration uses `CalibratedClassifierCV(cv='prefit', method='isotonic')` on a strictly-later disjoint slice, with a unit test asserting `max(train.race_date) < min(calib.race_date)` — and a reproduce-smoke-test (fixed seeds → identical predictions on re-run) passes
 
-**Plans**: TBD
+**Plans**: 6 plans
+
+Plans:
+- [ ] 04-01-PLAN.md — 基盤（lightgbm/catboost pin + prediction DDL/GRANT + RED stubs + v3 ドリフト修正）
+- [ ] 04-02-PLAN.md — data.py + calibrator.py + artifact.py（SC#1 stamped Parquet・3way split・prefit wrapper）
+- [ ] 04-03-PLAN.md — trainer.py + baseline.py（SC#3 leak diagnostic・LightGBM native + CatBoost has_time・BL-1..5）
+- [ ] 04-04-PLAN.md — predict.py + prediction_load.py + evaluator.py（provenance・staging-swap・比較表）
+- [ ] 04-05-PLAN.md — run_train_predict.py + SC#4 reproduce smoke（両モデル統合・bit-identical）
+- [ ] 04-06-PLAN.md — SC#3/SC#4 構造的ブロック GREEN + ROADMAP 更新（Phase 4 完了宣言）
 
 ### Phase 5: EV & Backtest
 
