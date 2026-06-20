@@ -166,7 +166,11 @@ def test_odds_snapshot_day_boundary():
     """
     from src.ev.odds_snapshot import select_odds_snapshot
 
-    race_times = _make_race_times("2024-01-04 00:30:00")
+    race_times = pd.DataFrame([{
+        "race_key": "2024-0104-05-1-06-1",
+        "umaban": 1,
+        "race_start_datetime": pd.to_datetime("2024-01-04 00:30:00"),
+    }])
     jodds = pd.DataFrame([
         {"race_key": "2024-0104-05-1-06-1", "umaban": 1,
          "happyotime": "01032355",
