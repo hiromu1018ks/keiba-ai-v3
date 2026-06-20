@@ -683,9 +683,10 @@ params = {
 **根拠:** LightGBM/CatBoost 公式推奨の binary 分類初期値・過学習防止（min_data_in_leaf/l2/num_leaves）。手動調整前提・Phase 6 評価後に Optuna 導入を再評価。
 
 ### D-10: model_version 採番方式【確定】
-**形式: `{feature_snapshot_id}-{model_type_short}-v{N}`**
-- LightGBM: `20260620-1a-lgb-v1`
-- CatBoost: `20260620-1a-cb-v1`
+**形式: `{feature_snapshot_id}-{model_type_short}-v{N}`（feature_snapshot_id 全体を prefix・Cycle 2 NEW-4: 文書矛盾統一）**
+- LightGBM: `20260620-1a-postreview-v2-lgb-v1`
+- CatBoost: `20260620-1a-postreview-v2-cb-v1`
+- **重要: feature_snapshot_id に既に '-v2' 等の version suffix が含まれていても feature_snapshot_id 全体をそのまま prefix として使い・再度 suffix を追加しない**（Cycle 2 NEW-4: feature_snapshot_id の一部（例: 末尾の日付-連番 `-1a` 部分）だけを抽出して短縮形を組み立てる旧方式は廃止・実装者が古い短縮形式を採用する危険を除去）。
 - `feature_snapshot_id` と整合・`model_type` 列で `lightgbm`/`catboost` を区別。
 - v{N} はハイパラ/feature 変更時に bump（手動・semver 的）。
 - `models/{model_version}/` 配下に artifact（lgb_model.txt/cb_model.cbm/calibrator.joblib/metadata.json）。
@@ -711,7 +712,7 @@ uv sync --frozen
 CREATE TABLE IF NOT EXISTS prediction.fukusho_prediction (
     -- provenance（§19.1 再現性）
     model_type varchar(16) NOT NULL,       -- 'lightgbm' / 'catboost'
-    model_version varchar(64) NOT NULL,    -- '20260620-1a-lgb-v1' 等
+    model_version varchar(64) NOT NULL,    -- '20260620-1a-postreview-v2-lgb-v1' 等（Cycle 2 NEW-4: feature_snapshot_id 全体を prefix）
     feature_snapshot_id varchar(64) NOT NULL,  -- '20260620-1a-postreview-v2'
     as_of_datetime timestamp NOT NULL,     -- 予測生成時点
     calib_method varchar(16) NOT NULL,     -- 'isotonic' / 'sigmoid' / 'none'
