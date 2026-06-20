@@ -189,11 +189,11 @@ Plans:
   4. Refund/dead-loss accounting is honest: 取消/除外 → `effective_stake=0` (refund); 競走中止 → `effective_stake=100` counted as a loss (no exclusion inflating ROI) — verified by a unit test that builds a race with each scenario and asserts the stake/payout
   5. The `odds_snapshot_policy` is fixed (30-min-before or 10-min-before), `odds_missing_policy = no_bet` (never substitutes a convenient snapshot), and ALL candidate policies × BT configs are reported together — never the post-hoc winner alone
 
-**Plans**: 6 plans
+**Plans**: 1/6 plans executed
 
 **Wave 1**（基盤・先行）
 
-- [ ] 05-01-PLAN.md — Wave 1 基盤（BT窓ヘルパ BTWindow/BT_WINDOWS/get_bt_race_ids + Wave 0 RED stub 集群 9ファイル + 合成 fixtures）— BACK-01
+- [x] 05-01-PLAN.md — Wave 1 基盤（BT窓ヘルパ BTWindow/BT_WINDOWS/get_bt_race_ids + Wave 0 RED stub 集群 9ファイル + 合成 fixtures）— BACK-01
 
 **Wave 2**（Plan 01 完了後・02/03 は互いに並列可能・files_modified 衝突なし）
 
@@ -264,7 +264,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 3. As-of Features & Snapshots | 5/5 | Complete    | 2026-06-19 |
 | 3.1 Timediff/Babacd Rolling Restoration (INSERTED) | 4/4 | Complete    | 2026-06-19 |
 | 4. Model & Prediction | 6/6 | Complete    | 2026-06-20 |
-| 5. EV & Backtest | 0/6 | Not started | - |
+| 5. EV & Backtest | 1/6 | In Progress|  |
 | 6. Evaluation & Calibration Gates | 0/TBD | Not started | - |
 | 7. Presentation | 0/TBD | Not started | - |
 | 8. Adversarial Audit Suite | 0/TBD | Not started | - |

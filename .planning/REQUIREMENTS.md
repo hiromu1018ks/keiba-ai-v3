@@ -40,7 +40,7 @@
 
 ### バックテスト (BACK)
 
-- [ ] **BACK-01**: バックテストを `race_id`単位かつ `race_date`/`race_start_datetime` 昇順で分割し、同一 `race_id` の train/test またぎを禁止（`race_id`-grouped time-series split）できる
+- [x] **BACK-01**: バックテストを `race_id`単位かつ `race_date`/`race_start_datetime` 昇順で分割し、同一 `race_id` の train/test またぎを禁止（`race_id`-grouped time-series split）できる
 - [ ] **BACK-02**: 固定ルール（EV_lower≥1.05, p≥0.15, odds_lower≥1.5, 同一レース上位2頭, 1候補100円, 複勝のみ）で仮想購入を再現できる
 - [ ] **BACK-03**: 返還時 `effective_stake`=0・競走中止は `effective_stake`=100 として、回収率/損益/最大ドローダウン/selected_count/effective_bet_count/refund_count を `backtest_strategy_version` 付きで再現可能に計算できる
 - [ ] **BACK-04**: バックテスト意思決定オッズ時点を固定（`odds_snapshot_policy`、発走30分前/10分前固定）し、レース後の有利オッズ選択・最終オッズ無条件使用・欠損時都合の良い時点への差し替えを禁止できる
@@ -125,7 +125,7 @@
 | MODL-03 | Phase 4: Model & Prediction | In Progress (data API + calibrator prefit wrapper 完了・LightGBM/CatBoost 本体は wave 03) |
 | EV-01 | Phase 5: EV & Backtest | Pending |
 | EV-02 | Phase 5: EV & Backtest | Pending |
-| BACK-01 | Phase 5: EV & Backtest | Pending |
+| BACK-01 | Phase 5: EV & Backtest | Complete |
 | BACK-02 | Phase 5: EV & Backtest | Pending |
 | BACK-03 | Phase 5: EV & Backtest | Pending |
 | BACK-04 | Phase 5: EV & Backtest | Pending |

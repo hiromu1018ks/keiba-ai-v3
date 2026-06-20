@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 5
-current_phase_name: EV & Backtest
+current_phase: 05
+current_phase_name: ev-backtest
 status: executing
-stopped_at: Phase 5 context gathered
-last_updated: "2026-06-20T14:55:17.657Z"
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-06-20T23:16:37.611Z"
 last_activity: 2026-06-20
-last_activity_desc: Phase 04 complete, transitioned to Phase 5
+last_activity_desc: Completed 05-01-PLAN.md (BT窓ヘルパ + Wave 0 RED stub)
 progress:
   total_phases: 9
   completed_phases: 5
-  total_plans: 23
-  completed_plans: 23
-  percent: 56
+  total_plans: 29
+  completed_plans: 24
+  percent: 83
 ---
 
 # Project State
@@ -24,16 +24,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-16)
 
 **Core value:** オッズ非依存の確率 `p_fukusho_hit` と固定オッズ時点のEVで、過小評価されている馬の複勝払戻対象入り可能性をリークなく検出し、race_id単位・時系列順の再現可能なバックテストで定量評価できること。リーク防止と再現性だけは必ず守る。
-**Current focus:** Phase 05 — ev-backtest (Phase 4 complete)
+**Current focus:** Phase 05 — ev-backtest
 
 ## Current Position
 
-Phase: 5 — EV & Backtest
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-20 — Phase 04 complete, transitioned to Phase 5
+Phase: 05 (ev-backtest) — EXECUTING
+Plan: 2 of 6
+Status: Plan 05-01 complete (BT窓ヘルパ + Wave 0 RED stub)
+Last activity: 2026-06-20 — Completed 05-01-PLAN.md
 
-Progress: [█████░░░░░] 56%
+Progress: [████████░░] 83%
 
 ## Performance Metrics
 
@@ -82,6 +82,7 @@ Progress: [█████░░░░░] 56%
 | Phase 04 P04 | 38m | 3 tasks | 5 files |
 | Phase 04 P05 | 49m | 2 tasks | 7 files |
 | Phase 04 P06 | 18m | 2 tasks | 5 files |
+| Phase 05 P01 | 10m | 2 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -139,6 +140,10 @@ Recent decisions affecting current work:
 - [Phase ?]: 04-05: train_and_predict orchestrator を src/model/orchestrator.py に配置 (review HIGH#12: 循環依存回避)・行整列保証 + bit-identical + aligned pred_proba 注入
 - [Phase ?]: 04-05: SC#4 bit-identical を実データ両モデルで実証 (固定 seed=42 + thread count=1 + FIXED_REPRODUCE_TS・np.array_equal)
 - [Phase ?]: 04-05: CatBoost + CalibratedClassifierCV 互換性: base estimator Pool 予測から手動 calibrator fit (StringDtype pd.NA 回避・Rule 3 auto-fix)
+- [Phase 05]: §15.5 優先 — BT-1..3 train_start='2019-06-01'（Phase 3 D-09 の 2016H2〜 でなく要件正を適用・T-05-02 mitigate）
+- [Phase 05]: BT-4/5 test 年は 2024 に揃える（D-03 + planner A2・BT-1..3 の test 年と比較可能にするため）
+- [Phase 05]: MEDIUM-01a — 固定 BT窓と mlxtend.GroupTimeSeriesSplit の等価性を docstring + test で立証（T-05-01b mitigate）
+- [Phase 05]: Wave 0 RED stub は lazy import で collection 保証（Phase 2 decision 02-22 と同一パターン）
 
 ### Pending Todos
 
@@ -162,6 +167,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-20T14:02:37.100Z
+Last session: 2026-06-20T23:15:51.185Z
 Stopped at: Phase 5 context gathered
 Resume file: .planning/phases/05-ev-backtest/05-CONTEXT.md
