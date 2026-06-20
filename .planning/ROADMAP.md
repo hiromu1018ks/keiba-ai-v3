@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Fukusho Labels** - Sales-start-time labels with payout-table reconciliation (highest-risk, long pole) (completed 2026-06-18)
 - [x] **Phase 3: As-of Features & Snapshots** - PIT-correct feature builder + immutable versioned Parquet snapshots (4/4 plans executed + 1 gap-closure plan 03-05 COMPLETE; CR-01/02/03/04 + WR-01 全解消・live-DB snapshot rebuild で registry↔実体 parity 実証) (completed 2026-06-19)
 - [x] **Phase 3.1: Timediff/Babacd Rolling Restoration (INSERTED)** - normalized ETL 拡張 (timediff/baba3) + rolling 8系統化 + advisory 4件 hardening + live snapshot rebuild (snapshot-id=20260619-1a-v3・feature_count=63・SHA256 byte-repro・216 passed) (completed 2026-06-19)
-- [ ] **Phase 4: Model & Prediction** - Baselines BL-1..BL-5 + Phase 1-A LightGBM/CatBoost + calibrated p_fukusho_hit
+- [x] **Phase 4: Model & Prediction** - Baselines BL-1..BL-5 + Phase 1-A LightGBM/CatBoost + calibrated p_fukusho_hit (completed 2026-06-20)
 - [ ] **Phase 5: EV & Backtest** - EV/rank module + race_id-grouped virtual-purchase simulator with fixed odds policy
 - [ ] **Phase 6: Evaluation & Calibration Gates** - Acceptance criteria (Brier/LogLoss/calibration/sum(p)/stability)
 - [ ] **Phase 7: Presentation** - Streamlit minimal UI + prediction/backtest CSV export
@@ -150,29 +150,30 @@ Plans:
   3. Categorical/missing handling is leak-safe: LightGBM uses native categorical with non-negative codes and explicit `__MISSING__`/`__UNSEEN__` sentinels (NaN→-1 forbidden); CatBoost uses `cat_features` + `has_time=True` on a Pool sorted by `race_start_datetime`; NO target/mean encoding anywhere (verified by a leak diagnostic where rare categories shrink toward the mean rather than match their own label)
   4. Calibration uses `CalibratedClassifierCV(cv='prefit', method='isotonic')` on a strictly-later disjoint slice, with a unit test asserting `max(train.race_date) < min(calib.race_date)` — and a reproduce-smoke-test (fixed seeds → identical predictions on re-run) passes
 
-**Plans**: 5/6 plans executed
+**Plans**: 6 plans
 
 Plans:
+
 **Wave 1**
 
 - [x] 04-01-PLAN.md — 基盤（lightgbm/catboost pin + prediction DDL/GRANT + RED stubs + v3 ドリフト修正）
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
 - [x] 04-02-PLAN.md — data.py + calibrator.py + artifact.py（SC#1 stamped Parquet・3way split・prefit wrapper・review HIGH#9/MEDIUM#5/MEDIUM#6/HIGH#5 全対応）
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
 - [x] 04-03-PLAN.md — trainer.py + baseline.py（SC#3 leak diagnostic・LightGBM native + CatBoost has_time・BL-1..5）
 - [x] 04-04-PLAN.md — predict.py + prediction_load.py + evaluator.py（provenance・staging-swap・比較表）
-
-**Wave 4** *(blocked on Wave 3 completion)*
-
 - [x] 04-05-PLAN.md — run_train_predict.py + SC#4 reproduce smoke（両モデル統合・bit-identical）
+- [x] 04-06-PLAN.md — SC#3/SC#4 構造的ブロック GREEN + ROADMAP 更新（Phase 4 完了宣言）
 
-**Wave 5** *(blocked on Wave 4 completion)*
+**SC#1-#4 Achievement Evidence** (review HIGH#8: SC#2 は2要素分離 / review HIGH#3: SC#3 は対抗的構造診断 / review HIGH#7: SC#4 固定 thread/as_of_datetime):
 
-- [ ] 04-06-PLAN.md — SC#3/SC#4 構造的ブロック GREEN + ROADMAP 更新（Phase 4 完了宣言）
+- **SC#1** Achieved: PLAN 01-02・`test_load_from_parquet_only` / `test_raw_ids_excluded` / `test_no_banned_features` GREEN・`models/{version}/` artifact 生成（base+calibrator 分離・review HIGH#5）・feature_df 552,935 行（label-joined）
+- **SC#2** (a) 比較表生成済み: PLAN 03-05・`tests/model/test_baseline.py` 6 test GREEN・reports/04-eval.md + reports/04-eval.json 生成（LightGBM + CatBoost + BL-1..5 比較表）
+        (b) **AI 付加価値: 部分証明** — 主モデルは Brier/LogLoss/AUC（順序付け性能）で BL-1/BL-4/BL-5 を上回る（LightGBM 最良: brier=0.152216 / logloss=0.474883 / auc=0.732295）。しかし D-04 事前登録の**主要基準である Calibration（calibration_max_dev）では BL-1=0.001426・BL-4=0.044928 に劣る**（LightGBM=0.230769・CatBoost=0.257893）。事前登録基準（Calibration 重視）の観点では「AI 付加価値 部分証明」・Phase 6 ゲートで最終判定（review HIGH#8 正直注記）
+- **SC#3** Achieved: PLAN 03・**対抗的構造診断（合成データ・review HIGH#3: live-data 証明と称さず対抗的構造診断と正確に呼ぶ）** `test_no_target_encoding_leak` GREEN（低基数 RARE_X + 高基数 `_code` train-only/test-unseen + 意図的リーク制御 DEMONSTRABLY fail・target encoding 非混入の構造実証）・`test_lightgbm_nonneg_codes` / `test_catboost_has_time` / `test_catboost_predict_preserves_row_order` GREEN・CatBoost `_code` 列 cat_features 宣言（review HIGH#6）
+- **SC#4** Achieved: PLAN 02/05・`test_strict_later_disjoint` GREEN・`test_reproduce_bit_identical` GREEN（固定 thread count: num_threads=1/thread_count=1 + 固定 as_of_datetime: FIXED_REPRODUCE_TS・review HIGH#7）・`run_train_predict --check-reproduce` 両モデル bit-identical PASS（lightgbm + catboost）
+
+**Locked decisions & review response**: D-01..D-08 全て実装 + reviews HIGH#1..#12 + actionable MEDIUM/LOW 対応（DDL 11カラム PK + CHECK・FEATURE_COLUMNS allowlist・CatBoost `_code` cat_features・行整列 `align_predictions`・model_version D-10 形式・base+calibrator artifact 分離・SC#3 対抗的構造診断強化・SC#4 固定 thread/as_of_datetime・prediction model_version スコープ swap・KEIBA_SKIP_DB_TESTS unset 最終ゲート（262 passed / 0 skipped・38 requires_db 全実行）・SC#2 2要素分離）
+
+**実行生成物（Phase 5 引き渡し）**: prediction.fukusho_prediction（lightgbm 22,213 行 + catboost 22,213 行・各 model_version スコープ）・reports/04-eval.{md,json}（D-04 事前登録選定基準素材）・models/{version}/ artifact（.gitignore・§19.1 再現は code + uv.lock + snapshot metadata）・D-04 事前登録選定基準（Calibration 重視）は Phase 6 ゲートで最終選定に使用
 
 ### Phase 5: EV & Backtest
 

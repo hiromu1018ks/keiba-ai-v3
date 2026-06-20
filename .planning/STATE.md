@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 04
-current_phase_name: model-prediction
-status: executing
-stopped_at: "Completed 04-05-PLAN.md (orchestrator + run_train_predict GREEN・SC#4 bit-identical 実データ両モデルで実証)"
-last_updated: "2026-06-20T11:08:31.207Z"
+current_phase: 05
+current_phase_name: ev-backtest
+status: phase-4-complete
+stopped_at: "Completed 04-06-PLAN.md (Phase 4 final verification: both-models E2E + SC#3/SC#4 GREEN + full suite KEIBA_SKIP_DB_TESTS unset 262 passed / 0 skipped)"
+last_updated: "2026-06-20T11:30:00.000Z"
 last_activity: 2026-06-20
-last_activity_desc: Plan 04-05 executed (orchestrator + run_train_predict GREEN 7 test・SC#4 bit-identical 実データ両モデルで実証)
+last_activity_desc: Phase 4 complete — Plan 04-06 executed (both-models real-data E2E, predictions persisted, reports committed, SC#3/SC#4 structural blocks GREEN, full suite 262 passed with KEIBA_SKIP_DB_TESTS unset). Transitioned to Phase 5 (EV & Backtest).
 progress:
   total_phases: 9
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 23
-  completed_plans: 22
-  percent: 96
+  completed_plans: 23
+  percent: 56
 ---
 
 # Project State
@@ -24,16 +24,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-16)
 
 **Core value:** オッズ非依存の確率 `p_fukusho_hit` と固定オッズ時点のEVで、過小評価されている馬の複勝払戻対象入り可能性をリークなく検出し、race_id単位・時系列順の再現可能なバックテストで定量評価できること。リーク防止と再現性だけは必ず守る。
-**Current focus:** Phase 04 — model-prediction
+**Current focus:** Phase 05 — ev-backtest (Phase 4 complete)
 
 ## Current Position
 
-Phase: 04 (model-prediction) — EXECUTING
-Plan: 6 of 6
-Status: Plan 04-05 complete (orchestrator + run_train_predict GREEN 7 test・SC#4 bit-identical 実データ両モデルで実証)・ready for 04-06 (実データ完全 E2E・BL 完全化)
-Last activity: 2026-06-20 — Plan 04-05 executed (orchestrator + run_train_predict GREEN・SC#4 bit-identical 実データ両モデルで実証)
+Phase: 05 (ev-backtest) — Phase 4 COMPLETE, ready to plan Phase 5
+Plan: 0 of ? (Phase 5 planning not yet started)
+Status: Phase 4 complete — Plan 04-06 executed (both-models real-data E2E, predictions persisted, reports committed, SC#3/SC#4 structural blocks GREEN, full suite 262 passed with KEIBA_SKIP_DB_TESTS unset / 0 skipped)
+Last activity: 2026-06-20 — Phase 4 complete (Plan 04-06 executed)
 
-Progress: [██████████] 96%
+Progress: [█████░░░░░] 56%
 
 ## Performance Metrics
 
@@ -80,6 +80,7 @@ Progress: [██████████] 96%
 | Phase 04 P03 | 34m | 2 tasks | 4 files |
 | Phase 04 P04 | 38m | 3 tasks | 5 files |
 | Phase 04 P05 | 49m | 2 tasks | 7 files |
+| Phase 04 P06 | 18m | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -160,6 +161,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-20T11:08:31.202Z
-Stopped at: Completed 04-05-PLAN.md (orchestrator + run_train_predict GREEN・SC#4 bit-identical 実データ両モデルで実証)
+Last session: 2026-06-20T11:30:00.000Z
+Stopped at: Phase 4 complete — Plan 04-06 executed (both-models real-data E2E, predictions persisted, reports committed, SC#3/SC#4 structural blocks GREEN, full suite 262 passed with KEIBA_SKIP_DB_TESTS unset / 0 skipped)
 Resume file: None
