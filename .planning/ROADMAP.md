@@ -150,7 +150,7 @@ Plans:
   3. Categorical/missing handling is leak-safe: LightGBM uses native categorical with non-negative codes and explicit `__MISSING__`/`__UNSEEN__` sentinels (NaN→-1 forbidden); CatBoost uses `cat_features` + `has_time=True` on a Pool sorted by `race_start_datetime`; NO target/mean encoding anywhere (verified by a leak diagnostic where rare categories shrink toward the mean rather than match their own label)
   4. Calibration uses `CalibratedClassifierCV(cv='prefit', method='isotonic')` on a strictly-later disjoint slice, with a unit test asserting `max(train.race_date) < min(calib.race_date)` — and a reproduce-smoke-test (fixed seeds → identical predictions on re-run) passes
 
-**Plans**: 1/6 plans executed
+**Plans**: 2/6 plans executed
 
 Plans:
 **Wave 1**
@@ -159,7 +159,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 04-02-PLAN.md — data.py + calibrator.py + artifact.py（SC#1 stamped Parquet・3way split・prefit wrapper）
+- [x] 04-02-PLAN.md — data.py + calibrator.py + artifact.py（SC#1 stamped Parquet・3way split・prefit wrapper・review HIGH#9/MEDIUM#5/MEDIUM#6/HIGH#5 全対応）
 
 **Wave 3** *(blocked on Wave 2 completion)*
 

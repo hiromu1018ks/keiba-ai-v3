@@ -29,11 +29,11 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 04 (model-prediction) — EXECUTING
-Plan: 2 of 6
-Status: Ready to execute
-Last activity: 2026-06-20 — Phase 04 execution started
+Plan: 3 of 6
+Status: Plan 04-02 complete (data/calibrator/artifact GREEN)・ready for 04-03 (trainer/baseline)
+Last activity: 2026-06-20 — Plan 04-02 executed (src/model/{data,calibrator,artifact}.py + 10 test GREEN)
 
-Progress: [████░░░░░░░] 35%
+Progress: [█████░░░░░░] 42%
 
 ## Performance Metrics
 
@@ -76,6 +76,7 @@ Progress: [████░░░░░░░] 35%
 | Phase 03.1 P03 | 約30分 | 4 tasks | 7 files |
 | Phase 03.1 P04 | 約20分 | 1 task | 3 files (snapshots) |
 | Phase 04 P01 | 12m | 3 tasks | 15 files |
+| Phase 04 P02 | 13m | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -118,6 +119,11 @@ Recent decisions affecting current work:
 - [Phase 03.1]: plan 03.1-04: PLAN acceptance criteria feature_count 24→62 を実装実態（rolling 32 + 静的/PK/label/meta 30 = 全 Parquet 列数）に一致（commit 5535bc5・実装不変・文書のみ・postreview-v2 で 63→62 に更新: rolling_jyocd_mean→mode rename + sd remove）
 - [Phase ?]: [Phase 04]: plan 04-01: lightgbm==4.6.0/catboost==1.2.10 pin (D-11) + prediction.fukusho_prediction DDL (11カラム PK + 3 CHECK 制約・review HIGH#1/Cross-Plan #3) + tests/model/ 20 RED stub (review MEDIUM#3) + v3→postreview-v2 ドリフト修正 (D-01)
 - [Phase ?]: [Phase 04]: plan 04-01 Rule 3 fix — scripts/run_apply_schema.py::apply() が APPLY_ORDER ではなくハードコードリストを使うため prediction_table DDL を両方に挿入
+- [Phase 04]: plan 04-02: review HIGH#9 対応 — データ API を load_feature_matrix/load_labels/build_training_frame/make_X_y/prepare_model_matrix の5関数に明示分離 + FEATURE_COLUMNS を registry derived allowlist (35 feature) で定義 + make_X_y が X.columns == FEATURE_COLUMNS を完全一致 assert（契約混乱・fake-green 防止）
+- [Phase 04]: plan 04-02: review MEDIUM#5/MEDIUM#6 対応 — split_3way が完全時系列条件 train_max<calib_min<calib_max<test_min<=test_max を raise ValueError で保証 + verify_snapshot_sha256 が manifest の完全 SHA256 と hash scope を検証（Phase 3 snapshot.write_snapshot と同一手順で metadata 除外再計算）
+- [Phase 04]: plan 04-02: review HIGH#5/D-06 対応 — save_native_artifact が CalibratedClassifierCV を base native + calibrator.joblib + metadata.json に分離保存 + load_native_artifact が真正再構築（Cycle 2 NEW-5/NEW-M1/NEW-L1・scikit-learn==1.9.0 pin 安定性保証）
+- [Phase 04]: plan 04-02 Rule 3 fix — FEATURE_COLUMNS 数「42」は v3/feature_count=63 時代の旧情報・postreview-v2 実データ値 35 が正（registry derived allowlist の正適用）
+- [Phase 04]: plan 04-02 Rule 1 fix — verify_snapshot_sha256 が生ファイル bytes で計算していたのを Phase 3 snapshot.write_snapshot と同一手順（metadata 除外・決定論的書込設定）で再計算するよう修正
 
 ### Pending Todos
 
@@ -141,6 +147,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-20T08:30:28.075Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-06-20T08:48:00.000Z
+Stopped at: Completed 04-02-PLAN.md (src/model/{data,calibrator,artifact}.py + 10 test GREEN)
 Resume file: None

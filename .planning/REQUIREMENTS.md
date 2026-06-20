@@ -120,9 +120,9 @@
 | LABEL-04 | Phase 2: Fukusho Labels | Complete |
 | FEAT-01 | Phase 3: As-of Features & Snapshots | Complete |
 | FEAT-02 | Phase 3: As-of Features & Snapshots | Complete |
-| MODL-01 | Phase 4: Model & Prediction | In Progress (基盤整備完了・学習/予測は後続 wave 02-06) |
+| MODL-01 | Phase 4: Model & Prediction | In Progress (基盤 + data/calibrator/artifact 完了・学習/予測は後続 wave 03-06) |
 | MODL-02 | Phase 4: Model & Prediction | Pending |
-| MODL-03 | Phase 4: Model & Prediction | Pending |
+| MODL-03 | Phase 4: Model & Prediction | In Progress (data API + calibrator prefit wrapper 完了・LightGBM/CatBoost 本体は wave 03) |
 | EV-01 | Phase 5: EV & Backtest | Pending |
 | EV-02 | Phase 5: EV & Backtest | Pending |
 | BACK-01 | Phase 5: EV & Backtest | Pending |
