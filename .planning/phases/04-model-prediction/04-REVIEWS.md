@@ -10,8 +10,17 @@ plans_reviewed:
   - 04-05-PLAN.md
   - 04-06-PLAN.md
 model_invoked: codex (gpt-5.5, codex-cli v0.139.0)
-cycle: 1
-status: ACTIONABLE — 再計画推奨（HIGH 19件未解決）
+cycle: 2
+cycles:
+  - cycle: 1
+    reviewer: codex (gpt-5.5, codex-cli v0.139.0)
+    reviewed_commit: 56c969a
+    status: ACTIONABLE — 再計画推奨（HIGH 19件未解決）
+  - cycle: 2
+    reviewer: codex (gpt-5.5, codex-cli v0.139.0)
+    reviewed_commit: 2455424
+    status: ACTIONABLE — 大幅改善・Cycle 1 HIGH 14/19 FULLY RESOLVED・NEW HIGH 1件（CatBoost 予測整列 API 接続）残存
+status: ACTIONABLE — Cycle 2 完了・NEW HIGH-1（CatBoost 予測整列）解消のため Cycle 3 再計画推奨
 ---
 
 # Cross-AI Plan Review — Phase 4（Model & Prediction）
@@ -331,3 +340,164 @@ SC mapping:
 
 ### Divergent Views
 ※単独レビューのため該当なし。Claude/Gemini が追加されれば、SC#3 診断の強度評価や CatBoost `_code` 文字列化の推奨強さについて分岐が生じうる領域。
+
+---
+
+<!-- ============================================================ -->
+<!-- CYCLE 2 — 改訂 PLAN に対する再レビュー（commit 2455424 以降） -->
+<!-- Cycle 1 セクションは上記に監査証跡として保全 -->
+<!-- ============================================================ -->
+
+## Cycle 2 — Codex 再レビュー（改訂 6 PLAN 対する収束判定）
+
+**実施日**: 2026-06-20
+**対象 commit**: 2455424 "revise plans to resolve 19 HIGH + actionable review findings"
+**レビュア**: Codex gpt-5.5 / codex-cli 0.139.0（Cycle 1 と同一モデル・独立セッション）
+**判定**: **大幅改善・19 HIGH 中 14 が FULLY RESOLVED・4 が PARTIALLY・1 が UNRESOLVED（実質回帰）。新規 HIGH 1 件・新規 actionable 4 件。**
+
+### Cycle 2 の方法
+
+Cycle 1 で指摘した 19 HIGH と actionable MEDIUM/LOW を改訂 6 PLAN の task/action/acceptance_criteria/verify/must_haves/threat_model/artifact 内容に照合し、(a) 単に言及されたか、(b) `/gsd-execute-phase` が実装する実行可能契約に変換されたか、を判定。加えて対抗的に新規懸念を走査（`align_predictions` の reindex NaN・staging `INSERT SELECT *` の列順序依存・BL-5 thread pinning・model_version 文書矛盾）。
+
+---
+
+### Cycle 1 HIGH 19件の収束判定（PLAN 単位）
+
+#### 04-01（基盤）
+
+| Cycle 1 HIGH | 判定 | 根拠 |
+|---|---|---|
+| HIGH#1 DDL PK 不足 | **FULLY RESOLVED** | `PREDICTION_TABLE_DDL` PK が `(model_type, model_version, feature_snapshot_id, as_of_datetime, year, jyocd, kaiji, nichiji, racenum, umaban, kettonum)` の11カラム・3 CHECK 制約付き・Task 1 action / acceptance / threat_model T-04-03 / Artifacts 全てに固定 |
+| (actionable) schema 修飾 / RED stub 件数 / uv lock | **RESOLVED** | prohibition で `search_path 暗黙解決ではなく schema 修飾 SQL のみ`・RED stub 20件厳密・`uv lock --check` acceptance 追加 |
+
+#### 04-02（data + calibrator + artifact）
+
+| Cycle 1 HIGH | 判定 | 根拠 |
+|---|---|---|
+| HIGH#2 prepare_model_matrix 契約混乱 | **FULLY RESOLVED** | `load_feature_matrix / load_labels / build_training_frame / make_X_y / prepare_model_matrix` に5関数分離・合成 label DataFrame injection で DB 依存をテストから排除（fake-green 防止・T-04-12b） |
+| HIGH#3 allowlist 誤適用 | **FULLY RESOLVED** | `FEATURE_COLUMNS` を registry 由来の明示的 allowlist とし metadata/raw-ID/label 除外・`X.columns == FEATURE_COLUMNS` 完全一致 assert（T-04-12c） |
+| HIGH#4 race ID 不安定 | **FULLY RESOLVED** | 正準 `race_key=(year,jyocd,kaiji,nichiji,racenum)` ビルダ・race_nkey 静かフォールバック廃止 |
+| HIGH#15（04-02 側） artifact wrapper 保存曖昧 | **PARTIALLY RESOLVED** | base native + `calibrator.joblib` 分離保存は plan 化・ただし `load_native_artifact` は base ネイティブファイルから真正再構築するのでなく `calibrator.joblib` をそのまま読み・base ファイルは型整合 assert のみに使用（機能的 roundtrip test は保たれるが「native base から再構築」の要求は弱い） |
+
+#### 04-03（trainer + baseline）
+
+| Cycle 1 HIGH | 判定 | 根拠 |
+|---|---|---|
+| HIGH#5 CatBoost `_code` 数値扱い | **FULLY RESOLVED** | `HIGH_CARD_CODE_COLS` を `astype(str)` で文字列化し `cat_features` に含めることが must_have / Task 1 action / acceptance / threat T-04-13b / test に固定 |
+| HIGH#6 rare-category false-pass | **FULLY RESOLVED** | `_build_intentional_leak_control` で target encoding 風リーク注入時に予測が 0.9 超える（DEMONSTRABLY fail）ことを別 assert で実証 |
+| HIGH#7 高基数 `_code` 未検証 | **FULLY RESOLVED** | `jockey_id_code` の train-only/test-unseen 希少 ID で予測が global mean に縮むことを test に追加 |
+| HIGH#8 CatBoost Pool sort 強制不能 | **PARTIALLY RESOLVED** | `(Pool, sorted_index)` 返却 + `align_predictions` 復元は plan 化・ただし `align_predictions` が厳密置換を検証せず reindex の silent NaN を検出しない（新規 actionable 参照） |
+
+#### 04-04（predict + prediction_load + evaluator）
+
+| Cycle 1 HIGH | 判定 | 根拠 |
+|---|---|---|
+| HIGH#9 model_version 形式 | **PARTIALLY RESOLVED** | action/acceptance/test は `20260620-1a-postreview-v2-lgb-v1` で正しい・しかし behavior ブロックと `read_first` に古い `20260620-1a-lgb-v1` 例が残存（文書矛盾・新規 actionable） |
+| HIGH#10 staging-swap 全テーブル破壊 | **PARTIALLY RESOLVED** | `DELETE WHERE model_type+model_version` で scope 化・`test_model_version_scoped_swap_preserves_other_models` で lightgbm 書込後 catboost 書込でも lightgbm 残ることを実証・ただし Step 9 が `INSERT ... SELECT * FROM staging` で列順序依存（新規 actionable） |
+| HIGH#11 index/comment/GRANT 破壊 | **FULLY RESOLVED** | 本テーブルを DROP/RENAME せず staging のみ破壊・`LIKE ... INCLUDING ALL` で制約保全 |
+
+#### 04-05（orchestrator + run_train_predict）
+
+| Cycle 1 HIGH | 判定 | 根拠 |
+|---|---|---|
+| HIGH#12 train_and_predict が calibrator.py 所属 | **FULLY RESOLVED** | `src/model/orchestrator.py` 新設・`grep -c 'def train_and_predict' src/model/calibrator.py == 0` acceptance・`test_no_circular_import` |
+| HIGH#13 split 前 prepare / metadata 不保持 | **PARTIALLY RESOLVED** | index 付き modeling frame を全段で運び index equality assert を入れた・ただし `train_and_predict(feature_df, ...)` が `readonly_cur/label_df` を取らず run script 側で label join 済み frame を渡す契約がやや暗黙 |
+| **HIGH#14 CatBoost sort 済み予測が元順序に戻らない** | **UNRESOLVED（実質回帰）** | orchestrator は `align_predictions` で整列済み `pred_proba` を作るが・直後に `predict_p_fukusho(calib_result.calibrated, X_test, ...)` を呼び `predict_p_fukusho` 内部で `calibrated_estimator.predict_proba(X)[:,1]` を**再計算**するため aligned 予測は捨てられる。`predict_p_fukusho` のシグネチャが estimator のみ受け取り `pred_proba` を受け取らないため CatBoost 予測整列が最終 `pred_df` に反映されない経路になる。Cycle 1 HIGH#14 の核心（silent wrong-horse prediction）が plan 上で未解決 |
+| HIGH#15（04-05 側） artifact save | **PARTIALLY RESOLVED** | `save_native_artifact` 分離保存を消費する契約は明示・04-02 側 loader 設計の弱さ（上記）と連動 |
+| HIGH#16 reproduce smoke 非 bit-identical | **FULLY RESOLVED** | `num_threads=1/thread_count=1` + 固定 `as_of_datetime` + `np.array_equal` + `--check-reproduce` + `_assert_deterministic` が acceptance に固定 |
+
+#### 04-06（最終検証 + ROADMAP）
+
+| Cycle 1 HIGH | 判定 | 根拠 |
+|---|---|---|
+| HIGH#17 SC#3 を live-data 証明と過大請求 | **FULLY RESOLVED** | 「対抗的構造診断」「合成データ」「live-data 証明と称さない」が must_have / prohibition / ROADMAP 更新契約に固定 |
+| HIGH#18 KEIBA_SKIP_DB_TESTS green-by-skip | **FULLY RESOLVED** | `unset KEIBA_SKIP_DB_TESTS && uv run pytest`・critical skipped count == 0・`final_gate_run_with_skip_unset: true` acceptance |
+| HIGH#19 SC#2 比較表だけで付加価値扱い | **FULLY RESOLVED** | 「比較表生成」と「主モデルが BL を具体指標で上回るか」を分離・未達なら「AI 付加価値未証明」と注記 |
+
+#### Cycle 1 actionable MEDIUM/LOW の収束
+
+search_path 修飾 / RED stub 20件厳密 / uv lock --check / 厳密時系列 test_min<=test_max / SHA256 完全 hash+scope / LightGBM `_code` 非負 assert / BL-3 §14.2 注記 / BL-4/5 キャリブレーション注記 / as_of_datetime 制御 / sum(p) 診断的 / binning 契約固定 / .md+.json 分離 / --snapshot-id 実パス解決 / <120s 参考指標化 / validation 実行証拠格納 — **いずれも RESOLVED**（task/action/acceptance に組み込み済み）。
+
+---
+
+### 新規懸念（Cycle 2 で発見）
+
+#### NEW HIGH-1: CatBoost 予測整列が最終 prediction DataFrame に反映されない経路（HIGH#14 の実質回帰）
+
+**深刻度: HIGH**（核心価値「馬ごとのリークなし `p_fukusho_hit`」に直結・silent wrong-horse prediction 再発リスク）
+
+**問題**: 04-05 orchestrator の action step 2 は CatBoost 予測を次のように処理する:
+1. `pred_proba_sorted = calib_result.calibrated.predict_proba(X_test_cb_pool)[:,1]`（sort 済み Pool）
+2. `pred_proba = align_predictions(...)` で元順序復元 ← **この結果は使われない**
+3. `pred_df_test = predict_p_fukusho(calib_result.calibrated, X_test, ...)` ← `predict_p_fukusho` 内部で `calibrated_estimator.predict_proba(X)[:,1]` を**再計算**
+
+`predict_p_fukusho`（04-04 Task 1）のシグネチャは `predict_p_fukusho(calibrated_estimator, X, ...)` であり・aligned 予測値を受け取らない。そのため orchestrator が算出した aligned `pred_proba` は捨てられ・`predict_p_fukusho` が再度予測する。CatBoost の `predict_proba(X)` が内部で Pool 再構築時に再 sort すれば予測順序が元の `X_test.index` と一致せず・silent wrong-horse prediction になる。Cycle 1 HIGH#14 の核心が再発。
+
+**必要な PLAN 修正（Cycle 3 で再計画）**:
+- `predict_p_fukusho` に `pred_proba` 引数を追加（`predict_p_fukusho(*, calibrated_estimator=None, X=None, pred_proba=None, ...)` いずれかを必須化）・orchestrator は aligned `pred_proba` を渡す
+- または CatBoost 専用 predict helper を新設し `sort → predict_proba → align_predictions → provenance DataFrame 構築` を一貫担当
+- acceptance に「CatBoost の場合 `predict_p_fukusho` に渡る予測値が `align_predictions` 出力と同一であること」を assert
+
+#### NEW-2: `align_predictions` が厳密置換を検証しない（actionable MEDIUM）
+
+**深刻度: MEDIUM**（HIGH-1 が解消されれば影響縮小・だが安価な安全網として必須）
+
+**問題**: 04-03 Task 1 action step 7 の `align_predictions` は `pandas.Series(pred_series.values, index=sorted_index).reindex(original_index)` を使う。`sorted_index` が `original_index` の厳密な置換でなく部分集合の場合・`reindex` は欠落 index に **silent NaN** を生成し・戻り index は `original_index` と一致するため現状の `index.equals` assert は通ってしまう。CatBoost Pool が（全 `__MISSING__` センチネル等で）行を黙示に落とした場合・予測値 NaN が wrong-horse prediction として伝播しうる。
+
+**必要な PLAN 修正**: `align_predictions` の acceptance に次を追加: `sorted_index.is_unique` / `original_index.is_unique` / `set(sorted_index) == set(original_index)` / `len(sorted_index) == len(original_index)` / `assert not aligned.isna().any()` を RuntimeError guard 化。
+
+#### NEW-3: staging Step 9 の `INSERT ... SELECT * FROM staging` が列順序依存（actionable MEDIUM）
+
+**深刻度: MEDIUM**（`LIKE ... INCLUDING ALL` が順序保存するため現状は安全だが将来 DDL 変更で脆弱）
+
+**問題**: 04-04 Task 2 action Step 9 は `INSERT INTO prediction.fukusho_prediction SELECT * FROM prediction.fukusho_prediction_staging`。列リストを明示しないため・将来 DDL に列追加・順序変更が入ると誤列挿入または runtime failure になる。Step 6 は明示的 `cols_sql` を使うため一貫性もない。
+
+**必要な PLAN 修正**: Step 9 を `INSERT INTO prediction.fukusho_prediction (<PREDICTION_COLUMNS csv>) SELECT <PREDICTION_COLUMNS csv> FROM prediction.fukusho_prediction_staging` に固定。
+
+#### NEW-4: model_version 文書矛盾（actionable MEDIUM/LOW）
+
+**深刻度: MEDIUM/LOW**（test は正しい形式を固定するため実行時安全・だが実装者が古い例を採用する危険）
+
+**問題**: 04-04 Task 1 behavior の `test_model_version_numbering` docstring と `read_first` に古い形式 `"20260620-1a-lgb-v1" / "20260620-1a-cb-v1"`（feature_snapshot_id の `-1a` 部分のみ使用）が残る。RESEARCH D-10 も同じ古い例。action/acceptance は `20260620-1a-postreview-v2-lgb-v1`（feature_snapshot_id 全体を prefix）で正しいが・実装者が behavior の古い例を権威的に扱うと矛盾する仕様を固定しうる。
+
+**必要な PLAN 修正**: 04-04 behavior ブロックと `read_first` と RESEARCH D-10 例を `20260620-1a-postreview-v2-lgb-v1` に統一。
+
+#### NEW-5: artifact loader が native base から真正再構築しない（actionable MEDIUM）
+
+**深刻度: MEDIUM**（機能的 roundtrip は保たれる・だし Cycle 1 HIGH#15 の「base+calibrator から再構築」要求は部分的）
+
+**問題**: 04-02 Task 2 action step 5 の `load_native_artifact` は `calibrator.joblib` を読み込むのみ・`calibrator.estimator` の型が base_model_type と整合することを assert するが・native base ファイル（`lgb_model.txt`/`cb_model.cbm`）から CalibratedClassifierCV を**真正再構築**しない。そのため native base ファイルは検証用確証オブジェクトになり・joblib 依存度が高い（joblib は Python マイナーバージョン間で非互換になりうる）。
+
+**必要な PLAN 修正**: `load_native_artifact` が (a) native base ファイルから base estimator を読み込み (b) `calibrator.joblib` から calibrators を読み込み (c) base + calibrators から CalibratedClassifierCV を再構築する契約に強化・または joblib 依存を減らす方向を docstring で明示。
+
+---
+
+### Cross-Plan 統合判定
+
+**Cycle 1 HIGH 19件の総合**:
+- **FULLY RESOLVED**: 14件（#1/#2/#3/#4/#5/#6/#7/#11/#12/#16/#17/#18/#19 + HIGH#15 の機能面）
+- **PARTIALLY RESOLVED**: 4件（#8/#9/#10/#13）
+- **UNRESOLVED**: 1件（#14 — NEW HIGH-1 として再発）
+
+**新規**: HIGH 1件（NEW HIGH-1）+ actionable MEDIUM 4件（NEW-2..5）
+
+**最優先（複数 PLAN / クロスプランにまたがる）**:
+1. **NEW HIGH-1（HIGH#14 回帰）**: CatBoost 予測整列が `predict_p_fukusho` の再予測で捨てられる・核心価値違反・Cycle 3 で必須修正
+2. **NEW-2**: `align_predictions` の reindex silent NaN guard 欠如・NEW HIGH-1 と連動
+3. **NEW-3**: staging `INSERT SELECT *` の列順序依存・provenance 聖域の脆弱性
+4. **NEW-4**: model_version 文書矛盾・実装者誘導リスク
+5. **NEW-5**: artifact loader の native base 真正再構築欠如・HIGH#15 部分解決の残渣
+
+### Goal-Backward Verdict
+
+改訂 PLAN は Cycle 1 の大半を実行可能な task/test/acceptance/threat_model に落とし込み・特に DDL 11カラム PK + CHECK・CatBoost `_code` cat_features 文字列化・SC#3 過大請求防止・SC#4 固定 thread/as_of_datetime・final gate skip 禁止・SC#2 2要素分離は大きく改善された。これらは Cycle 1 では「文書で触れるのみ」だったものが `/gsd-execute-phase` が実装する契約に変換された点で評価できる。
+
+しかし**核心価値である「馬ごとのリークなし `p_fukusho_hit`」に直結する CatBoost 予測行整列が、orchestrator と `predict_p_fukusho` の API 接続ミスで実質未解決（NEW HIGH-1）**。現状のままでは `align_predictions` を実装してもその出力が最終 prediction DataFrame に使われない経路になり・Cycle 1 HIGH#14 の silent wrong-horse prediction が再発しうる。
+
+結論: **Cycle 2 は大幅改善だが・Phase 4 実装に進める前に NEW HIGH-1（CatBoost 予測整列の API 接続）を PLAN 修正すべき。** 加えて NEW-2..5（actionable MEDIUM）も実装前に対処すれば Cycle 1 HIGH は実質収束に極めて近づく。
+
+### Risk Assessment
+
+**総合リスク: MEDIUM**（Cycle 1 の HIGH から低下・ただし NEW HIGH-1 が残るため LOW ではない）
+
+Cycle 1 の 19 HIGH のうち 14 が FULLY RESOLVED となり・リーク防止不変量の大部分（DDL・categorical・calibration・reproduce・gate）は実行可能契約に変換された。残る NEW HIGH-1 は局所的（CatBoost 予測 API 接続）で修正コストは小さい（`predict_p_fukusho` に `pred_proba` 引数を追加する程度）が・核心価値に直結するため Cycle 3 で必須。NEW-2..5 は実装前に対処推奨だが Phase 4 完了をブロックするほどではない。
