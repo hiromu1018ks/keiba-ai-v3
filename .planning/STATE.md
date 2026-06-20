@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 04
 current_phase_name: model-prediction
 status: executing
-stopped_at: Completed 04-04-PLAN.md (predict/evaluator/prediction_load GREEN 6 test)
-last_updated: "2026-06-20T10:12:59.399Z"
+stopped_at: "Completed 04-05-PLAN.md (orchestrator + run_train_predict GREEN・SC#4 bit-identical 実データ両モデルで実証)"
+last_updated: "2026-06-20T11:08:31.207Z"
 last_activity: 2026-06-20
-last_activity_desc: Plan 04-02 executed (src/model/{data,calibrator,artifact}.py + 10 test GREEN)
+last_activity_desc: Plan 04-05 executed (orchestrator + run_train_predict GREEN 7 test・SC#4 bit-identical 実データ両モデルで実証)
 progress:
   total_phases: 9
   completed_phases: 4
   total_plans: 23
-  completed_plans: 21
-  percent: 44
+  completed_plans: 22
+  percent: 96
 ---
 
 # Project State
@@ -29,11 +29,11 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 04 (model-prediction) — EXECUTING
-Plan: 5 of 6
-Status: Plan 04-02 complete (data/calibrator/artifact GREEN)・ready for 04-03 (trainer/baseline)
-Last activity: 2026-06-20 — Plan 04-02 executed (src/model/{data,calibrator,artifact}.py + 10 test GREEN)
+Plan: 6 of 6
+Status: Plan 04-05 complete (orchestrator + run_train_predict GREEN 7 test・SC#4 bit-identical 実データ両モデルで実証)・ready for 04-06 (実データ完全 E2E・BL 完全化)
+Last activity: 2026-06-20 — Plan 04-05 executed (orchestrator + run_train_predict GREEN・SC#4 bit-identical 実データ両モデルで実証)
 
-Progress: [█████░░░░░░] 42%
+Progress: [██████████] 96%
 
 ## Performance Metrics
 
@@ -79,6 +79,7 @@ Progress: [█████░░░░░░] 42%
 | Phase 04 P02 | 13m | 2 tasks | 6 files |
 | Phase 04 P03 | 34m | 2 tasks | 4 files |
 | Phase 04 P04 | 38m | 3 tasks | 5 files |
+| Phase 04 P05 | 49m | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -132,6 +133,10 @@ Recent decisions affecting current work:
 - [Phase 04]: review HIGH#1/Cross-Plan #3: prediction_load.py が model_version スコープ置換 (DELETE WHERE model_type+model_version → INSERT) を採用・全テーブル破壊でなく他 model/version の行を保持
 - [Phase 04]: Cycle 2 NEW HIGH-1: predict_p_fukusho が pred_proba 引数で CatBoost aligned 予測値を注入・再予測で整列が捨てられる silent wrong-horse prediction 回帰を閉塞
 - [Phase 04]: review MEDIUM/LOW: evaluator.py が sum(p) を独立二値確率の診断的指標として扱い binning 契約固定・reports/04-eval.{md,json} に分離出力
+- [Phase ?]: test decision 04-05
+- [Phase ?]: 04-05: train_and_predict orchestrator を src/model/orchestrator.py に配置 (review HIGH#12: 循環依存回避)・行整列保証 + bit-identical + aligned pred_proba 注入
+- [Phase ?]: 04-05: SC#4 bit-identical を実データ両モデルで実証 (固定 seed=42 + thread count=1 + FIXED_REPRODUCE_TS・np.array_equal)
+- [Phase ?]: 04-05: CatBoost + CalibratedClassifierCV 互換性: base estimator Pool 予測から手動 calibrator fit (StringDtype pd.NA 回避・Rule 3 auto-fix)
 
 ### Pending Todos
 
@@ -155,6 +160,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-20T10:12:59.394Z
-Stopped at: Completed 04-04-PLAN.md (predict/evaluator/prediction_load GREEN 6 test)
+Last session: 2026-06-20T11:08:31.202Z
+Stopped at: Completed 04-05-PLAN.md (orchestrator + run_train_predict GREEN・SC#4 bit-identical 実データ両モデルで実証)
 Resume file: None
