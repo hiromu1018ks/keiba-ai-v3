@@ -257,31 +257,56 @@ def _construct_derived_columns(
         signed = digits.where(sign != "-", -digits)
         result["timediff"] = (signed / 10.0).where(~is_sentinel, np.nan)
 
-    # Phase 3.1 (Plan 03 Task 1): babacd trackcd 第1桁分岐派生（D-13・Pitfall 2・T-03.1-08）
-    # trackcd 先頭桁で芝/ダートを判定し、対応する馬場状態コード（sibababacd/dirtbabacd）を
-    # babacd 列に格納。判定不能/欠損は __MISSING__ sentinel（silent NaN fill 禁止）。
-    #   - trackcd 第1桁 "1"/"2" → 芝 → babacd = hist_sibababacd（芝馬場状態）
-    #   - trackcd 第1桁 "5"     → ダート → babacd = hist_dirtbabacd（ダート馬場状態）
-    #     （dirtbabacd='0'/欠損/NaN の場合は信号欠損 → __MISSING__・T-03.1-08 accept）
-    #   - その他（'0'/'3'/'4'/欠損/曖昧）→ __MISSING__
+    # Phase 3.1 (Plan 03 Task 1): babacd 派生 — trackcd 数値範囲で芝/ダート/障害を判定し、
+    # 対応する馬場状態コードを babacd 列に格納。判定不能/欠損は __MISSING__ sentinel
+    # （silent NaN fill 禁止）。JRA-VAN JV-Data 仕様に準拠（実DB検証 + 公式資料で確定）:
+    #   - trackcd 10-22 → 平地芝     → babacd = hist_sibababacd（芝馬場状態）
+    #   - trackcd 23-25 → 平地ダート → babacd = hist_dirtbabacd（ダート馬場状態）
+    #   - trackcd 51-59 → 障害（芝） → babacd = hist_sibababacd（障害コースは芝馬場）
+    #   - それ以外/欠損 → __MISSING__
+    # 馬場状態コード '0' は JRA-VAN JV-Data で「未設定/初期値」（有効値は '1'=良, '2'=稍重,
+    # '3'=重, '4'=不良・developer.jra-van.jp/t/topic/58・JV-Data コード表）。実DBでも整合:
+    # ダート(trackcd23-25)レースの sibababacd は '0'(未設定)が99%・芝レースの sibababacd は
+    # '1'(良)が最多。よって '0' は除外（空/NaN/None と同様・__MISSING__）。
+    # trackcd の芝/ダート判定は旧実装（先頭桁 1/2=芝, 5=ダート）が実態と逆転（'2x' の大半=
+    # 23/24 はダート, '5x' は障害芝）していたのが真の data loss 真因。旧実装が '2x'（ダート）
+    # を芝扱いして sibababacd '0'(未設定) → __MISSING__ 化していたのを、数値範囲判定で
+    # dirtbabacd を見るように精密化して解消（'0' 除外 intent 自体は正しかった）。
     if (
         "trackcd" in result.columns
         and "hist_sibababacd" in result.columns
         and "hist_dirtbabacd" in result.columns
         and "babacd" not in result.columns
     ):
-        tc = result["trackcd"].astype(str).str.strip()
-        lead = tc.str[0]
-        turf_mask = lead.isin(["1", "2"])
-        dirt_mask = lead == "5"
+        tc_num = pd.to_numeric(
+            result["trackcd"].astype(str).str.strip(), errors="coerce"
+        )
+        turf_mask = tc_num.between(10, 22)  # 平地芝（左回り10-19 + 右回り20-22）
+        dirt_mask = tc_num.between(23, 25)  # 平地ダート
+        obstacle_mask = tc_num.between(51, 59)  # 障害（芝馬場）
         babacd = pd.Series([MISSING] * len(result), dtype=object, index=result.index)
-        # 芝: sibababacd が '0'/空/NaN なら __MISSING__（信号欠損）
-        turf_val = result["hist_sibababacd"].astype(str).str.strip()
-        turf_valid = turf_mask & turf_val.notna() & (turf_val != "") & (turf_val != "nan") & (turf_val != "0")
-        babacd = babacd.where(~turf_valid, turf_val)
-        # ダート: dirtbabacd が '0'/空/NaN なら __MISSING__（信号欠損・T-03.1-08）
+        # 芝 + 障害 → sibababacd（'0'/空/NaN/None は未設定なので __MISSING__）
+        siba_pick = turf_mask | obstacle_mask
+        siba_val = result["hist_sibababacd"].astype(str).str.strip()
+        siba_valid = (
+            siba_pick
+            & siba_val.notna()
+            & (siba_val != "")
+            & (siba_val != "nan")
+            & (siba_val != "None")
+            & (siba_val != "0")
+        )
+        babacd = babacd.where(~siba_valid, siba_val)
+        # ダート → dirtbabacd（'0'/空/NaN/None は未設定なので __MISSING__）
         dirt_val = result["hist_dirtbabacd"].astype(str).str.strip()
-        dirt_valid = dirt_mask & dirt_val.notna() & (dirt_val != "") & (dirt_val != "nan") & (dirt_val != "0")
+        dirt_valid = (
+            dirt_mask
+            & dirt_val.notna()
+            & (dirt_val != "")
+            & (dirt_val != "nan")
+            & (dirt_val != "None")
+            & (dirt_val != "0")
+        )
         babacd = babacd.where(~dirt_valid, dirt_val)
         result["babacd"] = babacd
     return result
@@ -436,6 +461,17 @@ def build_feature_matrix(
     # 無い。位置 concat は silent に別の observation に rolling 値を割当ててしまう row-
     # misalignment バグの原因。race_nkey/kettonum（存在時）または obs_id で明示 merge する。
     history = _fetch_history(read_pool)
+    # WR-01 (Phase 3.1 code review): history fetch が空結果（DB例外/0行・_fetch_history の
+    # 接続例外フォールバック）をチョークポイントで fail-loud 検知。obs 側は Step2 WR-02 で
+    # 検知するが、history 側が空だと後続 Step5/6 が ``if len(history) > 0`` でスキップされ、
+    # 全馬が「新馬扱い」（rolling_* が全 __MISSING__）の silent data loss が manifest 書出
+    # まで進む。全期間 SELECT が 0 行になるのは DB 一時障害/0行結果のみ（JRA データで過去走
+    # 0件は非現実）のため、空は即 fail とする（obs 側 WR-02 と対称な二重防御）。
+    if len(history) == 0:
+        raise RuntimeError(
+            "history fetch が空結果を返した・DB例外/0行結果の silent empty を検知 "
+            "(WR-01 fail-loud・advisory hardening・全馬新馬扱いの silent data loss 回避)"
+        )
     if len(history) > 0 and len(feature_matrix) > 0:
         rolling_df = build_rolling_features(feature_matrix, history)
         rolling_cols = [

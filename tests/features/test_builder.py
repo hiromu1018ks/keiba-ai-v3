@@ -505,3 +505,82 @@ def test_cr01_rolling_aligned_by_canonical_key_across_distinct_cutoffs():
         f"馬 B の rolling 値が不正: {row_b['rolling_kakuteijyuni_mean_5']} "
         "(CR-01 row-misalignment regression・期待値 11.0)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 3.1 code review: babacd trackcd 数値範囲判定 + '0'=良馬場 有効値化 の回帰テスト
+# ---------------------------------------------------------------------------
+def test_babacd_derivation_trackcd_range_and_zero_is_unsent():
+    """Phase 3.1 code review で発見・修正した babacd 派生バグの回帰防止。
+
+    実DB検証 + JRA-VAN JV-Data 公式仕様で確定した正しい派生を検証:
+      - trackcd 10-22 → 平地芝 → sibababacd
+      - trackcd 23-25 → 平地ダート → dirtbabacd（旧実装は先頭桁判定の逆転で '2x'ダートを
+        芝扱いし sibababacd'0'→__MISSING__ 化していたのが真の data loss 真因）
+      - trackcd 51-59 → 障害（芝） → sibababacd（旧実装は dirtbabacd 扱いで __MISSING__ 化）
+      - BabaCD '0' は JRA-VAN JV-Data で「未設定/初期値」（有効値は '1'=良,'2'=稍重,'3'=重,
+        '4'=不良・developer.jra-van.jp/t/topic/58）→ '0' は除外（旧 (val != "0") intent は正しい）
+    """
+    builder = _get_builder()
+    rd = pd.Timestamp("2023-06-04")
+    base = {
+        "year": 2023, "jyocd": "05", "kaiji": 1, "nichiji": 1, "racenum": 1,
+        "race_date": rd, "race_start_datetime": rd + pd.Timedelta(hours=12),
+        "kakuteijyuni": 1, "harontimel3": 36.0, "jyuni3c": 1, "jyuni4c": 1,
+        "jyuni1c": 0, "kyori": 1600, "timediff_raw": "+010",
+    }
+    cases = [
+        # (kettonum, trackcd, sibababacd, dirtbabacd, expected_babacd, comment)
+        (1, "10", "1", "0", "1",   "芝(左)・良('1')→ babacd='1'"),
+        (2, "17", "2", "0", "2",   "芝・稍重('2')"),
+        (3, "22", "4", "0", "4",   "芝(右)・不良('4')"),
+        (4, "10", "0", "0", None,  "芝・sibababacd'0'(未設定)→ __MISSING__"),
+        (5, "24", "0", "1", "1",   "ダート・良('1'): dirtbabacd 使用"),
+        (6, "23", "0", "3", "3",   "ダート・重('3'): dirtbabacd（旧は sibababacd'0'→__MISSING__）"),
+        (7, "23", "0", "0", None,  "ダート・dirtbabacd'0'(未設定)→ __MISSING__"),
+        (8, "54", "1", "0", "1",   "障害・良: sibababacd 使用（旧は dirtbabacd扱い→__MISSING__）"),
+        (9, "00", "1", "1", None,  "trackcd='00'(未設定)→ __MISSING__"),
+    ]
+    rows = []
+    for kn, tc, siba, dirt, _exp, _c in cases:
+        r = dict(base, kettonum=kn, trackcd=tc, hist_sibababacd=siba, hist_dirtbabacd=dirt)
+        rows.append(r)
+    df = builder._construct_derived_columns(pd.DataFrame(rows))
+    got = {int(r.kettonum): r.babacd for r in df.itertuples()}
+    missing = builder.MISSING
+    for kn, _tc, _sb, _dt, exp, comment in cases:
+        expected = missing if exp is None else exp
+        assert got[kn] == expected, (
+            f"babacd 派生不一致 [{comment}]: kettonum={kn} got={got[kn]!r} expected={expected!r}"
+        )
+
+
+def test_wr01_raises_on_empty_history():
+    """WR-01 (Phase 3.1 code review): _fetch_history が空 DataFrame を返した状態
+    （DB例外/0行結果/silent empty）で build_feature_matrix がチョークポイントで
+    RuntimeError で fail-loud することを assert。obs 側 WR-02 と対称な silent data loss 防御。
+    """
+    builder = _get_builder()
+    obs_rd = pd.Timestamp("2023-06-04")
+    observations_raw_df = pd.DataFrame([{
+        "kettonum": 1001, "year": 2023, "jyocd": "05", "kaiji": 1, "nichiji": 1,
+        "racenum": 1, "race_date": obs_rd, "race_start_datetime": obs_rd + pd.Timedelta(hours=12),
+        "umaban": 1, "wakuban": 1, "barei": 4, "sexcd": "1", "futan": 57.0,
+        "kisyucode": "01001", "chokyosicode": "01001", "class_code_normalized": 1,
+        "ketto3infohansyokunum1": "SIRE001", "ketto3infohansyokunum2": "BMS001",
+    }])
+    observations_df = builder._construct_derived_columns(observations_raw_df)
+    empty_history = pd.DataFrame()
+    orig_s = builder._fetch_feature_sources
+    orig_h = builder._fetch_history
+    builder._fetch_feature_sources = lambda read_pool: observations_df.copy()
+    builder._fetch_history = lambda read_pool: empty_history.copy()
+    try:
+        with pytest.raises(RuntimeError, match="WR-01"):
+            builder.build_feature_matrix(
+                read_pool=None, snapshot_id="test-snap",
+                label_version="v1.0.0", fa_version="0.3.0",
+            )
+    finally:
+        builder._fetch_feature_sources = orig_s
+        builder._fetch_history = orig_h

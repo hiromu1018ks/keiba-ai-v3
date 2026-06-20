@@ -1,0 +1,18 @@
+byte_reproducible_scope: parquet_data_only_metadata_excluded
+byte_size: 38398926
+category_map_artifact: snapshots/category_map_20260620-1a-postreview-v2.json
+created_at: '2026-06-20T03:08:22.452508+00:00'
+created_at_fixed: '2026-06-20T00:00:00Z'
+dataset_version: v1.0.0
+feature_availability_version: 0.3.0
+feature_count: 62
+feature_cutoff_rule: race_date - 1 day
+feature_snapshot_id: 20260620-1a-postreview-v2
+label_version: v1.0.0
+parquet_path: /Users/hart/develop/keiba-ai-v3/snapshots/feature_matrix_20260620-1a-postreview-v2.parquet
+prediction_timing: 1A
+row_count: 554267
+sha256: 26c685f079501703a77a5cbdc55722473274643a74845df014c393dfaeecbdd2
+snapshot_id: 20260620-1a-postreview-v2
+train_period: 2016-07-01/2023-12-31
+validation_period: 2024-01-01/2024-12-31

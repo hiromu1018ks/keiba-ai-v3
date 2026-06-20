@@ -123,14 +123,14 @@ features:
     feature_group: race_context
     available_from_timing: entry_confirmed
     source_role: both_allowed
-    source_table: raw_everydb2.n_race
+    source_table: normalized.n_race
     cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
     leakage_risk_level: low
   - feature_name: course_kubun
     feature_group: race_context
     available_from_timing: entry_confirmed
     source_role: both_allowed
-    source_table: raw_everydb2.n_race
+    source_table: normalized.n_race
     cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
     leakage_risk_level: low
   - feature_name: class_code_normalized
