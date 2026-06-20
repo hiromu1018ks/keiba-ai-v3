@@ -189,7 +189,22 @@ Plans:
   4. Refund/dead-loss accounting is honest: 取消/除外 → `effective_stake=0` (refund); 競走中止 → `effective_stake=100` counted as a loss (no exclusion inflating ROI) — verified by a unit test that builds a race with each scenario and asserts the stake/payout
   5. The `odds_snapshot_policy` is fixed (30-min-before or 10-min-before), `odds_missing_policy = no_bet` (never substitutes a convenient snapshot), and ALL candidate policies × BT configs are reported together — never the post-hoc winner alone
 
-**Plans**: TBD
+**Plans**: 6 plans
+
+**Wave 1**（並列・互いに独立）
+
+- [ ] 05-01-PLAN.md — Wave 1 基盤（BT窓ヘルパ BTWindow/BT_WINDOWS/get_bt_race_ids + Wave 0 RED stub 集群 9ファイル + 合成 fixtures）— BACK-01
+- [ ] 05-02-PLAN.md — Wave 1 EV/rank/purchase/metrics/bl3 純粋関数群（EV-01/EV-02/BACK-02 + §11.6 + D-04 BL-3）— Plan 01 に依存
+- [ ] 05-03-PLAN.md — Wave 1 odds_snapshot（JODDS backward）+ refund_accounting（6シナリオ決定表）— BACK-03/BACK-04 — Plan 01 に依存
+
+**Wave 2**（blocked on Wave 1 完了）
+
+- [ ] 05-04-PLAN.md — Wave 2 backtest 永続化（schema/settings/connection/backtest_load）+ split_3way/orchestrator periods 拡張（後方互換 A5）— BACK-03/D-03 — Plan 01/02/03 に依存
+
+**Wave 3**（blocked on Wave 2 完了）
+
+- [ ] 05-05-PLAN.md — Wave 3 scripts/run_backtest.py（BT窓再学習 + フル行列 25 backtest）+ reports/05-backtest 生成 — BACK-01/02/03/04 — Plan 01-04 に依存
+- [ ] 05-06-PLAN.md — Wave 3 live-DB backtest スキーマ適用 + 合成データフル行列 smoke + checkpoint:human-verify（実データ backtest は manual-only 分離）— BACK-01/02/03/04 — Plan 05 に依存
 
 ### Phase 6: Evaluation & Calibration Gates
 
@@ -243,7 +258,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 3. As-of Features & Snapshots | 5/5 | Complete    | 2026-06-19 |
 | 3.1 Timediff/Babacd Rolling Restoration (INSERTED) | 4/4 | Complete    | 2026-06-19 |
 | 4. Model & Prediction | 6/6 | Complete    | 2026-06-20 |
-| 5. EV & Backtest | 0/TBD | Not started | - |
+| 5. EV & Backtest | 0/6 | Not started | - |
 | 6. Evaluation & Calibration Gates | 0/TBD | Not started | - |
 | 7. Presentation | 0/TBD | Not started | - |
 | 8. Adversarial Audit Suite | 0/TBD | Not started | - |
