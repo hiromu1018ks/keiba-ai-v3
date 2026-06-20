@@ -10,7 +10,7 @@ plans_reviewed:
   - 04-05-PLAN.md
   - 04-06-PLAN.md
 model_invoked: codex (gpt-5.5, codex-cli v0.139.0)
-cycle: 2
+cycle: 3
 cycles:
   - cycle: 1
     reviewer: codex (gpt-5.5, codex-cli v0.139.0)
@@ -20,7 +20,11 @@ cycles:
     reviewer: codex (gpt-5.5, codex-cli v0.139.0)
     reviewed_commit: 2455424
     status: ACTIONABLE — 大幅改善・Cycle 1 HIGH 14/19 FULLY RESOLVED・NEW HIGH 1件（CatBoost 予測整列 API 接続）残存
-status: ACTIONABLE — Cycle 2 完了・NEW HIGH-1（CatBoost 予測整列）解消のため Cycle 3 再計画推奨
+  - cycle: 3
+    reviewer: codex (gpt-5.5, codex-cli v0.139.0)
+    reviewed_commit: 7214287
+    status: CONVERGED — Cycle 2 の6件中5件 FULLY RESOLVED・NEW HIGH-1 エンドツーエンド閉塞・残存 HIGH 0件・actionable MEDIUM 1件 + LOW 3件（Phase 4 実装進行可能）
+status: CONVERGED — Cycle 3 完了・残存 HIGH 0件・execute-phase 進行可能（actionable MEDIUM/LOW は実装時対処推奨）
 ---
 
 # Cross-AI Plan Review — Phase 4（Model & Prediction）
@@ -501,3 +505,88 @@ search_path 修飾 / RED stub 20件厳密 / uv lock --check / 厳密時系列 te
 **総合リスク: MEDIUM**（Cycle 1 の HIGH から低下・ただし NEW HIGH-1 が残るため LOW ではない）
 
 Cycle 1 の 19 HIGH のうち 14 が FULLY RESOLVED となり・リーク防止不変量の大部分（DDL・categorical・calibration・reproduce・gate）は実行可能契約に変換された。残る NEW HIGH-1 は局所的（CatBoost 予測 API 接続）で修正コストは小さい（`predict_p_fukusho` に `pred_proba` 引数を追加する程度）が・核心価値に直結するため Cycle 3 で必須。NEW-2..5 は実装前に対処推奨だが Phase 4 完了をブロックするほどではない。
+
+---
+
+## Cycle 3 — Codex 最終収束レビュー（第2再計画 commit 7214287 に対する収束判定）
+
+本レビューは Codex（gpt-5.5 / codex-cli 0.139.0・Cycle 1/2 と同一モデル・独立セッション）による **Cycle 3（最終収束サイクル・max-cycles=3）** レビューです。第2再計画（commit 7214287 "plan revision Cycle 3 (NEW HIGH-1 + NEW-2..5 + residual #13)"）が Cycle 2 の残存6件をエンドツーエンドで解消したかを判定する最終関門として実施しました。レビュアは cycle-2 指摘の収束判定（任務 A）・cycle-1 解決 HIGH の回帰走査（任務 B）・新規懸念の対抗走査（任務 C）を実行し、レビュアの事前検証（grep/excerpt ベース）とクロスチェックして一致を確認済みです。
+
+**対象 commit**: 7214287 "plan revision Cycle 3 (NEW HIGH-1 + NEW-2..5 + residual #13)"
+**レビュア**: Codex gpt-5.5 / codex-cli 0.139.0（Cycle 1/2 と同一モデル・独立セッション）
+**判定**: **CONVERGED — Cycle 2 の6件中5件 FULLY RESOLVED・1件 PARTIALLY（文書残渣のみ）・残存 HIGH 0件・cycle-1 回帰なし・新規 HIGH なし。**
+
+### Cycle 3 の方法
+
+第2再計画が更新したファイル（04-02/04-03/04-04/04-05-PLAN + 04-RESEARCH）と、cycle-2 指摘の実行可能契約化（task/action/acceptance/verify/threat_model/test）を照合。加えて cycle-1 の 14件 FULLY-RESOLVED HIGH（特に DDL 11カラム PK・CatBoost `_code` cat_features・SC#3 DEMONSTRABLY fail・thread pinning）が第2再計画で回帰していないか走査し、対抗的に新規懸念を検索。レビュアは codex 出力と独立 grep 検証の両方で一致を確認。
+
+### 任務 A — Cycle 2 の6件の収束判定
+
+| Cycle 2 指摘 | 判定 | 根拠（PLAN の箇所） |
+|---|---|---|
+| **NEW HIGH-1**（CatBoost pred_proba API・HIGH#14 回帰） | **FULLY RESOLVED** | 04-04 Task 1 が `predict_p_fukusho(..., pred_proba=None)` を signature に明示。「渡された場合はそれを直接使用し再予測しない」「pd.Series の場合は `pred_proba.index.equals(X.index)` を assert・違反は RuntimeError」「np.ndarray の場合は `pd.Series(pred_proba, index=X.index)` に正規化」を契約化。test `test_predict_uses_injected_pred_proba` が「np.array_equal（注入値が使われ再予測されない）」「index 不一致は RuntimeError」を両方実証。04-05 orchestrator の call site（action step 6）が `pred_proba=pred_proba` を明示的に渡す・`test_catboost_pred_proba_injection` が「最終 pred_df の p_fukusho_hit 列が align_predictions 復元した pred_proba と np.array_equal」を assert・入力シャッフルでも index 復元を検証。threat `T-04-25c`（04-04）と `T-04-31b`（04-05）が連動で mitigate。verify acceptance に `grep 'predict_p_fukusho' src/model/orchestrator.py` に `pred_proba=` 含有確認。**signature → call site → test → threat → verify grep までエンドツーエンドで閉塞済み・Cycle 1 HIGH#14 の silent wrong-horse prediction は構造的に不可能。** |
+| **NEW-2**（align_predictions reindex silent NaN guard） | **FULLY RESOLVED** | 04-03 Task 1 action step 7 が `align_predictions(pred_series, sorted_index, original_index)` に5条件を RuntimeError guard として契約化: (a) `sorted_index.is_unique` (b) `original_index.is_unique` (c) `set(sorted_index) == set(original_index)` (d) `len(sorted_index) == len(original_index)` (e) `not aligned.isna().any()`。test `test_catboost_predict_preserves_row_order` が「部分集合 index（1行削除）」「重複 index（1行複製）」「予測長不一致」で `pytest.raises(RuntimeError)` を要求・reindex silent NaN/dup/drop の fail-loud を実証。threat `T-04-15c` に登録。verify に `grep -c 'is_unique' src/model/trainer.py >= 1`。NEW HIGH-1 の安全網としても機能。 |
+| **NEW-3**（staging INSERT SELECT * 列順序依存） | **FULLY RESOLVED** | 04-04 Task 2 action Step 9 が `INSERT INTO prediction.fukusho_prediction ({cols_sql}) SELECT {cols_sql} FROM prediction.fukusho_prediction_staging` を明示・`cols_sql` は Step 6 と同一の `", ".join(PREDICTION_COLUMNS)` 文字列・psycopg.sql.SQL で safe composition。verify acceptance に `grep -c 'SELECT \* FROM prediction.fukusho_prediction_staging' src/db/prediction_load.py == 0`・将来 DDL 変更で誤列挿入を防止。threat `T-04-21b` に登録。 |
+| **NEW-4**（model_version 文書矛盾） | **PARTIALLY** | 04-04 behavior/read_first と RESEARCH D-10（行687-688）は `20260620-1a-postreview-v2-lgb-v1`/`-cb-v1` に統一済み（action/acceptance/test も同形式で正しい）。**ただし第2再計画が触れていない3ファイルに古い形式の残渣あり**: (1) 04-01-PLAN.md 行179 `test_model_version_numbering（D-10: 20260620-1a-lgb-v1 / 20260620-1a-cb-v1 形式）`・(2) 04-PATTERNS.md 行157 `例: 20260620-1a-lgb-v1`・(3) 04-CONTEXT.md 行50 `例: 20260620-1a-lgb-v1 / -cb-v1`。実装契約の中心（action/acceptance/test）は新形式なので実行時安全だが・実装者が古い stub/patterns/context を参照する余地が残る。**LOW actionable**（後述）。 |
+| **NEW-5**（load_native_artifact 真正再構築） | **FULLY RESOLVED** | 04-02 Task 2 action step 5 が3ステップを契約化: (a) native base ファイル（lgb_model.txt/cb_model.cbm）から base estimator を読込（FileNotFoundError guard）(b) calibrator.joblib から calibrators を読込 (c) base + calibrators から CalibratedClassifierCV を真正再構築（`_calibrators`/`.calibrated_classifiers_` 注入）。acceptance に「native base ファイルから真正読込し base+calibrators から真正再構築」・docstring に「予測の中心は native base から復元した estimator・joblib は calibrators 純粋数値の運び屋」明記。test `test_artifact_save_load_roundtrip` が「純粋 joblib 依存でないこと」を実証。threat `T-04-11` 拡張済み。**ただし再構築が sklearn 1.9 私有/準私有構造（`_calibrators`/`calibrated_classifiers_`）に依存する実装難度は残る → 別途 MEDIUM actionable（後述）。** |
+| **residual #13**（label join 位置が暗黙） | **FULLY RESOLVED** | 04-05 `train_and_predict(feature_df, *, model_type, ...)` が `readonly_cur`/`label_df` 引数を持たず label-joined frame のみを受け取る。docstring に "feature_df must be the output of build_training_frame (label-joined). train_and_predict does NOT rejoin labels." 明記・入口で `assert "fukusho_target" in feature_df.columns`（違反は ValueError）。run script（action step 8）が `load_feature_matrix → load_labels → build_training_frame → train_and_predict(feature_df)` で label join を完結・run script 側でも `fukusho_target` 列存在を assert（二重防御）。verify acceptance に `grep -c 'load_labels\|readonly_cur' src/model/orchestrator.py == 0`。 |
+
+### 任務 B — Cycle 1 回帰走査
+
+**回帰なし。** 第2再計画が cycle-1 の 14件 FULLY-RESOLVED HIGH を保持:
+
+- **HIGH#1 DDL**（04-01）: 11カラム PK（model_type/model_version/feature_snapshot_id/as_of_datetime + 7カラム RACE_KEY）+ 3 CHECK 制約（p_fukusho_hit ∈ [0,1] / model_type IN ('lightgbm','catboost','logreg') / calib_method IN ('isotonic','sigmoid')）を維持。T-04-03 threat も維持。
+- **HIGH#5/#6/#7 CatBoost**（04-03）: `HIGH_CARD_CODE_COLS`（jockey_id_code/trainer_id_code/sire_id_code/bms_id_code/horse_id_code）を `astype(str)` で文字列化し cat_features に含めることを action step 4/test `test_catboost_has_time`/threat で維持。SC#3 leak diagnostic は「低基数 RARE_X + 高基数 _code train-only/test-unseen + `_build_intentional_leak_control` で DEMONSTRABLY fail」を維持。
+- **HIGH#9 model_version**（04-04）: `make_model_version` が `{feature_snapshot_id}-{short}-v{N}`（例: 20260620-1a-postreview-v2-lgb-v1）・二重 suffix 防止の test を維持。
+- **HIGH#16 thread pinning + as_of_datetime**（04-05）: `num_threads=1`（LightGBM）/ `thread_count=1`（CatBoost）+ 固定 `as_of_datetime`（FIXED_REPRODUCE_TS）+ `np.array_equal` の bit-identical を `_assert_deterministic`/`test_reproduce_bit_identical` で維持。
+
+**軽微な文書ドリフト（実行時影響なし・回帰ではない）**: 04-04 read_first に `schema.py（PLAN 01: PREDICTION_TABLE_DDL・9カラム PK・列名・型）` という記述があるが・同 PLAN 本文・acceptance は 11カラム PK を参照しており実装契約としての回帰ではない（実装者は acceptance/本文が権威）。
+
+### 任務 C — 新規懸念（対抗走査）
+
+**新規 HIGH: なし。** 予測整列・label join・staging INSERT の核心リスクは全て収束。
+
+**新規 MEDIUM**:
+- **NEW-M1: artifact 復元の sklearn 内部 API 依存**。04-02 action step 5 (c) が `_calibrators` 属性への注入・又は `.calibrated_classifiers_` への再 bind を許容。これらは sklearn 1.9 の私有/準私有構造で・マイナーバージョン変更で破壊されうる。契約自体（3ステップ再構築・roundtrip test）は十分だが・実装時には「保存形式を calibrators 数値 payload + 公開 predict wrapper に寄せる」か・対象 sklearn バージョン（1.9.0 固定）下で roundtrip test を強くする必要がある。→ **actionable MEDIUM**（後述）。
+
+**新規 LOW**:
+- **NEW-L1: `calibrator.joblib を一時退避しても native base から再構築可能` の test 記述が物理的に不可能**。04-02 test `test_artifact_save_load_roundtrip` の「calibrator.joblib を一時退避しても native base から再構築可能・又は docstring に fallback 手順明記」は曖昧。calibrator 数値（isotonic 回帰の閾値/sigmoid パラメータ）なしでは calibrated probability は復元できず・native base 単独では未キャリブレーション予測しか出せない。fallback は「calibrator 数値が別途保存されている場合の手動復元」に限定して書くべき。→ **actionable LOW**。
+- **NEW-L2: RESEARCH D-12 `calib_method='none'` と 04-01 DDL CHECK の不整合**。RESEARCH 行718 の comment は `'isotonic' / 'sigmoid' / 'none'` だが・04-01 DDL CHECK（行114）は `calib_method IN ('isotonic','sigmoid')` のみ。Phase 4 の LightGBM/CatBoost は両方とも必ずキャリブレーションする（`calibrate_model` が isotonic/sigmoid を強制）ので実行時影響なし・だが将来 baseline（未キャリブレーション）を prediction テーブルに入れる場合は DDL CHECK 又は RESEARCH のどちらかに統一が必要。→ **actionable LOW**。
+
+### 残存 HIGH 懸念（Cycle 3 終了時点）
+
+**なし。** Cycle 2 の核心だった CatBoost aligned `pred_proba` の最終 DataFrame 伝播（NEW HIGH-1）は signature → orchestrator call site → unit/orchestrator test → threat_model → grep acceptance まで完全に閉じた。残る問題は文書残渣（NEW-4 PARTIALLY・実行時安全）と artifact 復元の実装難度（NEW-M1）のみで・リークのない馬ごとの `p_fukusho_hit` と race_id 時系列バックテストという Phase 4 の核心を止める HIGH は存在しない。
+
+### 残存 actionable MEDIUM/LOW 懸念
+
+- **NEW-M1 (MEDIUM)**: artifact 復元（`load_native_artifact` step c）が sklearn 1.9 私有構造（`_calibrators`/`calibrated_classifiers_`）に依存する実装難度。04-02 PLAN.md の docstring/test に「保存形式を calibrators 数値 payload（isotonic 閾値/sigmoid 係数）+ 公開 predict wrapper に寄せる方向」を明示するか・`requires-python`/pyproject.toml で sklearn==1.9.0 を pin し roundtrip test を強化する方向を追記することが望ましい。execute-phase には見えないので PLAN に組み込むか明示的に defer が必要。
+- **NEW-4 残渣 (LOW)**: 04-01-PLAN.md 行179・04-PATTERNS.md 行157・04-CONTEXT.md 行50 の古い model_version 形式（`20260620-1a-lgb-v1`/`-cb-v1`）を `20260620-1a-postreview-v2-lgb-v1`/`-cb-v1` に統一すること。実装者が古い stub/patterns/context を権威的に参照するリスクを排除。
+- **NEW-L1 (LOW)**: 04-02 test `test_artifact_save_load_roundtrip` の「calibrator.joblib 一時退避で再構築可能」記述を「calibrator 数値が別途保存されている場合の手動復元」に限定して書き直すこと。物理的に不可能な fallback を契約に残さない。
+- **NEW-L2 (LOW)**: RESEARCH D-12 行718 の `calib_method='none'` と 04-01 DDL CHECK（`('isotonic','sigmoid')`）のどちらかに統一すること。Phase 4 実行時影響なし・将来 baseline 拡張時の不整合防止。
+
+### Goal-Backward Verdict
+
+Cycle 2 で唯一残存した HIGH（CatBoost aligned `pred_proba` の最終 DataFrame 伝播・Cycle 1 HIGH#14 回帰）は・第2再計画で signature（`predict_p_fukusho` の `pred_proba` 引数）→ orchestrator call site（`pred_proba=pred_proba` 明示渡し）→ unit test（`test_predict_uses_injected_pred_proba`・np.array_equal + RuntimeError）→ orchestrator test（`test_catboost_pred_proba_injection`・シャッフル入力でも index 復元）→ threat_model（T-04-25c/T-04-31b 連動）→ verify acceptance（grep で `pred_proba=` 含有確認）までエンドツーエンドで閉じた。NEW-2/3/5 + residual #13 も実行可能契約に変換され・cycle-1 の 14件 FULLY-RESOLVED HIGH は回帰なく保持された。
+
+残る問題は (a) NEW-4 の文書残渣（04-01 stub・04-PATTERNS・04-CONTEXT に古い model_version 形式・実行時安全）・(b) NEW-M1 の artifact 復元 sklearn 内部 API 依存（実装難度・契約は十分）・(c) NEW-L1/L2 の文書レベル不整合（実行時影響なし）のみで・いずれも Phase 4 の核心（リークのない馬ごとの `p_fukusho_hit`・race_id 時系列バックテスト）を止めるものではない。
+
+**結論: Cycle 3 は CONVERGED。Phase 4 実装（`/gsd-execute-phase`）に進める。** 上記 actionable MEDIUM 1件 + LOW 3件は実装時対処推奨だが Phase 4 完了をブロックしない。
+
+### Risk Assessment
+
+**総合リスク: LOW**（Cycle 2 の MEDIUM から低下）
+
+Cycle 2 で唯一残存した HIGH（CatBoost 予測整列 API 接続・核心価値直結）が解消され・cycle-1 の 19 HIGH は事実上全て収束（14 FULLY + 5 は第2再計画で閉塞・回帰なし）。リーク防止不変量（DDL・categorical・calibration・reproduce・gate・行整列・label join 境界・staging INSERT）は全て実行可能契約に変換された。残る actionable は実装難度（artifact 復元の sklearn 内部 API）と文書レベル（model_version 残渣・fallback 記述・calib_method CHECK）のみで・execute-phase が実装時に詰まるものではない。Phase 4 は実装フェーズに移行可能。
+
+---
+
+## Current HIGH Concerns
+
+なし。Cycle 1 の 19 HIGH（cycle-2 で 14 FULLY + NEW HIGH-1 残存）は Cycle 3 で事実上全て収束。Cycle 2 の NEW HIGH-1（CatBoost 予測整列 API 接続・Cycle 1 HIGH#14 silent wrong-horse prediction 回帰）は signature → call site → test → threat → verify grep までエンドツーエンドで閉塞済み。cycle-1 回帰なし・新規 HIGH なし。
+
+## Current Actionable Non-HIGH Concerns
+
+- **NEW-M1 (MEDIUM)**: `load_native_artifact` 再構築 step (c) が sklearn 1.9 私有構造（`_calibrators`/`calibrated_classifiers_`）に依存する実装難度。04-02 PLAN.md の docstring/test に「calibrators 数値 payload + 公開 predict wrapper への寄せ」又は sklearn==1.9.0 pin + roundtrip test 強化の方向を追記するか・明示的に defer することが必要。
+- **NEW-4 残渣 (LOW)**: 04-01-PLAN.md 行179・04-PATTERNS.md 行157・04-CONTEXT.md 行50 の古い model_version 形式（`20260620-1a-lgb-v1`/`-cb-v1`）を `20260620-1a-postreview-v2-lgb-v1`/`-cb-v1` に統一すること。
+- **NEW-L1 (LOW)**: 04-02 test `test_artifact_save_load_roundtrip` の「calibrator.joblib 一時退避で再構築可能」記述を「calibrator 数値が別途保存されている場合の手動復元」に限定して書き直すこと（物理的に不可能な fallback を契約に残さない）。
+- **NEW-L2 (LOW)**: RESEARCH D-12 行718 の `calib_method='none'` と 04-01 DDL CHECK `('isotonic','sigmoid')` をどちらかに統一すること（Phase 4 実行時影響なし・将来 baseline 拡張時の不整合防止）。
