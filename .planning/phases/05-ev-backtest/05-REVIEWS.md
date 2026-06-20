@@ -1,21 +1,64 @@
 ---
 phase: 5
-cycle: 2
+cycle: 3
 reviewers: [codex]
-reviewed_at: 2026-06-21T07:35:00Z
+reviewed_at: 2026-06-21T09:10:00Z
 plans_reviewed: [05-01-PLAN.md, 05-02-PLAN.md, 05-03-PLAN.md, 05-04-PLAN.md, 05-05-PLAN.md, 05-06-PLAN.md]
 reviewer_command: "codex exec --ephemeral --dangerously-bypass-hook-trust --skip-git-repo-check"
-context_files_included: [PROJECT.md (1-80), ROADMAP Phase 5 section, 6 revised PLAN.md files, cycle-1 HIGH/MEDIUM/LOW index]
-prior_cycle_high_resolved: [HIGH-1 (RESOLVED), HIGH-2 (RESOLVED), HIGH-3 (RESOLVED), HIGH-4 (RESOLVED)]
-prior_cycle_high_partial: [HIGH-5 (PARTIALLY RESOLVED → re-raised as cycle-2 HIGH-A)]
+context_files_included: [PROJECT.md (1-80), ROADMAP Phase 5 section, 6 twice-revised PLAN.md files (commit 85c9db8), cycle-2 HIGH/MEDIUM/LOW index]
+prior_cycle_high_resolved: [HIGH-A (RESOLVED), HIGH-B (RESOLVED), HIGH-C (RESOLVED)]
+prior_cycle_actionable_resolved: [MEDIUM-A (RESOLVED), MEDIUM-B (RESOLVED), MEDIUM-C (RESOLVED), MEDIUM-D (RESOLVED), LOW-A (RESOLVED)]
+new_concerns: [HIGH (acceptance contradicts HARAI race-level merge), MEDIUM (non-selected rows get fake accounting)]
 ---
 
 # Cross-AI Plan Review — Phase 5 (EV & Backtest)
 
-> **Cycle 2.** Single external reviewer (Codex / OpenAI gpt-5.5) per `--codex` flag.
-> Cycle 1 surfaced 5 HIGH + 8 actionable concerns. The 6 PLAN.md files were revised (commit `2311f78`) to incorporate them. This cycle verifies the revisions actually resolve the cycle-1 HIGHs and surfaces NEW concerns introduced by the revision.
+> **Cycle 3 (FINAL).** Single external reviewer (Codex / OpenAI) per `--codex` flag.
+> The 6 PLAN.md files were revised TWICE (commits `2311f78` then `85c9db8`) to incorporate cycle-1 (5 HIGH + 8 actionable) and cycle-2 (3 HIGH + 5 actionable) findings. This final cycle verifies the cycle-2 revisions actually resolve every cycle-2 HIGH/MEDIUM/LOW and surfaces any GENUINELY NEW concerns introduced by the revision.
 >
-> **Cycle-2 verdict: 4 of 5 cycle-1 HIGHs are FULLY RESOLVED with concrete tests/acceptance criteria. HIGH-5 is PARTIALLY RESOLVED and re-raises as a NEW integration-layer HIGH (orchestrator `category_map` plumbing is unspecified & untested). Two additional NEW HIGHs surfaced in the integration script (`_carve_calib` typo/under-specification, HARAI join ambiguity). 5 actionable MEDIUMs remain.**
+> **Cycle-3 verdict: ALL 3 cycle-2 HIGHs (HIGH-A/B/C) and ALL 5 cycle-2 actionable MEDIUM/LOWs (A/B/C/D + LOW-A) are FULLY RESOLVED with concrete plan changes + named tests + threat-register entries. Cycle-1 HIGH-1..5 remain resolved. 2 GENUINELY NEW concerns surfaced in the integration layer (05-05): one HIGH (an acceptance criterion contradicts the correct HARAI race-level merge it also mandates) and one MEDIUM (non-selected full-candidate rows receive fake stake/profit because `determine_stake_payout` has no `selected_flag` branch).**
+
+---
+
+## Codex Review (Cycle 3)
+
+### Summary
+
+The twice-revised plans materially close every cycle-1 and cycle-2 HIGH/MEDIUM/LOW concern at the specification level — each is backed by a concrete plan change, a named test in `behavior`/`acceptance_criteria`, and a threat-register entry. The remaining risk is concentrated in two integration-spec defects inside 05-05 `scripts/run_backtest.py`: (1) one acceptance criterion is internally contradictory — it requires `umaban` in *every* merge's `on=` while the same plan's HIGH-C fix correctly mandates HARAI merge on `['race_key']` with `validate='many_to_one'`; (2) applying `determine_stake_payout` to all rows of the new full-candidate table gives non-selected (never-purchased) horses `stake=100`/`effective_stake=100` and a profit/loss, because 05-03 `determine_stake_payout` has no `selected_flag` branch. Neither affects ROI (metrics filter `selected_flag=True`), but both would yield incorrect persisted audit rows or block the correct implementation at acceptance-check time.
+
+### Cycle-2 Resolution Verdict
+
+| Concern | Verdict | Evidence (verified against revised plans) |
+|---|---|---|
+| HIGH-A — orchestrator `category_map` plumbing unspecified | **RESOLVED** | 05-04 must_haves line 25: "`train_and_predict(category_map=...)` で BT-train-only frozen category_map を model 前処理に伝播". 05-04 action line 112: signature gains `category_map: dict[str, Any] \| None = None`; line 114: model preprocessing consumes the supplied map (silent-ignore forbidden, `__UNSEEN__` sentinel for unseen test IDs). 05-04 acceptance lines 127-130: `test_train_and_predict_category_map_plumbing` (BT-train-only map → unseen test ID maps to `__UNSEEN__`) + `test_train_and_predict_category_map_none_default` (Phase 4 parity). Threat `T-05-18`. |
+| HIGH-B — `_carve_calib_from_train_tail` typo + no determinism test | **RESOLVED** | 05-05 must_haves line 24: "train_start を固定し train_end = calib_start - 1day に短縮" (typo corrected — train's *end* moves back, not its start). 05-05 action line 98-99: `train_end = calib_start - 1day`. 05-05 acceptance line 150 + behavior line 183: `test_carve_calib_strict_ordering_and_deterministic` asserts `max(train)<min(calib)<max(calib)<min(test)` across BT-1..5 AND bit-identical on repeated carve. Threat `T-05-19`. |
+| HIGH-C — HARAI join treats race-level slot records as horse-level | **RESOLVED** (acceptance contradiction noted as new HIGH below) | 05-05 must_haves line 25 + action line 112: `full_candidate.merge(harai_race_df[…], on=['race_key'], how='left', validate='many_to_one')`; payout resolved by row-based `_lookup_payfukusyo_pay` (not by broadcast). 05-05 acceptance line 151 + behavior line 184 + line 204: `test_harai_payout_lookup_no_broadcast` (3 horses, row-count invariant, correct per-umaban payout). Threat `T-05-20`. |
+| MEDIUM-A — non-selected candidates dropped before `load_backtest` | **RESOLVED** (accounting side-effect noted as new MEDIUM below) | 05-05 must_haves line 26 + action line 111: builds `full_candidate` with `selected_flag True/False` + `odds_missing_reason`; line 116-117 passes `full_candidate_with_accounting` to `load_backtest`. 05-04 acceptance line 195 + threat `T-05-14c` + 05-05 behavior line 185: `test_load_backtest_persists_nonselected` (7 rows = 2 selected + 5 non-selected persisted). Threat `T-05-21`. |
+| MEDIUM-B — coverage gate race-level not horse-level | **RESOLVED** | 05-05 must_haves line 27 + action line 120-122: `_assert_jodds_coverage_horse_level` measures candidate-horse usable-odds coverage (excluding `no_bet`/special/`FukusyoFlag≠'7'`) per BT × policy, RuntimeError below threshold (default 0.90); race-level coverage retained as secondary check. 05-05 acceptance line 149 + behavior line 186: `test_horse_level_odds_coverage_gate`. Threat `T-05-17d`. |
+| MEDIUM-C — `merge_asof` multi-race sort-order test missing | **RESOLVED** | 05-03 behavior line 90: `test_odds_snapshot_multi_race` (≥2 races, overlapping `happyo_datetime`, row-count == candidate-horse count). 05-03 acceptance line 122. Threat `T-05-22`. |
+| MEDIUM-D — 特払 HARAI fixture + assertion missing | **RESOLVED** | 05-03 behavior line 151: `test_refund_tokubarai_harai_fixture` (HARAI-shaped slot data, `PayFukusyoUmaban='00'` + `PayFukusyoPay=70`, asserts payout=70 with `fukusho_hit_validated=0`). 05-03 acceptance line 174. Threat `T-05-23`. Also fixes `Fukusyoflag`→`FukusuoFlag` spelling across the plan. |
+| LOW-A — 05-01 test-count drift ("6件" vs 7 listed) | **RESOLVED** | 05-01 acceptance line 118 now reads "既存 + 新規7件" and enumerates all 7 tests (`test_bt_window_disjoint` / `_strict_chronological` / `_2019_06_start` / `_b4_b5_rolling` / `_raises_on_leak` / `_uses_raise_not_assert` / `_equivalent_to_group_ts_split`). |
+
+Cycle-1 HIGH-1..5 remain resolved: HIGH-1/2 still backed by 05-03 `by=['race_key','umaban']` + 05-05 row-count invariants + pipeline tests; HIGH-3 by `0999=no_bet` canonical rule; HIGH-4 by 05-04 strict-later guard; HIGH-5 now fully closed by 05-04 `category_map` signature/plumbing plus 05-05 BT-window refit tests.
+
+### New Concerns (genuinely new in cycle 3)
+
+- **HIGH — 05-05 acceptance criterion contradicts the HIGH-C HARAI race-level merge fix.**
+  05-05 acceptance line 146 reads: "pred_df と snapshot と label と **HARAI** の全 merge 呼出しの on= に 'umaban' が含まれる… race_key 単独の merge は存在しない." This is a blanket rule covering HARAI. But the same plan's HIGH-C fix (must_haves line 25, action line 112, acceptance line 151, behavior line 184, threat `T-05-20`, artifacts line 261) correctly requires HARAI to merge `on=['race_key']` with `validate='many_to_one'` (HARAI is a race-level slot record with no `umaban` column — RESEARCH §2.1-§2.2). The blanket acceptance would either reject the correct implementation at acceptance-check time or push the implementer back to the broken horse-level HARAI join that HIGH-C just fixed. The row-count invariant assertion (line 109, `len(pred_with_odds)==len(pred_df)`) already covers the cartesian-duplication concern for snapshot/label joins, so the blanket rule is unnecessary as well as contradictory.
+  **Suggested fix (05-05):** rewrite acceptance line 146 to exempt HARAI explicitly — e.g. "snapshot/label joins use `on=['race_key','umaban']`; HARAI uses `on=['race_key']` with `validate='many_to_one'` (race-level slot record); post-merge row count must equal the input candidate-horse count."
+
+- **MEDIUM — Non-selected full-candidate rows receive fake stake/profit.**
+  05-05 action line 113 applies `determine_stake_payout` to *all* rows of `full_candidate_with_label` (selected + non-selected) to produce `full_candidate_with_accounting`, which is then persisted (line 117). But 05-03 `determine_stake_payout` (behavior lines 141-150, action lines 156-160) has no `selected_flag` branch — it branches only on `is_fukusho_sale_available`. A normal non-selected candidate (sale available, not scratch/cancel/dead-loss) would therefore receive `stake=100`, `effective_stake=100`, and a real `profit=±payout-100` despite never being purchased. Metrics are unaffected (line 114 filters `selected_flag==True` before `compute_backtest_metrics`), but the persisted audit rows in `backtest.fukusho_backtest` become misleading — a later SQL audit summing `profit`/`effective_stake` across all rows would double-count non-purchased horses.
+  **Suggested fix (05-05 action + 05-03 OR 05-05 accounting step):** before persistence, zero out accounting for non-selected rows (`stake=0`, `refund=0`, `payout=0`, `profit=0`, `effective_stake=0` when `selected_flag is False`), OR extend `determine_stake_payout` to take `selected_flag` and return zero accounting when False. Extend `test_load_backtest_persists_nonselected` (05-05 line 185) to also assert non-selected rows have zero stake/effective_stake/profit.
+
+### Risk Assessment
+
+**Residual risk: LOW–MEDIUM.** All cycle-1 and cycle-2 HIGHs/MEDIUMs are materially resolved with concrete plan text, named tests, and threat-register coverage; the leakage-prevention Core Value (odds-free features, PIT `merge_asof backward`, race_id-grouped BT windows, BT-train-only `category_map` refit, fixed `odds_snapshot_policy`, refund/dead-loss honest accounting, winner-no-highlight reporting) is now backed by executable acceptance criteria end-to-end. The two remaining concerns are integration-spec defects — one internally-contradictory acceptance bullet and one accounting side-effect on audit-only rows — that do not affect ROI correctness but should be fixed before `/gsd-execute-phase 5` so the executor is not blocked or misled.
+
+---
+
+<!-- Cycle 1 and Cycle 2 reviews preserved below for history. -->
+
 
 ## Codex Review
 
@@ -166,14 +209,25 @@ Result: **0 MISSING existing-project symbols** → no hard-block. The 3 cycle-2 
 
 ## Cycle-over-cycle delta
 
-| Metric | Cycle 1 | Cycle 2 |
-|---|---|---|
-| HIGH severity (unresolved) | 5 | 3 |
-| Actionable MEDIUM/LOW (unresolved) | 8 | 5 |
-| Fully resolved HIGHs | 0 | 4 (HIGH-1/2/3/4) |
-| Partially resolved HIGHs | 0 | 1 (HIGH-5 → HIGH-A) |
+| Metric | Cycle 1 | Cycle 2 | Cycle 3 (final) |
+|---|---|---|---|
+| HIGH severity (unresolved) | 5 | 3 | **1** |
+| Actionable MEDIUM/LOW (unresolved) | 8 | 5 | **1** |
+| Fully resolved HIGHs (cumulative) | 0 | 4 (HIGH-1/2/3/4) | **8** (HIGH-1/2/3/4 + HIGH-A/B/C) |
+| Partially resolved HIGHs | 0 | 1 (HIGH-5 → HIGH-A) | **0** |
 
-Net progress: 4 of 5 cycle-1 HIGHs fully closed; HIGH-5 narrowed from "category-map refit not an acceptance criterion" to "orchestrator `category_map` parameter plumbing unspecified" (a smaller, more actionable gap). 3 NEW HIGHs surfaced in the integration layer (05-05 `run_backtest.py`) that were not visible in cycle 1 because cycle 1 focused on the per-module contracts (05-03/04) before the integration script existed in reviewable form.
+Net progress (cycle 3): all 3 cycle-2 HIGHs (HIGH-A/B/C) and all 5 cycle-2 actionable MEDIUM/LOWs (A/B/C/D + LOW-A) are FULLY RESOLVED with concrete plan changes + named tests + threat-register entries. Cycle-1 HIGH-1..5 remain resolved. 2 GENUINELY NEW concerns surfaced in 05-05's integration layer: one HIGH (acceptance bullet line 146 contradicts the HIGH-C HARAI `on=['race_key']`/`validate='many_to_one'` merge the same plan mandates) and one MEDIUM (`determine_stake_payout` applied to all full-candidate rows gives non-selected/never-purchased horses fake `stake=100`/`effective_stake=100`/profit because 05-03 has no `selected_flag` branch). Neither affects ROI (metrics filter `selected_flag=True`); both are quick acceptance/action text fixes before `/gsd-execute-phase 5`.
+
+---
+
+## Recommended next step (cycle 3 → execute)
+
+`/gsd-plan-phase 5 --reviews` is NOT required for a full re-plan — the 2 remaining concerns are surgical text edits to 05-05 (one acceptance bullet rewrite + one accounting-step clarification / 05-03 `selected_flag` branch). Apply them directly:
+
+- **05-05 acceptance line 146**: rewrite to "snapshot/label joins use `on=['race_key','umaban']`; HARAI uses `on=['race_key']` with `validate='many_to_one'`; post-merge row count must equal input candidate-horse count." (HIGH)
+- **05-05 action line 113 + 05-03 `determine_stake_payout` (or a pre-persistence zero-out step)**: non-selected rows must get `stake=0`/`refund=0`/`payout=0`/`profit=0`/`effective_stake=0`; extend `test_load_backtest_persists_nonselected` (05-05 line 185) to assert non-selected rows have zero accounting. (MEDIUM)
+
+Then proceed to `/gsd-execute-phase 5`.
 
 ---
 
