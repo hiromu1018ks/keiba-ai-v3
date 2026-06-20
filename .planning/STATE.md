@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 04
 current_phase_name: model-prediction
 status: executing
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-06-20T09:53:09.047Z"
+stopped_at: Completed 04-04-PLAN.md (predict/evaluator/prediction_load GREEN 6 test)
+last_updated: "2026-06-20T10:12:59.399Z"
 last_activity: 2026-06-20
 last_activity_desc: Plan 04-02 executed (src/model/{data,calibrator,artifact}.py + 10 test GREEN)
 progress:
   total_phases: 9
   completed_phases: 4
   total_plans: 23
-  completed_plans: 20
+  completed_plans: 21
   percent: 44
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 04 (model-prediction) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Plan 04-02 complete (data/calibrator/artifact GREEN)・ready for 04-03 (trainer/baseline)
 Last activity: 2026-06-20 — Plan 04-02 executed (src/model/{data,calibrator,artifact}.py + 10 test GREEN)
 
@@ -78,6 +78,7 @@ Progress: [█████░░░░░░] 42%
 | Phase 04 P01 | 12m | 3 tasks | 15 files |
 | Phase 04 P02 | 13m | 2 tasks | 6 files |
 | Phase 04 P03 | 34m | 2 tasks | 4 files |
+| Phase 04 P04 | 38m | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -127,6 +128,10 @@ Recent decisions affecting current work:
 - [Phase 04]: plan 04-02 Rule 1 fix — verify_snapshot_sha256 が生ファイル bytes で計算していたのを Phase 3 snapshot.write_snapshot と同一手順（metadata 除外・決定論的書込設定）で再計算するよう修正
 - [Phase ?]: D-04-03: LightGBM native cat + CatBoost has_time + HIGH_CARD_CODE_COLS を cat_features に含め (review HIGH#6/MODL-03)・align_predictions 5条件厳密置換 guard (Cycle 2 NEW-2)・eval_max_date <= train_max_date (review Cross-Plan #8)
 - [Phase ?]: D-04-03 baseline: BL-1..5 全計算・市場データ (fukuoddslow/ninki) は feature 非混入 (D-07/MODL-01)・BL-4/5 calibrate 引数 + bl_calib_note 列でキャリブレーション状態明示 (review MEDIUM)
+- [Phase 04]: review HIGH#4/Cross-Plan #1/Cycle 3 NEW-4: make_model_version が D-10 例と完全一致 {feature_snapshot_id}-{short}-v{N} を返す・feature_snapshot_id 全体を prefix・二重 postfix 回帰防止
+- [Phase 04]: review HIGH#1/Cross-Plan #3: prediction_load.py が model_version スコープ置換 (DELETE WHERE model_type+model_version → INSERT) を採用・全テーブル破壊でなく他 model/version の行を保持
+- [Phase 04]: Cycle 2 NEW HIGH-1: predict_p_fukusho が pred_proba 引数で CatBoost aligned 予測値を注入・再予測で整列が捨てられる silent wrong-horse prediction 回帰を閉塞
+- [Phase 04]: review MEDIUM/LOW: evaluator.py が sum(p) を独立二値確率の診断的指標として扱い binning 契約固定・reports/04-eval.{md,json} に分離出力
 
 ### Pending Todos
 
@@ -150,6 +155,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-20T09:53:02.006Z
-Stopped at: Completed 04-02-PLAN.md (src/model/{data,calibrator,artifact}.py + 10 test GREEN)
+Last session: 2026-06-20T10:12:59.394Z
+Stopped at: Completed 04-04-PLAN.md (predict/evaluator/prediction_load GREEN 6 test)
 Resume file: None
