@@ -144,3 +144,21 @@ N/A — single reviewer this cycle. To strengthen signal, a follow-up cycle with
 |---|---|
 | RED-stub count inconsistency (8 vs 9+) | 05-01 |
 | `grep "fuku_odds_lower" run_backtest.py` acceptance brittle | 05-05 |
+
+---
+
+## Orchestrator source-grounding (cycle 1, effective authority = `grep`)
+
+Existing Phase-4-and-earlier symbols that Wave 2–5 plans claim to depend on / extend:
+
+| Symbol | Kind | Verdict | Evidence |
+|---|---|---|---|
+| `src/config/settings.py`, `src/db/{connection,prediction_load,schema}.py`, `src/model/{baseline,data,evaluator,orchestrator}.py`, `src/utils/{group_split,pit_join}.py` | file paths | VERIFIED (×10) | all present on disk |
+| `split_3way` | function | VERIFIED | `src/model/data.py:502` (`def split_3way`) — Plan 04 backward-compat extension target is real |
+| `model/orchestrator` (`train_and_predict`, `_calibrate_catboost_manual`, `predict_proba`) | class/funcs | VERIFIED | `src/model/orchestrator.py:154,455,546` |
+
+Symbols deliberately excluded from verification (declared NEW artifacts produced by this phase, per pass step 2): `src/ev/*.py` (`odds_snapshot`, `ev_rank`, `purchase_simulator`, `metrics`, `refund_accounting`, `bl3_betting`, `report`), `src/db/backtest_load.py`, `BTWindow` / `BT_WINDOWS` / `get_bt_race_ids`, `REPORT_COLUMNS` / `BACKTEST_COLUMNS`.
+
+UNCHECKABLE under `grep` authority (signatures cannot be asserted; names are well-known upstream APIs, not project symbols — no hard-block risk): `pandas.merge_asof(direction='backward')`, `mlxtend.evaluate.GroupTimeSeriesSplit`, `sklearn.calibration.CalibratedClassifierCV(cv='prefit', method='isotonic')`, CatBoost `has_time=True`.
+
+Result: **0 MISSING** existing-project symbols → no hard-block. The 5 HIGHs above are logic/policy defects in the plan text (merge keys, window overlap, policy contradiction), not hallucinated symbol references, so they route to the revision loop rather than aborting the cycle.
