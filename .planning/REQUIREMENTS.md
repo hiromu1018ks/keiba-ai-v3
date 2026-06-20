@@ -120,7 +120,7 @@
 | LABEL-04 | Phase 2: Fukusho Labels | Complete |
 | FEAT-01 | Phase 3: As-of Features & Snapshots | Complete |
 | FEAT-02 | Phase 3: As-of Features & Snapshots | Complete |
-| MODL-01 | Phase 4: Model & Prediction | Pending |
+| MODL-01 | Phase 4: Model & Prediction | In Progress (基盤整備完了・学習/予測は後続 wave 02-06) |
 | MODL-02 | Phase 4: Model & Prediction | Pending |
 | MODL-03 | Phase 4: Model & Prediction | Pending |
 | EV-01 | Phase 5: EV & Backtest | Pending |

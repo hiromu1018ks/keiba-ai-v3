@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 04
 current_phase_name: model-prediction
 status: executing
-stopped_at: Phase 4 context gathered
-last_updated: "2026-06-20T08:04:37.764Z"
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-06-20T08:30:28.080Z"
 last_activity: 2026-06-20
 last_activity_desc: Phase 04 execution started
 progress:
   total_phases: 9
   completed_phases: 4
   total_plans: 23
-  completed_plans: 17
+  completed_plans: 18
   percent: 44
 ---
 
@@ -29,8 +29,8 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 04 (model-prediction) — EXECUTING
-Plan: 1 of 6
-Status: Executing Phase 04
+Plan: 2 of 6
+Status: Ready to execute
 Last activity: 2026-06-20 — Phase 04 execution started
 
 Progress: [████░░░░░░░] 35%
@@ -75,6 +75,7 @@ Progress: [████░░░░░░░] 35%
 | Phase 03.1 P02 | 8m | 2 tasks | 2 files |
 | Phase 03.1 P03 | 約30分 | 4 tasks | 7 files |
 | Phase 03.1 P04 | 約20分 | 1 task | 3 files (snapshots) |
+| Phase 04 P01 | 12m | 3 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -115,6 +116,8 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 03.1-03: timediff/babacd rolling 復元完了（rolling 18→24 features・3者 parity・WR-01'/WR-02/WR-03 advisory hardening 3件）
 - [Phase 03.1]: plan 03.1-04: live-DB で normalized ETL 再実行 + snapshot rebuild を実証（当初 snapshot-id=中間版・feature_count=63・SHA256=42865b9a…321516 byte-repro・registry parity PASS・raw 不変）・Phase 4 入力は D-01 で `20260620-1a-postreview-v2`（feature_count=62・fa_version 0.3.0・SHA256=26c685f0…ecbdd2）に確定（feature 63→62 は CR-02 rolling_jyocd mean→mode rename + sd remove・§13.4 odds-free allowlist 違反なし・D-02 研究者確定）
 - [Phase 03.1]: plan 03.1-04: PLAN acceptance criteria feature_count 24→62 を実装実態（rolling 32 + 静的/PK/label/meta 30 = 全 Parquet 列数）に一致（commit 5535bc5・実装不変・文書のみ・postreview-v2 で 63→62 に更新: rolling_jyocd_mean→mode rename + sd remove）
+- [Phase ?]: [Phase 04]: plan 04-01: lightgbm==4.6.0/catboost==1.2.10 pin (D-11) + prediction.fukusho_prediction DDL (11カラム PK + 3 CHECK 制約・review HIGH#1/Cross-Plan #3) + tests/model/ 20 RED stub (review MEDIUM#3) + v3→postreview-v2 ドリフト修正 (D-01)
+- [Phase ?]: [Phase 04]: plan 04-01 Rule 3 fix — scripts/run_apply_schema.py::apply() が APPLY_ORDER ではなくハードコードリストを使うため prediction_table DDL を両方に挿入
 
 ### Pending Todos
 
@@ -138,6 +141,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-20T04:34:23.800Z
-Stopped at: Phase 4 context gathered
-Resume file: .planning/phases/04-model-prediction/04-CONTEXT.md
+Last session: 2026-06-20T08:30:28.075Z
+Stopped at: Completed 04-01-PLAN.md
+Resume file: None
