@@ -1,0 +1,333 @@
+---
+phase: 4
+reviewers: [codex]
+reviewed_at: 2026-06-20
+plans_reviewed:
+  - 04-01-PLAN.md
+  - 04-02-PLAN.md
+  - 04-03-PLAN.md
+  - 04-04-PLAN.md
+  - 04-05-PLAN.md
+  - 04-06-PLAN.md
+model_invoked: codex (gpt-5.5, codex-cli v0.139.0)
+cycle: 1
+status: ACTIONABLE — 再計画推奨（HIGH 19件未解決）
+---
+
+# Cross-AI Plan Review — Phase 4（Model & Prediction）
+
+本レビューは Codex（gpt-5.5 / codex-cli 0.139.0）による Cycle 1 単独レビューです。Gemini/Claude CLI は未検出／自己除外のため Codex のみ起動。Phase 4 は本プロジェクトで最もリーク感受性の高いフェーズであり、リーク防止正確性・再現性・ゴール整合性・ゴールバックワードの4軸で査読しました。全指摘は日本語で記述し、深刻度（HIGH/MEDIUM/LOW）付きでPLAN.md単位＋クロスプランに分類しています。
+
+---
+
+## Codex Review
+
+### 04-01 — 基盤（依存ライブラリ pin・prediction DDL/GRANT・RED stub・ドリフト修正）
+
+#### Summary
+依存ライブラリ固定、prediction スキーマ、GRANT、RED テストスタブ、snapshot 文書ドリフト修正という基盤計画としては妥当。主なリスクは live DB 状態を変更し、Phase 4 の安全性を証明できる範囲を超えた RED テストを「安全性確保済み」と見せかける点。大部分はインフラであり、リーク防止そのものはまだ始まっていない。
+
+#### Strengths
+- `lightgbm==4.6.0` / `catboost==1.2.10` を固定しスタック再現性を直接担保
+- `prediction.fukusho_prediction` を早期に定義し後続コードの契約を具体化
+- SC#1/#3/#4/MODL-02 の検証契約を RED テストとして明示（受入基準の曖昧さを排除）
+- 危険な `20260619-1a-v3` vs `20260620-1a-postreview-v2` 文書ドリフトを修正
+
+#### Concerns
+- **HIGH — DDL 主キーが `feature_snapshot_id` と `as_of_datetime` を含まない。**  
+  `PREDICTION_TABLE_DDL` の PK は `(model_type, model_version, year, jyocd, kaiji, nichiji, racenum, umaban, kettonum)`。`model_version` を異なる snapshot や再実行タイムスタンプで誤用した場合、staging-swap が履歴を不可視に上書きする。provenance 聖域（§19.1）を弱体化させる。
+- **MEDIUM — `search_path` 拡張が書込曖昧性を生む。**  
+  ETL `search_path` に `prediction` を追加するのは便利だが、prediction 書込は明示的にスキーマ修飾する方が安全。search_path 変更はテーブル名の誤りを隠蔽しうる。
+- **MEDIUM — RED stub 件数の不整合リスク。**  
+  計画は「13+ tests」と書くが、列挙された stub は 4+4+3+6+2+1=20 件。「13 failed」を期待する受入基準は陳腐化しており、不完全なテスト作成を正当化しうる。
+- **MEDIUM — `uv add` / live DB スキーマ適用が再現性中立でない。**  
+  `uv.lock` diff と `run_apply_schema.py` の冪等性を確認すべき。受入基準に「意図しない依存アップグレード無し」の明示がない。
+- **LOW — `tests/model/__init__.py min_lines: 1` が「空パッケージマーカー」と矛盾。**
+
+#### Suggestions
+- `feature_snapshot_id` を PK または `model_version` に紐付く一意性/CHECK 制約に含める
+- search_path を拡張しても全 prediction 書込は明示的にスキーマ修飾 SQL にする
+- テスト件数の受入基準を実 stub 件数（20件）に修正
+- `uv lock --check` または diff 検査を追加し LightGBM/CatBoost と必要な推移依存のみ変更されたことを保証
+- DB CHECK 制約を追加: `p_fukusho_hit BETWEEN 0 AND 1`、`model_type IN (...)`、`calib_method IN (...)`
+
+---
+
+### 04-02 — data.py + calibrator.py + artifact.py
+
+#### Summary
+SC#1/SC#4 の足場（stamped Parquet・raw ID 除外・時系列分割・prefit キャリブレーション wrapper）として方向性は強い。しかし label join・feature 列と metadata 列の区別・分割妥当性周りに深刻なインターフェース曖昧さがある。
+
+#### Strengths
+- `load_feature_matrix()` を Parquet のみ・DB 引数なしに維持
+- `fit_prefit_calibrator` を再実装せず薄く wrap
+- `assert` ではなく `raise ValueError` の guard を要求（リーク検査として正しい）
+- train/calib/test を厳密な時系列スライスとし 2025+ を Phase 5 に温存
+
+#### Concerns
+- **HIGH — `prepare_model_matrix(df)` の契約が混乱している。**  
+  Task 1 は「上記 join/filter/drop を統合」と書くが、シグネチャは `df` のみ。一方 `join_labels(feature_df, readonly_cur)` は DB アクセスを要する。テストは合成 DataFrame で DB を回避する。この結果「本番コードが label を正しく join していないのにテストが GREEN」になりうる（fake-green）。
+- **HIGH — `assert_matrix_columns_registered(spec, X.columns)` が metadata/label 列に誤って呼ばれうる。**  
+  `X` が `race_date`/`feature_snapshot_id`/`fukusho_hit_validated`/`sales_start_entry_count` 等を含む場合、allowlist 検査が誤って fail するか、通すために弱体化されるおそれがある。検査前に厳密な feature 列選択を定義しなければならない。
+- **HIGH — race ID の定義が不安定。**  
+  `race_id` があればそれを使い、無ければ `race_nkey` で代用。既存 Parquet は `race_nkey` を持ち、DB ラベルは複合キーを使う。`race_nkey` が大域一意でない、または日付安定でない場合、disjoint 検査が誤解を招く。
+- **MEDIUM — 厳密時系列分割の条件がやや不完全。**  
+  受入基準 `train_max < calib_min < calib_max < test_min` は `test_min <= test_max` を欠き、全ケースで `max(calib) < min(test)` を直接 assert しない。
+- **MEDIUM — SHA256 検証が過少仕様。**  
+  「`26c685f0…ecbdd2`」は略記。実際の guard は manifest から完全ハッシュを取得し、hash scope を明確に定義して検査する必要がある。
+- **MEDIUM — artifact 計画が calibrated estimator を曖昧に保存。**  
+  `save_native_artifact(model, model_type, ...)` は model_type で保存形式を分岐するが、後続で `calibrator.joblib` を要求する。LightGBM/CatBoost を wrap した sklearn CalibratedClassifierCV は native base estimator とは別物。
+
+#### Suggestions
+- データ API を明確に分割: `load_feature_matrix()`、`load_labels(readonly_cur)`、`build_training_frame(feature_df, label_df)`、`make_X_y(frame)`
+- `FEATURE_COLUMNS` を registry から明示的に（metadata/raw IDs/labels を除いて）定義
+- 正準 `race_key` ビルダを `(year,jyocd,kaiji,nichiji,racenum)` から構築し、ad-hoc な `race_nkey` フォールバックを廃止
+- base estimator の native artifact と `calibrator.joblib` を分離保存
+- 完全 SHA256 を manifest から読み、Phase 3 と同一の hash scope で検査
+
+---
+
+### 04-03 — trainer.py + baseline.py
+
+#### Summary
+本フェーズで最もリーククリティカルな計画。LightGBM 負カテゴリコード・CatBoost `has_time=True`・eval-set リーク・target encoding・BL-3 分離といった主要ハザードを正しく名指ししている。しかし提案された SC#3 rare-category 診断は書かれたままでは不十分であり、CatBoost の高基数 ID 扱いは MODL-03 の核心であるにも関わらず未解決のまま。
+
+#### Strengths
+- LightGBM native categorical と CatBoost `has_time=True` を明示的に要求
+- early-stopping eval リーク向け `assert_eval_disjoint` を含む
+- BL-3 を model feature ではなく market reference として扱う
+- BL-2/BL-3 をレース内正規化し `sum(p)` 期待値と整合させる
+
+#### Concerns
+- **HIGH — CODE_INT32_COLS の CatBoost 扱いが不正/不完全。**  
+  計画は `CODE_INT32_COLS` を「categorical 扱い」と書くが、直後に「CatBoost は `cat_features` に含めず数値扱い（デフォルト）」と述べる。これは MODL-03 の categorical-ID 意図に違反し、CatBoost が任意の ID に序数構造を課す結果になりかねない。
+- **HIGH — rare-category leak diagnostic が false-pass しうる。**  
+  native tree モデルでも、rare category が train と test の両方に現れ全 positive label なら過剰適合しうる。逆に target encoding は smoothing 次第で >0.5 を必ずしも生成しない。書かれたままのテストは target/mean encoding リークを特異に検出するわけではなく、一つの合成設定下での暗記を検出するに過ぎない。
+- **HIGH — テストが低基数列の合成 `RARE_X` を使うが高基数 `_code` 列を検証しない。**  
+  最も危険な列は `jockey_id_code`/`trainer_id_code`/`sire_id_code`/`bms_id_code`/`horse_id_code`。SC#3 はこれら `_code` 列の LightGBM/CatBoost 両方の扱いを明示的に問うている。
+- **HIGH — CatBoost Pool sort 保証が現テスト設計では強制不能。**  
+  `get_all_params()['has_time'] == True` の確認だけでは不十分。`_prepare_catboost_pool` が sort 済み行を受け取り、予測パスも一貫して sort するか元の順序を復元することを検証するテストが必要。
+- **MEDIUM — LightGBM categorical code テストが string cat の `.cat.codes.min() >= 0` のみ。**  
+  `_code` 列が非負 int32 であり `categorical_feature` に含まれることも assert すべき。
+- **MEDIUM — BL-3 が確定オッズ/確定人気を使用。**  
+  D-07/D-08 に基づく market reference として妥当だが、比較表は「同一情報集合ではない」警告を不可能なまでに目立たせる必要。prose でやっているが evaluator でも警告を消せないように。
+- **MEDIUM — BL-4/BL-5 のキャリブレーションが不明。**  
+  SC#2 は確率品質を比較する。未キャリブレーションの BL-5 LightGBM は比較を不公平/ノイズ多いものにしうる。主モデルがキャリブレーションされるなら baselines も同一の未来スライスでキャリブレーションするか、明示的に未キャリブレーションと記すべき。
+
+#### Suggestions
+- CatBoost `_code` 扱いを今決定: 非負 code を文字列化して `cat_features` に含めるか、数値扱いを MODL-03 からの意図的逸脱として文書化。推奨は全 categorical ID code を文字列化して CatBoost に渡す
+- SC#3 診断を強化:
+  - 意図的にリークする target-encoded feature を注入し診断が fail することを証明
+  - 高基数 ID 列で rare category を検証
+  - test rare category を train-only / test-unseen ケースとし `__UNSEEN__` 縮小を検証
+- 明示的テストを追加:
+  - `test_lightgbm_code_int32_cols_are_categorical_and_nonnegative`
+  - `test_catboost_code_int32_cols_are_cat_features`
+  - `test_catboost_predict_preserves_original_row_order_after_sort`
+- BL-4/BL-5 をキャリブレーションするか比較表で未キャリブレーションと明記
+
+---
+
+### 04-04 — predict.py + prediction_load.py + evaluator.py
+
+#### Summary
+provenance と staging-swap 永続化は強力。evaluator は有用だが Phase 6 的な受入ロジックへ越境しつつ、一部確率品質要件が過少仕様のまま残る。最大の問題は D-10 の model_version 形式例との直接矛盾。
+
+#### Strengths
+- 予測出力に必要 provenance 列を含む
+- `p_fukusho_hit ∈ [0,1]` と PK 一意性の検証を追加
+- 既知の staging-swap パターンを再利用
+- evaluator が Brier/LogLoss/AUC/calibration/`sum(p)` を含む
+
+#### Concerns
+- **HIGH — model_version 形式が D-10 例と矛盾。**  
+  D-10 は例を `20260620-1a-lgb-v1` / `20260620-1a-cb-v1` とするが、本計画の `make_model_version("20260620-1a-postreview-v2", ...)` は `20260620-1a-postreview-v2-lgb-v1` を返す。後続の計画と artifact パスは後者を使い、provenance 期待が壊れる。
+- **HIGH — prediction staging-swap が `prediction.fukusho_prediction` 全体を破壊。**  
+  LightGBM 予測をロードした後 CatBoost 予測を別個にロードすると、常に統合 DataFrame を渡さない限り2回目の swap が1回目を削除しうる。ローダ契約は「全行置換」「1 model_version の行置換」「Phase 4 全行置換」のいずれかを明示しなければならない。
+- **HIGH — `_idempotent_load_prediction` のテーブル swap がインデックス/コメント/GRANT を破壊しうる。**  
+  `LIKE INCLUDING ALL` はテーブルコメントを保存せず、制約/インデックス命名問題を生じうる。既存 label パターンは受容されるかもしれないが prediction は長寿命の下流テーブル。partition or model-version scope の置換を検討すべき。
+- **MEDIUM — `as_of_datetime = datetime.now()` が bit-identical 出力を損なう。**  
+  SC#4 は予測を比較するが、全予測 DataFrame を hash すると実行時タイムスタンプが変わる。決定論的な予測値 hash と provenance タイムスタンプ方針を分離必要。
+- **MEDIUM — evaluator `sum(p)` はキャリブレーション済み独立二値確率では自然に逸脱しうる。**  
+  複勝確率は馬ごとの二値確率であり払戻対象数に厳密に合計することを制約されない。`sum(p)` 検査は診断として有効だが、直接の正確性として扱うと誤解を招く。
+- **MEDIUM — calibration curve テストが binning 契約を欠く。**  
+  再現性のため bin 数・strategy・最小 bin count・単調性処理を指定すべき。
+- **LOW — 「JSON + Markdown を1つの `.md`」は不格好。**  
+  `reports/04-eval.md` と `reports/04-eval.json` に分離が望ましい。
+
+#### Suggestions
+- 全計画で単一の `model_version` 規約を実装前に固定
+- prediction load の置換 scope を明示:
+  - `replace_all_predictions(df)` または
+  - `replace_model_version(model_type, model_version, df)`
+  Phase 5 では model-version scope の置換が安全
+- 揮発性 `as_of_datetime` を再現性 hash から除外するか、reproduce テストでは固定 `as_of_datetime` を渡す
+- DB に `CHECK (p_fukusho_hit >= 0 AND p_fukusho_hit <= 1)` を追加
+- evaluator 出力で定量的診断と受入ゲートを分離
+
+---
+
+### 04-05 — run_train_predict.py + SC#4 reproduce smoke
+
+#### Summary
+全 pipeline を統合し SC#4 を証明しようとする。意図は正しいが、巨大な orchestrator 関数を `src/model/calibrator.py` に置き責任を曖昧にし、`feature_df`/`X`/splits/labels/market data 周りで複数のインターフェース破綻を含む。統合リスクが最も高い計画。
+
+#### Strengths
+- LightGBM と CatBoost の両方を end-to-end 実行することを要求
+- 正準 snapshot と両 model type の CLI デフォルトを含む
+- reproduce 失敗を構造的ブロッカーとして扱う
+- artifact・report・prediction-table 出力を要求
+
+#### Concerns
+- **HIGH — `train_and_predict` は `calibrator.py` ではなく orchestrator に属する。**  
+  data・trainer・predict・artifact 的関心を import し循環依存を生み、キャリブレーション utility を非純粋にする。
+- **HIGH — `train_and_predict(feature_df)` が `split_3way(feature_df)` の前に `prepare_model_matrix(feature_df)` を呼ぶが、`prepare_model_matrix` は `(X, y)` を返し split 整合 metadata を保存しない。**  
+  計画は `splits["train"]` から `X_train_core` を導出するが index 整合を指定しない。これは典型的な silent leakage / row-mismatch の失敗モード。
+- **HIGH — CatBoost sort 済み Pool の予測が元の行順序に戻らない可能性。**  
+  訓練時 sort は問題ないが、予測時は sort しないか元の index を復元しなければならない。計画はこれを指定しない。
+- **HIGH — artifact save が `result["calibrated"]` を `model_type="lightgbm"`/`"catboost"` で処理する。**  
+  `save_native_artifact` は `.txt/.cbm` 向けに native LightGBM/CatBoost base model を期待するが、`result["calibrated"]` は sklearn `CalibratedClassifierCV`。これは fail するか誤ったオブジェクトを保存する公算が大きい。
+- **HIGH — reproduce smoke がデフォルトスレッドでは bit-identical にならない公算。**  
+  LightGBM には deterministic flags があるが CatBoost CPU 決定論は thread count・data order・logging/eval 挙動に依存しうる。`thread_count=1` を固定するか bit-identical が不可能な場合は許容 tolerance を明示すべき。
+- **MEDIUM — `--snapshot-id` が実際にはパスを選択しない。**  
+  data 計画は `SNAPSHOT_PATH` を hardcode。CLI は `--snapshot-id` を受け取るが manifest/path への mapping がなければ provenance 文字列に過ぎない。
+- **MEDIUM — prediction loader が統合予測でテーブルを置換するため `--model-type lightgbm` が CatBoost 行を削除しうる。**  
+  クロスプラン永続化契約の問題。
+
+#### Suggestions
+- `train_and_predict` を `src/model/orchestrator.py` に移動するか orchestration を `scripts/run_train_predict.py` のみに留める
+- 単一の index 付き modeling frame を split/feature 選択/予測/出力の全段で運び、全 `X/y/race_df` merge の直前に index equality を assert
+- artifact を次の形で保存:
+  - native base estimator: `lgb_model.txt` / `cb_model.cbm`
+  - calibrator wrapper: `calibrator.joblib`
+  - metadata: 決定論的 JSON
+- reproduce モードで LightGBM に `num_threads=1`、CatBoost に `thread_count=1` を追加
+- `--snapshot-id` を manifest/Parquet path/category map path/期待 hash へ解決
+
+---
+
+### 04-06 — 最終検証・ROADMAP 更新
+
+#### Summary
+最終ゲートの概念は正しい: 実 pipeline 実行、SC#3/SC#4 証明、validation/roadmap 更新。危険は、モデルが合成テストのみ通過したりテストが skip されても文書完了ステップになりうる点。また SC#3 の「live データ」カバレッジを過大請求する。
+
+#### Strengths
+- SC#3 と SC#4 を構造的ブロッカーとして扱う
+- 正準 snapshot 上の全 pipeline 実行を要求
+- report・model artifact・prediction DB 行・全 pytest suite を検査
+- ROADMAP に明示的 SC 達成根拠で更新
+
+#### Concerns
+- **HIGH — SC#3 leak diagnostic は合成データであり live-data 証明ではない。**  
+  計画は「live データ・両モデルで GREEN」と書くが `test_no_target_encoding_leak` は合成。対抗的 unit testing としては妥当だが、live-data での target encoding 非混入証明と称すべきでない。
+- **HIGH — テストが `KEIBA_SKIP_DB_TESTS=1` で skip されうる。**  
+  最終ゲートは DB テストが skip されないことを明示的に要求しなければならない。さもなければ prediction-load と market-data source テストが green-by-skip になりうる。
+- **HIGH — ROADMAP 更新が SC#2「付加価値あり」を真ではないのに達成扱いしうる。**  
+  SC#2 は比較表が「AI が付加価値を持つか」に答えることを求める。計画は表の存在を保証するがモデルが baselines を上回ることは保証しない。Phase 4 ゴールは「model adds measurable value」であり、結果が劣るなら「付加価値未証明」の注記無しに成功宣言すべきでない。
+- **MEDIUM — 全テスト suite 実行時間 `<120s` は CatBoost/LightGBM と pipeline テストが走れば非現実的。**  
+  重要なテストを縮小/skip する圧力を生じうる。
+- **MEDIUM — validation 文書が失敗ゲート後にも手動更新されうる。**  
+  `04-VALIDATION.md` にコマンド出力や checksum を格納することを要求すべき。
+- **MEDIUM — 「progress.completed_plans = 23」は脆いプロジェクト管理算術。**  
+  drift しうる、技術的正確性と無関係。
+
+#### Suggestions
+- 最終ゲートは `KEIBA_SKIP_DB_TESTS` を unset で実行し、Phase 4 critical テストの skipped count = 0 を記録
+- validation にコマンド・終了コード・予測 checksum・artifact hash・行数の証拠を格納
+- ROADMAP で次を区別:
+  - 「SC#2 比較表生成済み」
+  - 「AI が BL-x を明白に上回る」
+  baselines に勝たない場合、Phase 4 は有効な否定的結果を生成できるが model value を請求すべきでない
+- 合成 SC#3 を「live データ」証明と呼ばず、対抗的構造診断と呼ぶ
+
+---
+
+## Cross-Plan Concerns（複数 PLAN にまたがる統合懸念）
+
+### 1. Model Version Drift
+D-10 例は `20260620-1a-lgb-v1` / `20260620-1a-cb-v1` だが、後続計画は `20260620-1a-postreview-v2-lgb-v1` を使う。artifact・prediction 行・テスト・ROADMAP 証拠に影響。単一規約を固定すべき。
+
+### 2. CatBoost 高基数 ID が未確定
+`CODE_INT32_COLS` は SC#3 の核心。計画は繰り返し categorical と書くが CatBoost は `cat_features` に入れない限り数値扱いする。これはリーク/意味論リスクであり MODL-03 のゴール整合性 gap。
+
+### 3. テーブル置換 Scope が危険
+`prediction_load.py` は prediction テーブル全体を置換しうる。全実行が全 model type/version の全希望行を常に供給する場合のみ安全。CLI は単一 model 実行を許すため全テーブル置換は有効な予測を削除しうる。
+
+### 4. Row Alignment が過少仕様
+全 pipeline は `feature_df`/`X`/`y`/split frame/sort 済み CatBoost Pool/予測 frame を繰り返し変換する。安定した index 検査がなければ、予測が誤った馬に書き込まれてもテストが GREEN のままになりうる。
+
+### 5. 再現性が完全に bit-identical でない
+seed は固定だが bit-identical 再現性には更に以下が必要:
+- 固定 thread count
+- 安定した sort kind
+- 決定論的 categorical 順序
+- 固定 `as_of_datetime` または hash からの除外
+- 決定論的 metadata JSON
+- dict/set iteration order のリーク無し
+
+### 6. SC#3 診断が単独では弱い
+rare-category テストは有用だが不十分。意図的リーク実装がテスト fail すること、高基数 `_code` 列、unseen category、missing sentinel、train/eval/predict の全経路を含むべき。
+
+### 7. Live DB 利用境界の精密化必要
+SC#1 は stamped Parquet のみ・live DB 禁止。計画は label と market baselines で DB を使う。Parquet snapshot が label を欠くなら受容されうるが「Parquet-only 学習」を弱める。理想的には学習 snapshot が stamped label snapshot に join 済みであるべきであり、live `label.fukusho_label` ではない。
+
+### 8. Early Stopping Eval Set 契約が不完全
+計画は eval set が calib/test と disjoint であることを要求するが、全 helper 経路で日付について calib より厳密に前であることを要求しない。`max(eval.race_date) <= max(train_core.race_date) < min(calib.race_date)` を追加。
+
+### 9. Phase 4 vs Phase 6 境界が曖昧
+evaluator は受入的な `sum(p)` 検査と「Calibration 重視」選定素材を含む。reporting としては妥当だが Phase 4 が暗黙に最終確率品質ゲートになってはならない。
+
+---
+
+## Goal-Backward Verdict（ゴールバックワード判定）
+
+計画を実行すれば文書上で稼働する Phase 4 pipeline（依存・schema・model 訓練・予測永続化・baseline 比較・検証 artifact）は概ね生成されるだろう。
+
+しかし**書かれたままでは Core Value を完全には保証しない**。
+
+残存 gap:
+- CatBoost の高基数 `_code` 列の categorical 扱いが未解決
+- sort/split 後の予測 row alignment が未証明
+- label が stamped snapshot 一部でなければ「Parquet-only 学習」が live DB label join で弱まる
+- SC#3 診断は false-pass しうる、全 categorical 経路の target/mean encoding 非存在を直接証明しない
+- thread count/timestamp/category 順序/metadata 非決定論で bit-identical 再現性が fail しうる
+- SC#2 が比較表を生成しても「model が付加価値を持つ」を保証しない
+
+SC mapping:
+- **SC#1:** 概ね cover、ただし live label join で明示的に許可/stamped されない限り Parquet-only が損なわれる
+- **SC#2:** 表生成は cover、baselines 上の付加価値は保証されない
+- **SC#3:** 部分 cover、CatBoost `_code` 扱いと診断強度が不十分
+- **SC#4:** 構造的計画済み、ただし bit-identical 制御の強化が必要
+
+## Risk Assessment
+
+**総合リスク: HIGH**
+
+計画は綿密で脅威モデルも正しいが、Phase 4 は「ほぼ正しい」では足りないほどリーク感受性が高い。最も高いリスクは CatBoost categorical semantics・row-order alignment・全テーブル prediction 置換・live DB label 依存・SC#3/SC#2 達成の過大請求。これらの契約を実装前に引き締めれば、文書上「完了」しながらリークフリー再現可能 `p_fukusho_hit` 不変量を違反するフェーズになる確率を大幅に下げられる。
+
+---
+
+## Consensus Summary
+
+※本 cycle は Codex 単独レビューのため「複数レビュアーの合意」は成立しない。以下は Codex 単独レビューの主要合致点を「reviewer 間で再発すれば最優先になる懸念」として整理したもの（将来 cycle で Claude/Gemini が加われば合意抽出対象）。
+
+### Agreed Strengths（単独レビュー内で複数 PLAN に共通する強み）
+- 依存ライブラリ固定・prediction schema 早期定義・RED stub による検証契約の固定（04-01）
+- `fit_prefit_calibrator` の再実装禁止・`raise ValueError` guard 要求（04-02/04-03）
+- staging-swap idempotent load の既存パターン再利用・provenance 列検証（04-04）
+- SC#3/SC#4 を構造的ブロッカーとする最終ゲート設計（04-06）
+- LightGBM native categorical と CatBoost `has_time=True` の明示的要求（04-03）
+
+### Agreed Concerns（最優先 — 複数の PLAN / クロスプランにまたがる HIGH）
+1. **CatBoost 高基数 `_code` 列の categorical 扱いが未解決**（04-03 HIGH × Cross-Plan #2）— MODL-03 の核心違反リスク
+2. **row alignment が全 pipeline で未保証**（04-05 HIGH × Cross-Plan #4 × 04-02 HIGH）— sort/split/merge 後に予測が誤馬へ書き込まれ GREEN のままになる silent failure
+3. **prediction staging-swap のテーブル全体置換が model_type 別実行で前者を削除**（04-04 HIGH × 04-05 MEDIUM × Cross-Plan #3）— Phase 5 永続化契約の破綻
+4. **model_version 形式が D-10 例と矛盾**（04-04 HIGH × Cross-Plan #1）— provenance 一意性の崩壊
+5. **artifact save が CalibratedClassifierCV を native 形式で保存しようとして失敗**（04-05 HIGH × 04-02 MEDIUM）— artifact 聖域の崩壊
+6. **SC#3 leak diagnostic が false-pass しうる・高基数 `_code` 列を検証しない**（04-03 HIGH × 04-06 HIGH × Cross-Plan #6）— MODL-03 構造証明の検証力不足
+7. **`as_of_datetime = now()` とデフォルトスレッドが bit-identical を損なう**（04-04 MEDIUM × 04-05 HIGH × Cross-Plan #5）— SC#4 聖域リスク
+8. **ROADMAP が SC#2「付加価値あり」を比較表存在だけで達成扱いしうる**（04-06 HIGH）— Phase 4 ゴールの過大請求
+9. **`prepare_model_matrix(df)` 契約混乱と `assert_matrix_columns_registered` 誤適用**（04-02 HIGH ×2）— fake-green リスク
+
+### Divergent Views
+※単独レビューのため該当なし。Claude/Gemini が追加されれば、SC#3 診断の強度評価や CatBoost `_code` 文字列化の推奨強さについて分岐が生じうる領域。
