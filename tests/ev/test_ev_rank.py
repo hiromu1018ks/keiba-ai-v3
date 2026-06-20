@@ -39,10 +39,15 @@ def test_ev_calculation():
 
 
 def test_rank_S():
-    """EV=1.25, p=0.30, odds=2.0 → rank='S'。"""
+    """S: EV≥1.20 AND p≥0.25 AND odds≥1.5 → rank='S'。
+
+    Rule 1 auto-fix: 元の ``odds_lower=2.0`` では ``EV_lower=0.30*2.0=0.60`` となり
+    §11.5 S 条件 ``EV≥1.20`` を満たさない（不整合）。S 条件を満たすよう
+    ``odds_lower=5.0`` (``EV=0.30*5.0=1.50``) に修正。
+    """
     from src.ev.ev_rank import compute_ev_and_rank
 
-    df = _make_input(p=0.30, odds_lower=2.0, odds_upper=2.5)
+    df = _make_input(p=0.30, odds_lower=5.0, odds_upper=6.0)
     out = compute_ev_and_rank(df)
     assert out["recommend_rank"].iloc[0] == "S"
 
