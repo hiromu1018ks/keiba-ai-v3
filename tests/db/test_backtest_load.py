@@ -76,23 +76,31 @@ def test_backtest_load_columns_contract():
     from src.db.backtest_load import BACKTEST_COLUMNS
     from src.db.schema import BACKTEST_TABLE_DDL
 
-    # DDL から列名を抽出（PRIMARY KEY / CONSTRAINT / CHECK 行は除外・インデント付き列行のみ）
-    ddl_lines = BACKTEST_TABLE_DDL.strip().splitlines()
+    # DDL テキストから CREATE TABLE ブロックの列定義部分のみを抽出し・列名をパース。
+    # PRIMARY KEY / CONSTRAINT / CHECK / COMMENT 行は除外。
+    # ``CREATE TABLE ... ( ... );`` の内側を抽出する。
+    match = re.search(
+        r"CREATE TABLE IF NOT EXISTS \w+\.\w+\s*\((.*?)\);", BACKTEST_TABLE_DDL, re.DOTALL
+    )
+    assert match is not None, "BACKTEST_TABLE_DDL に CREATE TABLE ブロックが無い"
+    inner = match.group(1)
+
     ddl_cols: list[str] = []
-    for line in ddl_lines:
-        stripped = line.strip().rstrip(",")
-        # 列行の_heuristic: 先頭が列名で・型が続く（PRIMARY KEY / CONSTRAINT / CHECK / COMMENT 除外）
-        if (
-            stripped
-            and not stripped.upper().startswith(
-                ("PRIMARY", "CONSTRAINT", "CHECK", "CREATE", "COMMENT", ");", "--")
-            )
-            and "(" not in stripped  # CREATE TABLE 行を除外
-        ):
-            # 先頭トークンが列名
-            col_name = stripped.split()[0]
-            if col_name and not col_name.startswith("--"):
-                ddl_cols.append(col_name)
+    # 列行は "    colname type ...," の形式。PRIMARY KEY / CONSTRAINT / CHECK はスキップ。
+    # 行頭のホワイトスペース + 列名 + 型 (...) ... + 末尾カンマ、の行をパースする。
+    for raw_line in inner.splitlines():
+        stripped = raw_line.strip().rstrip(",").strip()
+        if not stripped:
+            continue
+        upper = stripped.upper()
+        # 制約・COMMENT・PRIMARY KEY は除外
+        if upper.startswith(("PRIMARY", "CONSTRAINT", "CHECK", "COMMENT")):
+            continue
+        # 先頭トークンが列名
+        first_token = stripped.split()[0]
+        # 列名は SQL identifier（引用符でなければ英数字+アンダースコア）
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", first_token):
+            ddl_cols.append(first_token)
 
     assert ddl_cols == list(BACKTEST_COLUMNS), (
         f"BACKTEST_COLUMNS が DDL 列順と不一致:\n"
@@ -102,9 +110,9 @@ def test_backtest_load_columns_contract():
 
     # 必須列が含まれることを検証（HIGH-1 umaban + MEDIUM-04 odds_missing_reason）
     assert "umaban" in BACKTEST_COLUMNS, "umaban 列が無い（HIGH-1 馬単位永続性違反）"
-    assert (
-        "odds_missing_reason" in BACKTEST_COLUMNS
-    ), "odds_missing_reason 列が無い（MEDIUM-04 監査性違反）"
+    assert "odds_missing_reason" in BACKTEST_COLUMNS, (
+        "odds_missing_reason 列が無い（MEDIUM-04 監査性違反）"
+    )
 
 
 def test_backtest_load_empty_raises():
@@ -112,7 +120,7 @@ def test_backtest_load_empty_raises():
 
     ``_df_to_backtest_tuples`` が空 DataFrame を渡されると空 list を返すが・
     ``_idempotent_load_backtest`` が空 list を RuntimeError で拒否することを検証する。
-    DB 接続不要（Step 1 の空入力チェックは advisory lock 取得前に実施されるため・
+    DB 接続不要（advisory lock 取得後に空入力 RuntimeError が raise されるため・
     モック cursor で検証可能）。
     """
     from src.db.backtest_load import _df_to_backtest_tuples, _idempotent_load_backtest
@@ -120,11 +128,22 @@ def test_backtest_load_empty_raises():
     empty_rows = _df_to_backtest_tuples(pd.DataFrame())
     assert empty_rows == [], "空 DataFrame は空 list になるべき"
 
-    # モック cursor（advisory lock 呼出し前に RuntimeError で拒否されるため・
-    # 実際に SQL は発行されない）
+    # モック cursor: advisory lock (Step 0) は許容し・それ以降の SQL は発行されない
+    # （空入力 RuntimeError が Step 1 で raise されるため）。
     class _NoopCursor:
-        def execute(self, *args, **kwargs):
-            raise AssertionError("空入力で SQL が発行された（CR-04(a) 違反）")
+        def __init__(self) -> None:
+            self.lock_acquired = False
+
+        def execute(self, sql, *args, **kwargs):
+            sql_str = str(sql)
+            if "pg_advisory_xact_lock" in sql_str:
+                # Step 0: advisory lock は許容（実 DB ではロック取得）
+                self.lock_acquired = True
+                return
+            # advisory lock 後の SQL が発行された場合・空入力チェックが機能していない
+            raise AssertionError(
+                f"空入力で advisory lock 以外の SQL が発行された（CR-04(a) 違反）: {sql_str[:80]}"
+            )
 
         def fetchone(self):
             raise AssertionError("空入力で fetchone が呼ばれた")
@@ -181,9 +200,9 @@ def test_backtest_schema_apply(write_cur):
     # 必須列が含まれることを検証
     assert "backtest_id" in cols
     assert "umaban" in cols, "umaban 列が作成されていない（HIGH-1 馬単位永続性違反）"
-    assert (
-        "odds_missing_reason" in cols
-    ), "odds_missing_reason 列が作成されていない（MEDIUM-04 監査性違反）"
+    assert "odds_missing_reason" in cols, (
+        "odds_missing_reason 列が作成されていない（MEDIUM-04 監査性違反）"
+    )
     assert "model_type" in cols
     assert "recommend_rank" in cols
 

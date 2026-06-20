@@ -39,9 +39,7 @@ RAW_VIEW_TABLES = [
 # ---------------------------------------------------------------------------
 # CREATE SCHEMA（idempotent・5層分）
 # ---------------------------------------------------------------------------
-CREATE_SCHEMAS_SQL = "\n".join(
-    f"CREATE SCHEMA IF NOT EXISTS {schema};" for schema in SCHEMAS
-)
+CREATE_SCHEMAS_SQL = "\n".join(f"CREATE SCHEMA IF NOT EXISTS {schema};" for schema in SCHEMAS)
 
 # ---------------------------------------------------------------------------
 # Phase 4 prediction.fukusho_prediction テーブル DDL（D-05/D-12・review HIGH#1/Cross-Plan #3）
@@ -96,6 +94,82 @@ COMMENT ON TABLE prediction.fukusho_prediction IS
 """
 
 # ---------------------------------------------------------------------------
+# Phase 5 backtest.fukusho_backtest テーブル DDL（BACK-03 / D-03 / §16.2 / §19.1）
+#
+# PK は backtest_id + 7カラム RACE_KEY (year, jyocd, kaiji, nichiji, racenum, umaban, kettonum)
+#   の **8カラム** とする。backtest_id を PK 先頭に含めることで同一 backtest_id の行のみが
+#   DELETE→INSERT 置換の対象となり・他 backtest_id 行は保持される（review HIGH#1 と同一方針・
+#   RESEARCH §7.4）。これにより 20 backtest（2policy × 2model × 5窓）の provenance 履歴が
+#   互いに上書きされる silent 履歴破壊を防止する（§19.1 再現性聖域）。
+#
+# 2つの CHECK 制約で不正レコード挿入を DB 側で拒否:
+#   (1) model_type IN ('lightgbm','catboost','bl3')  — BL-3 含む既知の model_type のみ（D-04）
+#   (2) backtest_strategy_version = 'fukusho_ev_v1'   — §11.4 戦略バージョン固定
+#
+# HIGH-1（馬単位永続性）: umaban 列を含む（race_key 単位でなく馬単位の backtest 行）。
+# MEDIUM-04（監査性）: odds_missing_reason 列を含む（NULL 可能・normal 候補は NULL・
+#   no_bet/special-odds/no-sale/scratch-cancel の各 sentinel 値で埋まる）。
+#   load_backtest は selected_flag=True 行だけでなく selected_flag=False の除外候補行も
+#   永続化する設計（§11.3 odds_missing_policy=no_bet の監査性担保）。
+# ---------------------------------------------------------------------------
+BACKTEST_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS backtest.fukusho_backtest (
+    -- provenance（§19.1 再現性・NOT NULL）
+    backtest_id varchar(64) NOT NULL,
+    backtest_strategy_version varchar(32) NOT NULL,
+    odds_snapshot_policy varchar(16) NOT NULL,
+    train_period_start date NOT NULL,
+    train_period_end date NOT NULL,
+    test_period_start date NOT NULL,
+    test_period_end date NOT NULL,
+    model_type varchar(16) NOT NULL,
+    model_version varchar(64) NOT NULL,
+    feature_snapshot_id varchar(64) NOT NULL,
+    -- PK RACE_KEY (7カラム・prediction/label と同一・HIGH-1: umaban 含む馬単位)
+    year int,
+    jyocd varchar(2),
+    kaiji int,
+    nichiji varchar(2),
+    racenum int,
+    umaban int,
+    kettonum int,
+    -- 選択・会計（MEDIUM-04: selected_flag=False の除外候補行も永続化）
+    selected_flag boolean NOT NULL,
+    stake int NOT NULL,
+    refund_flag boolean NOT NULL,
+    refund_amount int NOT NULL,
+    payout_amount int NOT NULL,
+    profit int NOT NULL,
+    effective_stake int NOT NULL,
+    -- 的中・rank・EV
+    fukusho_hit_validated int,
+    recommend_rank varchar(2),
+    EV_lower double precision,
+    EV_upper double precision,
+    -- odds provenance（§11.2 保持項目・MEDIUM-04: NULL 可能）
+    odds_snapshot_at timestamp,
+    odds_source_type varchar(16),
+    odds_missing_reason varchar(32),
+    -- 補助
+    race_date date,
+    PRIMARY KEY (backtest_id, year, jyocd, kaiji, nichiji, racenum, umaban, kettonum),
+    CONSTRAINT backtest_model_type_domain CHECK (model_type IN ('lightgbm','catboost','bl3')),
+    CONSTRAINT backtest_strategy_domain CHECK (backtest_strategy_version = 'fukusho_ev_v1')
+);
+COMMENT ON TABLE backtest.fukusho_backtest IS
+    'Phase 5 backtest 結果 (BACK-03). provenance 列 (backtest_id/backtest_strategy_version/'
+    'odds_snapshot_policy/train_period_start/end/test_period_start/end/model_type/'
+    'model_version/feature_snapshot_id) で §19.1 再現性. backtest_id scoped staging-swap '
+    'idempotent load で永続化 (src/db/backtest_load.py). PK は backtest_id+RACE_KEY(7) の8カラム: '
+    '同一 backtest_id のみ DELETE→INSERT 置換され・他 backtest_id 行は保持される '
+    '(review HIGH#1 と同一方針・RESEARCH §7.4・silent 履歴破壊防止). '
+    'umaban 列で馬単位永続化 (HIGH-1). odds_missing_reason 列で no_bet 除外候補の監査性担保 '
+    '(MEDIUM-04・selected_flag=False 行も永続化). '
+    '2 CHECK 制約 (model_type IN (...) / backtest_strategy_version=''fukusho_ev_v1'') で '
+    '不正レコード挿入を DB 側で拒否 (T-05-13).';
+"""
+
+# ---------------------------------------------------------------------------
 # CREATE VIEW: raw_everydb2.<table> AS SELECT * FROM public.<table>
 # idempotent にするため CREATE OR REPLACE VIEW を使用
 # ---------------------------------------------------------------------------
@@ -145,6 +219,11 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA label GRANT SELECT ON TABLES TO {reader};
 GRANT USAGE ON SCHEMA prediction TO {reader};
 GRANT SELECT ON ALL TABLES IN SCHEMA prediction TO {reader};
 ALTER DEFAULT PRIVILEGES IN SCHEMA prediction GRANT SELECT ON TABLES TO {reader};
+-- Phase 5 backtest schema: reader ロールに backtest スキーマの USAGE+SELECT を付与（BACK-03）
+-- Phase 7 Streamlit が backtest.fukusho_backtest を schema 修飾 SELECT するため
+GRANT USAGE ON SCHEMA backtest TO {reader};
+GRANT SELECT ON ALL TABLES IN SCHEMA backtest TO {reader};
+ALTER DEFAULT PRIVILEGES IN SCHEMA backtest GRANT SELECT ON TABLES TO {reader};
 """
 
 GRANT_ETL_SQL = """
@@ -168,6 +247,12 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA label
 GRANT USAGE, CREATE ON SCHEMA prediction TO {etl};
 GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA prediction TO {etl};
 ALTER DEFAULT PRIVILEGES IN SCHEMA prediction
+    GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON TABLES TO {etl};
+-- Phase 5 backtest schema: ETL ロールに backtest スキーマの USAGE+CREATE+書込を付与（BACK-03）
+-- backtest_id scoped staging-swap idempotent load が backtest.fukusho_backtest_staging 作成に CREATE を必要とする
+GRANT USAGE, CREATE ON SCHEMA backtest TO {etl};
+GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA backtest TO {etl};
+ALTER DEFAULT PRIVILEGES IN SCHEMA backtest
     GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON TABLES TO {etl};
 """
 
@@ -209,6 +294,9 @@ APPLY_ORDER = [
     # Phase 4: prediction_table DDL は GRANT の直前に適用（CREATE SCHEMA で prediction
     # スキーマ自体は既に作成済・GRANT が GRANT SELECT ON ALL TABLES で本テーブルを拾えるように）
     ("prediction_table", PREDICTION_TABLE_DDL),
+    # Phase 5: backtest_table DDL も GRANT の直前に適用（CREATE SCHEMA で backtest
+    # スキーマ自体は既に作成済・GRANT が GRANT SELECT ON ALL TABLES で本テーブルを拾えるように）
+    ("backtest_table", BACKTEST_TABLE_DDL),
     ("grant_reader", GRANT_READER_SQL),
     ("grant_etl", GRANT_ETL_SQL),
     ("revoke_raw_writes_public", REVOKE_RAW_WRITES_PUBLIC_SQL),
@@ -229,5 +317,6 @@ __all__ = [
     "ALTER_ETL_PASSWORD_TEMPLATE",
     "ALTER_READER_PASSWORD_TEMPLATE",
     "PREDICTION_TABLE_DDL",
+    "BACKTEST_TABLE_DDL",
     "APPLY_ORDER",
 ]

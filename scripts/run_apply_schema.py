@@ -121,6 +121,9 @@ def apply(dsn: str, reader: str, etl: str, sql_text: str, dry_run: bool) -> None
                 # Phase 4: prediction_table DDL を GRANT の直前に適用
                 # （schema.py APPLY_ORDER と同期・review HIGH#1/Cross-Plan #3 の11カラム PK + CHECK 制約）
                 ("prediction_table", schema_module.PREDICTION_TABLE_DDL),
+                # Phase 5: backtest_table DDL も GRANT の直前に適用
+                # （schema.py APPLY_ORDER と同期・BACK-03 backtest_id 8カラム PK + CHECK・T-05-13）
+                ("backtest_table", schema_module.BACKTEST_TABLE_DDL),
                 ("grant_reader", schema_module.GRANT_READER_SQL),
                 ("grant_etl", schema_module.GRANT_ETL_SQL),
                 ("revoke_raw_writes_public", schema_module.REVOKE_RAW_WRITES_PUBLIC_SQL),

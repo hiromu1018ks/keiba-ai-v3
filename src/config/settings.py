@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     # src/db/prediction_load.py の staging-swap idempotent load が
     # prediction.fukusho_prediction を schema 修飾で書込む（MEDIUM#2: search_path 暗黙解決不可）
     db_schema_prediction: str = "prediction"
+    # Phase 5 backtest schema（BACK-03・db_schema_prediction と対称）
+    # src/db/backtest_load.py の backtest_id scoped staging-swap idempotent load が
+    # backtest.fukusho_backtest を schema 修飾で書込む（RESEARCH §7.3・Pitfall A5）
+    db_schema_backtest: str = "backtest"
     # REVIEWS HIGH #3 支援: Plan 03 _idempotent_load_label が staging RENAME 後に
     # GRANT SELECT ON label.fukusho_label TO {reader_role} を発行する際のロール名。
     # TO PUBLIC ではなく明示的 reader ロール付与をコード上でも保証。
@@ -64,19 +68,13 @@ class Settings(BaseSettings):
         ログには必ず ``dsn_masked`` を使用すること（anti-pattern #20 / ASVS V8）。
         """
         pw = self.db_password.get_secret_value()
-        return (
-            f"postgresql://{self.db_user}:{pw}@"
-            f"{self.db_host}:{self.db_port}/{self.db_name}"
-        )
+        return f"postgresql://{self.db_user}:{pw}@{self.db_host}:{self.db_port}/{self.db_name}"
 
     @property
     def etl_dsn(self) -> str:
         """normalized 書込ロールの DSN（生パスワードを含む・ログ出力厳禁・HIGH #6）。"""
         pw = self.etl_db_password.get_secret_value()
-        return (
-            f"postgresql://{self.etl_db_user}:{pw}@"
-            f"{self.db_host}:{self.db_port}/{self.db_name}"
-        )
+        return f"postgresql://{self.etl_db_user}:{pw}@{self.db_host}:{self.db_port}/{self.db_name}"
 
     # ------------------------------------------------------------------
     # masked DSN（ログ出力可能）
@@ -84,15 +82,9 @@ class Settings(BaseSettings):
     @property
     def dsn_masked(self) -> str:
         """パスワードを ``***`` でマスクした raw 読取ロール DSN（ログ出力用・MEDIUM #1）。"""
-        return (
-            f"postgresql://{self.db_user}:***@"
-            f"{self.db_host}:{self.db_port}/{self.db_name}"
-        )
+        return f"postgresql://{self.db_user}:***@{self.db_host}:{self.db_port}/{self.db_name}"
 
     @property
     def etl_dsn_masked(self) -> str:
         """パスワードを ``***`` でマスクした ETL ロール DSN（ログ出力用・MEDIUM #1 / HIGH #6）。"""
-        return (
-            f"postgresql://{self.etl_db_user}:***@"
-            f"{self.db_host}:{self.db_port}/{self.db_name}"
-        )
+        return f"postgresql://{self.etl_db_user}:***@{self.db_host}:{self.db_port}/{self.db_name}"

@@ -43,9 +43,12 @@ def make_pool(
         # label.fukusho_label を schema 修飾で書込む・PATTERNS.md:226-232）
         # Phase 4: prediction スキーマを label と normalized の間に追加（D-05/D-12・
         # src/db/prediction_load.py が prediction.fukusho_prediction を schema 修飾で書込む）
+        # Phase 5: backtest スキーマを prediction と normalized の間に追加（BACK-03・
+        # src/db/backtest_load.py が backtest.fukusho_backtest を schema 修飾で書込む）
         search_path = (
             f"{settings.db_schema_label},"
             f"{settings.db_schema_prediction},"
+            f"{settings.db_schema_backtest},"
             f"{settings.db_schema_normalized},public"
         )
     else:
