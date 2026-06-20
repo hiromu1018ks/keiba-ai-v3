@@ -6,14 +6,14 @@ current_phase: 05
 current_phase_name: ev-backtest
 status: executing
 stopped_at: Completed 05-02-PLAN.md
-last_updated: "2026-06-20T23:28:04.073Z"
+last_updated: "2026-06-20T23:34:58.072Z"
 last_activity: 2026-06-20
 last_activity_desc: Completed 05-01-PLAN.md
 progress:
   total_phases: 9
   completed_phases: 5
   total_plans: 29
-  completed_plans: 25
+  completed_plans: 26
   percent: 56
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 05 (ev-backtest) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Plan 05-01 complete (BT窓ヘルパ + Wave 0 RED stub)
 Last activity: 2026-06-20 — Completed 05-01-PLAN.md
 
@@ -85,6 +85,7 @@ Progress: [████████░░] 83%
 | Phase 05 P01 | 10m | 2 tasks | 13 files |
 | Phase 05 P02 | 5m | - tasks | - files |
 | Phase 05 P02 | 5m | 3 tasks | 9 files |
+| Phase 05 P03 | 7m | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -149,6 +150,10 @@ Recent decisions affecting current work:
 - [Phase ?]: 05-02: EV/rank/purchase/metrics/bl3 は全て純粋関数 (DB 不要) で実装・baseline.py compute_bl1 パターン踏襲・§11.5 閾値を RANK_THRESHOLDS 定数で外部化 (T-05-03 mitigate)
 - [Phase ?]: 05-02: BL-3 は fukuoddslow 昇順 top-2 (EV でない) で選択・p=1/odds で EV=1.0 自己参照回避 (D-04)・BL3_BETTING_CAVEAT は baseline.BL3_COMPARISON_CAVEAT を import して再公開 (§14.2 caveat・T-05-04 mitigate)・model_type='bl3'/odds_snapshot_policy='confirmed' sentinel (JODDS 時点非依存)
 - [Phase ?]: 05-02: profit_loss は集計式 sum(payout)+sum(refund)-sum(stake)・行 profit (refund_accounting 出力) との不変量を test_metrics_profit_invariant で混在シナリオ検証 (MEDIUM-02/T-05-05b)・max drawdown は race_date 昇順 cummax-cumsum (共有パターン7)
+- [Phase ?]: 05-03: HIGH-3 canonical rule — CONTEXT D-02 を正とし 0999=no_bet sentinel（RESEARCH 行89 廃棄・T-05-07b mitigate）
+- [Phase ?]: 05-03: cross-plan contract — select_odds_snapshot 戻り値は snake_case fuku_odds_lower/fuku_odds_upper（JODDS raw を rename・T-05-SC2 mitigate）
+- [Phase ?]: 05-03: merge_asof by=['race_key','umaban'] — HIGH-1 馬単位 odds 保証（T-05-06b mitigate）
+- [Phase ?]: 05-03: 特払（TokubaraiFlag2='1'）は的中フラグ非依存・HARAI PayFukusyoPay 一次契約（§2.4・T-05-23 mitigate）
 
 ### Pending Todos
 
@@ -172,6 +177,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-20T23:28:04.068Z
+Last session: 2026-06-20T23:34:38.144Z
 Stopped at: Completed 05-02-PLAN.md
 Resume file: None

@@ -189,7 +189,7 @@ Plans:
   4. Refund/dead-loss accounting is honest: 取消/除外 → `effective_stake=0` (refund); 競走中止 → `effective_stake=100` counted as a loss (no exclusion inflating ROI) — verified by a unit test that builds a race with each scenario and asserts the stake/payout
   5. The `odds_snapshot_policy` is fixed (30-min-before or 10-min-before), `odds_missing_policy = no_bet` (never substitutes a convenient snapshot), and ALL candidate policies × BT configs are reported together — never the post-hoc winner alone
 
-**Plans**: 2/6 plans executed
+**Plans**: 3/6 plans executed
 
 **Wave 1**（基盤・先行）
 
@@ -198,7 +198,7 @@ Plans:
 **Wave 2**（Plan 01 完了後・02/03 は互いに並列可能・files_modified 衝突なし）
 
 - [x] 05-02-PLAN.md — Wave 2 EV/rank/purchase/metrics/bl3 純粋関数群（EV-01/EV-02/BACK-02 + §11.6 + D-04 BL-3）— BACK-01/EV-01/EV-02 — Plan 01 に依存
-- [ ] 05-03-PLAN.md — Wave 2 odds_snapshot（JODDS backward・snake_case fuku_odds_lower/upper 統一）+ refund_accounting（6シナリオ決定表）— BACK-03/BACK-04 — Plan 01 に依存
+- [x] 05-03-PLAN.md — Wave 2 odds_snapshot（JODDS backward・snake_case fuku_odds_lower/upper 統一）+ refund_accounting（6シナリオ決定表）— BACK-03/BACK-04 — Plan 01 に依存
 
 **Wave 3**（blocked on Wave 2 完了）
 
@@ -264,7 +264,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 3. As-of Features & Snapshots | 5/5 | Complete    | 2026-06-19 |
 | 3.1 Timediff/Babacd Rolling Restoration (INSERTED) | 4/4 | Complete    | 2026-06-19 |
 | 4. Model & Prediction | 6/6 | Complete    | 2026-06-20 |
-| 5. EV & Backtest | 2/6 | In Progress|  |
+| 5. EV & Backtest | 3/6 | In Progress|  |
 | 6. Evaluation & Calibration Gates | 0/TBD | Not started | - |
 | 7. Presentation | 0/TBD | Not started | - |
 | 8. Adversarial Audit Suite | 0/TBD | Not started | - |
