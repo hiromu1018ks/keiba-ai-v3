@@ -715,7 +715,7 @@ CREATE TABLE IF NOT EXISTS prediction.fukusho_prediction (
     model_version varchar(64) NOT NULL,    -- '20260620-1a-postreview-v2-lgb-v1' 等（Cycle 2 NEW-4: feature_snapshot_id 全体を prefix）
     feature_snapshot_id varchar(64) NOT NULL,  -- '20260620-1a-postreview-v2'
     as_of_datetime timestamp NOT NULL,     -- 予測生成時点
-    calib_method varchar(16) NOT NULL,     -- 'isotonic' / 'sigmoid' / 'none'
+    calib_method varchar(16) NOT NULL,     -- 'isotonic' / 'sigmoid'（Cycle 3 NEW-L2: Phase 4 の LightGBM/CatBoost は両方必ずキャリブレーションするため 'none' は除外・04-01 DDL CHECK `calib_method IN ('isotonic','sigmoid')` と整合・将来未キャリブレーション baseline は別テーブル/別 model_type で扱う）
     -- PK（label.fukusho_label と同一・7カラム）
     year int,
     jyocd varchar(2),

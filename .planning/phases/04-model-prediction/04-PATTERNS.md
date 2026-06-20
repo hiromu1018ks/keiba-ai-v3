@@ -154,7 +154,7 @@ calibrated = fit_prefit_calibrator(
 
 **複製すべきパターン:**
 
-1. **provenance 列の付与（D-05 / §19.1）** — `model_type` / `model_version` / `feature_snapshot_id` / `as_of_datetime` / `calib_method`。D-10 採番方式: `{feature_snapshot_id}-{model_type_short}-v{N}`（例: `20260620-1a-lgb-v1`）。
+1. **provenance 列の付与（D-05 / §19.1）** — `model_type` / `model_version` / `feature_snapshot_id` / `as_of_datetime` / `calib_method`。D-10 採番方式: `{feature_snapshot_id}-{model_type_short}-v{N}`（例: `20260620-1a-postreview-v2-lgb-v1`・Cycle 3 NEW-4: feature_snapshot_id 全体を prefix・`lgb`/`cb` は model_type_short）。
 2. **PK 列の保持** — `label.fukusho_label` と同一7カラム PK（`src/etl/fukusho_label.py:882-888`）。
 
 ---
