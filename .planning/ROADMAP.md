@@ -168,6 +168,7 @@ Plans:
 - **SC#1** Achieved: PLAN 01-02・`test_load_from_parquet_only` / `test_raw_ids_excluded` / `test_no_banned_features` GREEN・`models/{version}/` artifact 生成（base+calibrator 分離・review HIGH#5）・feature_df 552,935 行（label-joined）
 - **SC#2** (a) 比較表生成済み: PLAN 03-05・`tests/model/test_baseline.py` 6 test GREEN・reports/04-eval.md + reports/04-eval.json 生成（LightGBM + CatBoost + BL-1..5 比較表）
         (b) **AI 付加価値: 部分証明** — 主モデルは Brier/LogLoss/AUC（順序付け性能）で BL-1/BL-4/BL-5 を上回る（LightGBM 最良: brier=0.152216 / logloss=0.474883 / auc=0.732295）。しかし D-04 事前登録の**主要基準である Calibration（calibration_max_dev）では BL-1=0.001426・BL-4=0.044928 に劣る**（LightGBM=0.230769・CatBoost=0.257893）。事前登録基準（Calibration 重視）の観点では「AI 付加価値 部分証明」・Phase 6 ゲートで最終判定（review HIGH#8 正直注記）
+
 - **SC#3** Achieved: PLAN 03・**対抗的構造診断（合成データ・review HIGH#3: live-data 証明と称さず対抗的構造診断と正確に呼ぶ）** `test_no_target_encoding_leak` GREEN（低基数 RARE_X + 高基数 `_code` train-only/test-unseen + 意図的リーク制御 DEMONSTRABLY fail・target encoding 非混入の構造実証）・`test_lightgbm_nonneg_codes` / `test_catboost_has_time` / `test_catboost_predict_preserves_row_order` GREEN・CatBoost `_code` 列 cat_features 宣言（review HIGH#6）
 - **SC#4** Achieved: PLAN 02/05・`test_strict_later_disjoint` GREEN・`test_reproduce_bit_identical` GREEN（固定 thread count: num_threads=1/thread_count=1 + 固定 as_of_datetime: FIXED_REPRODUCE_TS・review HIGH#7）・`run_train_predict --check-reproduce` 両モデル bit-identical PASS（lightgbm + catboost）
 
@@ -241,7 +242,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 2. Fukusho Labels | 4/4 | Complete    | 2026-06-18 |
 | 3. As-of Features & Snapshots | 5/5 | Complete    | 2026-06-19 |
 | 3.1 Timediff/Babacd Rolling Restoration (INSERTED) | 4/4 | Complete    | 2026-06-19 |
-| 4. Model & Prediction | 5/6 | In Progress|  |
+| 4. Model & Prediction | 6/6 | Complete    | 2026-06-20 |
 | 5. EV & Backtest | 0/TBD | Not started | - |
 | 6. Evaluation & Calibration Gates | 0/TBD | Not started | - |
 | 7. Presentation | 0/TBD | Not started | - |

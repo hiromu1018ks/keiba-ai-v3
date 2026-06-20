@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 05
-current_phase_name: ev-backtest
-status: phase-4-complete
-stopped_at: "Completed 04-06-PLAN.md (Phase 4 final verification: both-models E2E + SC#3/SC#4 GREEN + full suite KEIBA_SKIP_DB_TESTS unset 262 passed / 0 skipped)"
-last_updated: "2026-06-20T11:30:00.000Z"
+current_phase: 5
+current_phase_name: EV & Backtest
+status: completed
+stopped_at: "Phase 4 complete — Plan 04-06 executed (both-models real-data E2E, predictions persisted, reports committed, SC#3/SC#4 structural blocks GREEN, full suite 262 passed with KEIBA_SKIP_DB_TESTS unset / 0 skipped)"
+last_updated: "2026-06-20T11:57:58.552Z"
 last_activity: 2026-06-20
-last_activity_desc: Phase 4 complete — Plan 04-06 executed (both-models real-data E2E, predictions persisted, reports committed, SC#3/SC#4 structural blocks GREEN, full suite 262 passed with KEIBA_SKIP_DB_TESTS unset). Transitioned to Phase 5 (EV & Backtest).
+last_activity_desc: Phase 04 complete, transitioned to Phase 5
 progress:
   total_phases: 9
   completed_phases: 5
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 
 ## Current Position
 
-Phase: 05 (ev-backtest) — Phase 4 COMPLETE, ready to plan Phase 5
-Plan: 0 of ? (Phase 5 planning not yet started)
+Phase: 5 — EV & Backtest
+Plan: Not started
 Status: Phase 4 complete — Plan 04-06 executed (both-models real-data E2E, predictions persisted, reports committed, SC#3/SC#4 structural blocks GREEN, full suite 262 passed with KEIBA_SKIP_DB_TESTS unset / 0 skipped)
-Last activity: 2026-06-20 — Phase 4 complete (Plan 04-06 executed)
+Last activity: 2026-06-20 — Phase 04 complete, transitioned to Phase 5
 
 Progress: [█████░░░░░] 56%
 
@@ -39,7 +39,7 @@ Progress: [█████░░░░░] 56%
 
 **Velocity:**
 
-- Total plans completed: 17
+- Total plans completed: 23
 - Average duration: — min
 - Total execution time: 0.0 hours
 
@@ -51,6 +51,7 @@ Progress: [█████░░░░░] 56%
 | 02 | 4 | - | - |
 | 03 | 5 | - | - |
 | 03.1 | 4 | - | - |
+| 04 | 6 | - | - |
 
 **Recent Trend:**
 
