@@ -45,6 +45,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import yaml
 
+from src.features.rolling import _CATEGORICAL_SYSTEMS
 from src.utils.category_map import MISSING
 
 # ---------------------------------------------------------------------------
@@ -77,15 +78,21 @@ _BYTE_REPRODUCIBLE_SCOPE = "parquet_data_only_metadata_excluded"
 
 
 def _coerce_rolling_columns_for_parquet(df: pd.DataFrame) -> pd.DataFrame:
-    """rolling 出力の object dtype 列（数値 + ``__MISSING__`` sentinel 混在）を nullable
-    Float64 に統一する（live-DB 整合・Parquet 直列化 fix）。
+    """rolling 出力の object dtype 列を Parquet 直列化可能な nullable dtype に統一する。
 
-    rolling.py の D-13 契約は未観測/5走未満を ``__MISSING__`` sentinel で表現し、出力列は
-    object dtype（数値と文字列が混在）になる。PyArrow は混在 object 列を直列化できない
-    (ArrowTypeError)。snapshot 境界で ``__MISSING__`` を NaN に置換し Float64 に統一する。
-    これにより Parquet 出力が成功し、byte-reproducibility も維持される（決定論的 cast）。
+    CR-02 (03-REVIEW) で categorical 系統（``jyocd`` mode/latest）が追加された。列が categorical
+    系統か（``_is_categorical_rolling_col``）で分岐する:
 
-    rolling 内部契約（object + sentinel）は不変・本関数は Parquet 出力前の直列化変換のみ。
+      - **numeric 系統**（kakuteijyuni/harontimel3/jyuni3c_jyuni4c/kyori/days_since_prev/
+        timediff/babacd の mean/latest/sd・全系統の count）: 数値 + ``__MISSING__`` sentinel →
+        nullable ``Float64``（従来通り）。
+      - **categorical 系統**（jyocd mode/latest）: 文字列値 + sentinel → nullable ``string``
+        （sentinel → ``<NA>``）。varchar(2) 競馬場コードを ``"06"→6.0`` のように数値化しない
+        （CR-02 の「文字列の最頻値」意図を完遂・実データ検証で ``_coerce`` の数値化副作用を発見）。
+
+    値の「数値化可能性」では判定しない（``"06"`` は数字文字列で ``to_numeric`` 可能だが categorical）。
+    rolling.py の ``_CATEGORICAL_SYSTEMS`` で系統を明示判定する。D-13 契約（object + sentinel）は
+    不変・本関数は Parquet 出力前の直列化変換のみ。byte-reproducibility は維持（決定論的 cast）。
     """
     result = df.copy()
     for col in result.columns:
@@ -94,12 +101,42 @@ def _coerce_rolling_columns_for_parquet(df: pd.DataFrame) -> pd.DataFrame:
         series = result[col]
         if series.dtype != object:
             continue
-        # __MISSING__ sentinel を NaN に置換し数値化。非 sentinel 値が既に数値の場合は
-        # to_numeric で float64 化（pandas nullable Float64 で NaN を表現）。
         non_sentinel_mask = series.ne(MISSING)
-        coerced = pd.to_numeric(series.where(non_sentinel_mask), errors="coerce")
-        result[col] = coerced.astype("Float64")
+        if _is_categorical_rolling_col(col):
+            # categorical 列（jyocd mode/latest）→ sentinel を <NA> にして nullable string。
+            # "06" 等の競馬場コードを数値化せず文字列カテゴリとして保持（Phase 4 categorical 制御用）。
+            result[col] = series.where(non_sentinel_mask).astype("string")
+        else:
+            # numeric 列 → sentinel を NaN にして nullable Float64（従来通り）。
+            result[col] = pd.to_numeric(series.where(non_sentinel_mask), errors="coerce").astype("Float64")
     return result
+
+
+def _is_categorical_rolling_col(col: str) -> bool:
+    """``rolling_{system}_{axis}_5`` 形式の列が categorical 系統（``jyocd`` 等）か判定する。
+
+    rolling.py の ``_axes_for``: categorical 系統は ``(mode, latest, count)``・numeric 系統は
+    ``(mean, latest, sd, count)``。categorical（文字列）なのは ``mode`` と categorical 系統の
+    ``latest`` のみ・``count`` は出走回数（数値）で両系統とも ``Float64``。よって:
+
+      - ``mode`` 軸 → categorical 専用（文字列） → True
+      - ``mean`` / ``sd`` / ``count`` 軸 → numeric（数値） → False
+      - ``latest`` 軸 → ``system`` が ``_CATEGORICAL_SYSTEMS`` かで判定
+    """
+    if not (col.startswith("rolling_") and col.endswith("_5")):
+        return False
+    core = col[len("rolling_"):-len("_5")]  # {system}_{axis}
+    parts = core.split("_")
+    if len(parts) < 2:
+        return False
+    *system_parts, axis = parts
+    if axis == "mode":
+        return True
+    if axis in ("mean", "sd", "count"):
+        return False
+    # latest 軸: system が categorical 系統か（jyuni3c_jyuni4c 等 _ 含み対応）
+    system = "_".join(system_parts)
+    return system in _CATEGORICAL_SYSTEMS
 
 
 def write_snapshot(

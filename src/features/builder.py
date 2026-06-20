@@ -521,6 +521,12 @@ def build_feature_matrix(
     else:
         feature_matrix["estimated_running_style"] = "__MISSING__"
 
+    # --- Step 6b: obs_id 中間処理用列の除去（CR-01 / WR-03 実データ検証で発見） ---
+    # obs_id は rolling merge (CR-01) と推定脚質 groupby (WR-03) の中間キーで (race_nkey, kettonum)
+    # の tuple。PyArrow が tuple を直列化できず write_snapshot で ArrowTypeError になる。
+    # race_nkey + kettonum で復元可能なため最終 feature_matrix からは除外する。
+    feature_matrix = feature_matrix.drop(columns=["obs_id"], errors="ignore")
+
     # --- Step 7: §13.2 metadata stamp（全行に定数列） ---
     feature_matrix["feature_snapshot_id"] = snapshot_id
     feature_matrix["feature_availability_version"] = fa_version

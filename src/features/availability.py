@@ -171,9 +171,11 @@ _RESERVED_NON_FEATURE_COLUMNS: frozenset[str] = frozenset({
     "feature_availability_version",
     "label_generation_version",
     "prediction_timing",
-    # CR-01/WR-03 (03-REVIEW): rolling 統合の merge key / 推定脚質の groupby key。
-    # feature でなく中間 key（rolling 実装が (race_nkey, kettonum) を tuple 化した値）。
-    "obs_id",
+    # CR-01/WR-03 (03-REVIEW): obs_id は rolling merge / 推定脚質 groupby の中間 key
+    # (race_nkey, kettonum) tuple。builder Step 6b で最終 feature_matrix から drop される
+    # （PyArrow が tuple を直列化不能・実データ検証で write_snapshot ArrowTypeError を発見）。
+    # reserved から除外し、誤って残存した場合は assert_matrix_columns_registered が
+    # unregistered column として検出する二重防御とする。
 }) | {f"rolling_{sys}_count_5" for sys in _ROLLING_SYSTEMS_FOR_RESERVED}
 
 
