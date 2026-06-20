@@ -3,7 +3,7 @@ status: complete
 phase: 03-as-of-features-snapshots
 source: 03-01-SUMMARY.md, 03-02-SUMMARY.md, 03-03-SUMMARY.md, 03-04-SUMMARY.md, 03-05-SUMMARY.md
 started: 2026-06-20T01:22:46Z
-updated: 2026-06-20T01:43:00Z
+updated: 2026-06-20T02:05:00Z
 note: |
   Phase 3 は 03-05 SUMMARY 後に大幅進化: deep review 14 fix (CR-01..04/WR-01..11) + 実データ検証
   RT-01/02 + Phase 3.1 (timediff/babacd 復元→8系統) + schema 0.2.0→0.3.0 bump。
@@ -61,17 +61,20 @@ pending: 0
 skipped: 0
 blocked: 0
 
-## Acknowledged Advisories (Phase 4 前修正推奨・blocks_current_sc: false)
+## Advisories 状態（UAT 検証後・2026-06-20 訂正）
 
-Phase 03-VERIFICATION.md (status: passed, 4/4 must-haves) が記録する 5 advisory + UAT で発見した 1 確認事項。現状機能は動作・Phase 3 success criteria は非ブロック。Phase 4 学習前に対処推奨（特に #1, #2, #6）。
+UAT 実施時に実コードを精査した結果、03-VERIFICATION.md が記録していた advisories #1-#4 は **Phase 3.1 で既に hardening 済み**（コードコメント「Phase 3.1 advisory hardening」+ 専用 unit test GREEN で証明・11 test）。03-VERIFICATION.md の advisory 記述は Phase 3.1 適用前の状態で残存していた。**修正作業は不要**。
 
-1. **CR-01(new) warning** — `scripts/run_feature_build.py:206-228` manifest 書出が persist_category_maps(L228) より先。persist 失敗（disk full/権限/encode error）時に SHA256 一致の「完成済」manifest が残り category_map artifact 欠損の再現性破壊状態が完成する潜在リスク。現状 live snapshot では artifact 正常生成済。
-2. **WR-01' warning** — `src/features/builder.py:353-354` estimated_running_style の silent no-filter fallback（`else: pit_filtered_style = expanded_style`）。live path では到達不能だが将来 refactor/合成 history inject で未来レース混入の余地。
-3. **WR-02 warning** — `_fetch_feature_sources/_fetch_history` の `except Exception` 空 frame フォールバック（deep review 時点指摘・WR-01 fix 137395d で OperationalError 限定に変更済だが advisory は旧記述を参照）。
-4. **WR-03 info** — `rolling.py:236-240` groupby().apply(lambda) が pandas 3.x 非推奨形。将来 pandas upgrade で SHA256 drift の可能性。
-5. **WR-05 info** — `estimated_running_style` の `__MISSING__` sentinel が object dtype のまま snapshot に乗る（Phase 4 LightGBM category 変換時の §14.3 Negative-code hazard）。Phase 4 スコープ。
+### 既に hardening 済み（Phase 3.1・test GREEN・修正不要）
 
-### UAT で発見した確認事項（Phase 4 前推奨）
+1. **CR-01(new) manifest 書出順序** — persist_category_maps → exists() assert → write_manifest の順序（`run_feature_build.py:214-242`・docstring L19-20）。test: `test_snapshot_repro.py::test_persist_before_manifest_order` / `test_persist_then_manifest_order_in_script_source` ✓
+2. **WR-01' silent no-filter fallback** — `as_of_datetime` 不在時 ValueError で fail-loud（`builder.py:500-504`）。test: `test_builder.py::test_wr01_prime_raises_on_missing_as_of_datetime` ✓
+3. **WR-02 空 frame fail-loud** — `_fetch_*` は OperationalError/InterfaceError/ConnectionError 限定 + `build_feature_matrix:398-402` で空 frame を RuntimeError で fail-loud。test: `test_builder.py::test_wr02_raises_on_empty_feature_source` ✓
+4. **WR-03 groupby().apply 非推奨形** — numeric 系統は vector 形（`.notna().groupby().sum()`・`rolling.py:322-325`）に置換。test: `test_rolling.py::test_jyocd_categorical_mode_aggregation` ✓
+
+### Phase 4 で対応（Phase 3 スコープ外・設計上の留保）
+
+5. **WR-05** — `estimated_running_style` の `__MISSING__` sentinel が object dtype のまま snapshot に乗る（Phase 4 LightGBM category 変換時の §14.3 Negative-code hazard）。feature snapshot は生の category 値を保存する Phase 3 設計・code 化は Phase 4 LightGBM 統合の責務（advisory recommendation も Phase 4 推奨）。
 
 6. **SHA256 drift (0.2.0 vs 0.3.0)** — 【原因判明・UAT 深掘り】postreview-v1 (sha256=65426387461b...) と uat (sha256=8ed8829cd259904b...) の Parquet を比較: rows/cols/型/sort 後 key 全て一致、差分は data column の `feature_snapshot_id`（snapshot_id 固有値）と `feature_availability_version`（0.2.0 vs 0.3.0）の 2 列のみで、他 60 列（実 feature data）は完全一致。CR-04 SHA256 scope (parquet_data_only_metadata_excluded) は Parquet schema metadata(key-value) を除外するが、feature_matrix の data column に stamp された識別子は含まれるため、SHA256 が snapshot_id と fa_version に依存する。データ破損/jyocd 非決定性ではなく識別子の差。同一 snapshot_id+fa_version+source で再生成 → 同じ SHA256 (write#1==write#2 で証明) で再現性 Core Value の最小要件は満たす。Phase 4 で SHA256 を「純粋なデータ同一性判定」に使う場合、識別子列を SHA256 計算から除外する設計変更（または識別子を data column でなく schema metadata のみに格納）を推奨。
 
