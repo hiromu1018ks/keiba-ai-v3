@@ -1128,17 +1128,19 @@ def generate_report(all_backtests: list[dict]) -> None:
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **JODDS 取得完了タイミング**
    - What we know: 2026-06-20 開始・2015年25レース日分取得済み・過去遡取進行中
    - What's unclear: BT期間 2019-2025 の完了時期
    - Recommendation: Phase 5 実装（コード・単体テスト・合成データ）を先行・取得完了後に実データ backtest 実行の 2 段階計画（planner が実行計画に反映）
+   - RESOLVED: Plan 06 が2段階実行計画で採用 — 合成データフル行列 smoke（--synthetic・自動化可能部分）を Wave 5 で実行し、実データ backtest（BT期間 2019-2025・--synthetic 外す）を Manual-Only 検証として checkpoint:human-verify で明示分離。A1 前提（実JODDS取得進行中）を VERIFICATION.md Manual-Only に明記済み。
 
 2. **BT-4/5 rolling の test 年**
    - What we know: §15.5 は「直近3年/5年 rolling・翌年」・具体 test 年は明記なし
    - What's unclear: BT-1..3 の test 年（2023/2024/2025）と揃えるか別途
    - Recommendation: 揮える（同一 test 年で rolling vs expanding 比較が対称）・planner 確定
+   - RESOLVED: A2 採用 — BT-4/5 の test 年を 2024 に確定（BT-2 と同一 test 年で rolling vs expanding の対称比較を可能にする）。Plan 01 Task 1 の BT_WINDOWS 定数に反映済み（BT-1..3=2023/2024/2025 expanding・BT-4=2021-2023 rolling test 2024・BT-5=2019-2023 rolling test 2024）。
 
 ---
 

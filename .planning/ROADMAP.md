@@ -191,20 +191,26 @@ Plans:
 
 **Plans**: 6 plans
 
-**Wave 1**（並列・互いに独立）
+**Wave 1**（基盤・先行）
 
 - [ ] 05-01-PLAN.md — Wave 1 基盤（BT窓ヘルパ BTWindow/BT_WINDOWS/get_bt_race_ids + Wave 0 RED stub 集群 9ファイル + 合成 fixtures）— BACK-01
-- [ ] 05-02-PLAN.md — Wave 1 EV/rank/purchase/metrics/bl3 純粋関数群（EV-01/EV-02/BACK-02 + §11.6 + D-04 BL-3）— Plan 01 に依存
-- [ ] 05-03-PLAN.md — Wave 1 odds_snapshot（JODDS backward）+ refund_accounting（6シナリオ決定表）— BACK-03/BACK-04 — Plan 01 に依存
 
-**Wave 2**（blocked on Wave 1 完了）
+**Wave 2**（Plan 01 完了後・02/03 は互いに並列可能・files_modified 衝突なし）
 
-- [ ] 05-04-PLAN.md — Wave 2 backtest 永続化（schema/settings/connection/backtest_load）+ split_3way/orchestrator periods 拡張（後方互換 A5）— BACK-03/D-03 — Plan 01/02/03 に依存
+- [ ] 05-02-PLAN.md — Wave 2 EV/rank/purchase/metrics/bl3 純粋関数群（EV-01/EV-02/BACK-02 + §11.6 + D-04 BL-3）— BACK-01/EV-01/EV-02 — Plan 01 に依存
+- [ ] 05-03-PLAN.md — Wave 2 odds_snapshot（JODDS backward・snake_case fuku_odds_lower/upper 統一）+ refund_accounting（6シナリオ決定表）— BACK-03/BACK-04 — Plan 01 に依存
 
 **Wave 3**（blocked on Wave 2 完了）
 
-- [ ] 05-05-PLAN.md — Wave 3 scripts/run_backtest.py（BT窓再学習 + フル行列 25 backtest）+ reports/05-backtest 生成 — BACK-01/02/03/04 — Plan 01-04 に依存
-- [ ] 05-06-PLAN.md — Wave 3 live-DB backtest スキーマ適用 + 合成データフル行列 smoke + checkpoint:human-verify（実データ backtest は manual-only 分離）— BACK-01/02/03/04 — Plan 05 に依存
+- [ ] 05-04-PLAN.md — Wave 3 backtest 永続化（schema/settings/connection/backtest_load）+ split_3way/orchestrator periods 拡張（後方互換 A5）— BACK-03/D-03 — Plan 01/02/03 に依存
+
+**Wave 4**（blocked on Wave 3 完了）
+
+- [ ] 05-05-PLAN.md — Wave 4 scripts/run_backtest.py（BT窓再学習 + フル行列 25 backtest）+ reports/05-backtest 生成 — BACK-01/02/03/04 — Plan 01-04 に依存
+
+**Wave 5**（blocked on Wave 4 完了）
+
+- [ ] 05-06-PLAN.md — Wave 5 live-DB backtest スキーマ適用 + 合成データフル行列 smoke + checkpoint:human-verify（実データ backtest は manual-only 分離）— BACK-01/02/03/04 — Plan 05 に依存
 
 ### Phase 6: Evaluation & Calibration Gates
 
