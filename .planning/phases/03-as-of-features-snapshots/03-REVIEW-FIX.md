@@ -7,6 +7,7 @@ findings_in_scope: 15
 fixed: 14
 skipped: 0
 wontfix: 1
+post_fix_runtime_fixed: 2
 status: partial
 ---
 
@@ -27,9 +28,8 @@ status: partial
   `created_at` → `created_at_fixed` rename で対応済み。
 
 **テスト結果:**
-- `uv run pytest tests/features/ tests/test_label_race_date_backfill.py -q`: **78 passed / 1 failed**
-- 1件の失敗 (`test_backfill_live_db`) は live-DB 必須の pre-existing 失敗（環境変数未設定・
-  pydantic ValidationError）。本修正の対象外・修正前から存在する失敗。
+- `uv run pytest tests/features/ tests/test_label_race_date_backfill.py -q`: **79 passed**
+  （実データ検証時に live-DB 環境変数が設定済みで `test_backfill_live_db` も GREEN）。
 
 ## Fixed Issues
 
@@ -204,6 +204,37 @@ None — すべての in-scope finding が fixed または wontfix 扱い。
 post_position_confirmed 登録だが、feature_cutoff_datetime = race_date - 1 day の PIT 不変条件が
 各 feature の available_from_timing と個別に照合されない可能性が指摘された。要件解釈の結果、
 本事項はリークでないと判断された。
+
+## Post-Fix Runtime Findings（実データ検証で発見・fixer iteration 外）
+
+deep review --fix の完了後、`scripts/run_feature_build.py`（live-DB・554267行）で feature snapshot
+を実際に再生成したところ、unit test が捕捉しなかった bug 2件が発覚（テスト fixture は同日
+observation・数行で row-misalignment / dtype 混在が起きないため）。コミット `92e1310` で修正。
+実データ検証の記録は memory `feature-snapshot-regen-required` に恒久化。
+
+### RT-01: obs_id tuple 列が PyArrow 直列化不可（write_snapshot ArrowTypeError）
+
+**Files modified:** `src/features/builder.py`, `src/features/availability.py`
+**Commit:** `92e1310`
+**Applied fix:** WR-03/CR-01 の中間キー `obs_id = (race_nkey, kettonum)` tuple が最終
+feature_matrix に残り、`write_snapshot` の `pa.Schema.from_pandas` で ArrowTypeError
+（Expected bytes, got a 'int' object）。builder Step 6b で obs_id を drop
+（race_nkey + kettonum で復元可能・中間処理用）。`_RESERVED_NON_FEATURE_COLUMNS` から
+obs_id を除外し、誤って残存した場合に `assert_matrix_columns_registered` が検出する二重防御。
+**検証:** run_feature_build.py 成功（byte-reproducibility PASS・sha256=65426387461b...）。
+
+### RT-02: _coerce が categorical 系統（jyocd mode/latest）を数値化
+
+**Files modified:** `src/features/snapshot.py`
+**Commit:** `92e1310`
+**Applied fix:** CR-02 で jyocd を文字列の最頻値（mode/latest）に変更したが、`_coerce` が
+rolling_* 全列を `to_numeric` + Float64 化する前提で `"06"→6.0` に数値化（CR-02 の「文字列の
+最頻値」意図と矛盾）。`_CATEGORICAL_SYSTEMS`（rolling.py）を参照して categorical 列を判定
+（`_is_categorical_rolling_col`・mode 軸は categorical 専用・latest 軸は system が categorical か・
+mean/sd/count 軸は numeric）し、categorical は sentinel → `<NA>` で nullable string、numeric は
+従来通り Float64。count 軸は出走回数（数値）なので Float64 維持。
+**検証:** 生成 Parquet で `rolling_jyocd_mode_5` / `latest_5` = string（`'06','08',...`）・
+`rolling_jyocd_count_5` = Float64 を確認。
 
 ---
 
