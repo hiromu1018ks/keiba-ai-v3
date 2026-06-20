@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 05
 current_phase_name: ev-backtest
 status: executing
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-06-20T23:16:37.611Z"
+stopped_at: Completed 05-02-PLAN.md
+last_updated: "2026-06-20T23:28:04.073Z"
 last_activity: 2026-06-20
-last_activity_desc: Completed 05-01-PLAN.md (BT窓ヘルパ + Wave 0 RED stub)
+last_activity_desc: Completed 05-01-PLAN.md
 progress:
   total_phases: 9
   completed_phases: 5
   total_plans: 29
-  completed_plans: 24
-  percent: 83
+  completed_plans: 25
+  percent: 56
 ---
 
 # Project State
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 05 (ev-backtest) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Plan 05-01 complete (BT窓ヘルパ + Wave 0 RED stub)
 Last activity: 2026-06-20 — Completed 05-01-PLAN.md
 
@@ -83,6 +83,8 @@ Progress: [████████░░] 83%
 | Phase 04 P05 | 49m | 2 tasks | 7 files |
 | Phase 04 P06 | 18m | 2 tasks | 5 files |
 | Phase 05 P01 | 10m | 2 tasks | 13 files |
+| Phase 05 P02 | 5m | - tasks | - files |
+| Phase 05 P02 | 5m | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -144,6 +146,9 @@ Recent decisions affecting current work:
 - [Phase 05]: BT-4/5 test 年は 2024 に揃える（D-03 + planner A2・BT-1..3 の test 年と比較可能にするため）
 - [Phase 05]: MEDIUM-01a — 固定 BT窓と mlxtend.GroupTimeSeriesSplit の等価性を docstring + test で立証（T-05-01b mitigate）
 - [Phase 05]: Wave 0 RED stub は lazy import で collection 保証（Phase 2 decision 02-22 と同一パターン）
+- [Phase ?]: 05-02: EV/rank/purchase/metrics/bl3 は全て純粋関数 (DB 不要) で実装・baseline.py compute_bl1 パターン踏襲・§11.5 閾値を RANK_THRESHOLDS 定数で外部化 (T-05-03 mitigate)
+- [Phase ?]: 05-02: BL-3 は fukuoddslow 昇順 top-2 (EV でない) で選択・p=1/odds で EV=1.0 自己参照回避 (D-04)・BL3_BETTING_CAVEAT は baseline.BL3_COMPARISON_CAVEAT を import して再公開 (§14.2 caveat・T-05-04 mitigate)・model_type='bl3'/odds_snapshot_policy='confirmed' sentinel (JODDS 時点非依存)
+- [Phase ?]: 05-02: profit_loss は集計式 sum(payout)+sum(refund)-sum(stake)・行 profit (refund_accounting 出力) との不変量を test_metrics_profit_invariant で混在シナリオ検証 (MEDIUM-02/T-05-05b)・max drawdown は race_date 昇順 cummax-cumsum (共有パターン7)
 
 ### Pending Todos
 
@@ -167,6 +172,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-20T23:15:51.185Z
-Stopped at: Phase 5 context gathered
-Resume file: .planning/phases/05-ev-backtest/05-CONTEXT.md
+Last session: 2026-06-20T23:28:04.068Z
+Stopped at: Completed 05-02-PLAN.md
+Resume file: None
