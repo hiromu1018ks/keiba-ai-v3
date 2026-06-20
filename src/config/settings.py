@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     db_schema_normalized: str = "normalized"
     # Phase 2 label schema（db_schema_raw / db_schema_normalized と対称）
     db_schema_label: str = "label"
+    # Phase 4 prediction schema（D-05・db_schema_label と対称）
+    # src/db/prediction_load.py の staging-swap idempotent load が
+    # prediction.fukusho_prediction を schema 修飾で書込む（MEDIUM#2: search_path 暗黙解決不可）
+    db_schema_prediction: str = "prediction"
     # REVIEWS HIGH #3 支援: Plan 03 _idempotent_load_label が staging RENAME 後に
     # GRANT SELECT ON label.fukusho_label TO {reader_role} を発行する際のロール名。
     # TO PUBLIC ではなく明示的 reader ロール付与をコード上でも保証。

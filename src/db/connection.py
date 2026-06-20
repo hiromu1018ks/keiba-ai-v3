@@ -41,7 +41,13 @@ def make_pool(
         conninfo = settings.etl_dsn
         # Phase 2: label スキーマを先頭に追加（Plan 03 _idempotent_load_label が
         # label.fukusho_label を schema 修飾で書込む・PATTERNS.md:226-232）
-        search_path = f"{settings.db_schema_label},{settings.db_schema_normalized},public"
+        # Phase 4: prediction スキーマを label と normalized の間に追加（D-05/D-12・
+        # src/db/prediction_load.py が prediction.fukusho_prediction を schema 修飾で書込む）
+        search_path = (
+            f"{settings.db_schema_label},"
+            f"{settings.db_schema_prediction},"
+            f"{settings.db_schema_normalized},public"
+        )
     else:
         raise ValueError(f"unknown role: {role!r} (expected 'readonly' or 'etl')")
 
