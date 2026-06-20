@@ -151,3 +151,55 @@ def test_refund_deadheat():
     result = determine_stake_payout(row, stake_per_bet=100)
     assert result["effective_stake"] == 100
     assert result["payout"] > 0
+
+
+def test_refund_tokubarai_harai_fixture():
+    """MEDIUM-D cycle-2: HARAI 実スキーマ形状の特払 fixture（TokubaraiFlag2='1'）。
+
+    実DB観測値では tokubaraiflag2='1' が 0件のため合成必須。HARAI 実スキーマ形状の
+    特払 fixture（row: race_key + FuseirituFlag2='0' + TokubaraiFlag2='1' + HenkanFlag2='0' +
+    PayFukusyoUmaban1..5='00'(的中馬番なし・特払) + PayFukusyoPay1..5=70(特払金額) +
+    label fukusho_hit_validated=0）を構築し・determine_stake_payout(row) が
+    stake=100 / refund=0 / payout=70（特払 PayFukusyoPay） / profit=-30 / effective_stake=100
+    を返すことを assert（公式に従う・§2.4 特払 semantics）。
+
+    fukusho_hit_validated=0 でも PayFukusyoPay>0 の場合は payout>0 となる契約
+    （特払は的中フラグ非依存・HARAI PayFukusyoPay 一次）。
+    """
+    from src.ev.refund_accounting import determine_stake_payout
+
+    # HARAI 実スキーマ形状の特払 fixture を手構築（conftest の scenario に無いため）
+    base = {
+        "year": 2024, "jyocd": "05", "kaiji": 1, "nichiji": "06", "racenum": 1,
+        "umaban": 1,
+        # label フラグ（特払時は通常 sale_available=True・hit_validated=0・停止系フラグ全 False）
+        "is_fukusho_sale_available": True,
+        "is_scratch_cancel": False,
+        "is_race_excluded": False,
+        "is_race_cancelled": False,
+        "is_dead_loss": False,
+        "fukusho_hit_validated": 0,
+        # HARAI 払戻系 flags（特払）
+        "fuseirituflag2": "0",   # 不成立なし
+        "henkanflag2": "0",      # 返還なし
+        "tokubaraiflag2": "1",   # 複勝特払
+        # 的中馬番なし（'00'）・PayFukusyoPay=70（特払金額・100円あたり）
+        "payfukusyoumaban1": "00",
+        "payfukusyoumaban2": "00",
+        "payfukusyoumaban3": "00",
+        "payfukusyoumaban4": "00",
+        "payfukusyoumaban5": "00",
+        "payfukusyopay1": "0000070",  # 特払 70円
+        "payfukusyopay2": "0000000",
+        "payfukusyopay3": "0000000",
+        "payfukusyopay4": "0000000",
+        "payfukusyopay5": "0000000",
+    }
+    row = pd.Series(base)
+    result = determine_stake_payout(row, stake_per_bet=100)
+    # 特払 semantics: stake=100 / refund=0 / payout=70 / profit=-30 / effective_stake=100
+    assert result["stake"] == 100
+    assert result["refund"] == 0
+    assert result["payout"] == 70
+    assert result["profit"] == -30
+    assert result["effective_stake"] == 100
