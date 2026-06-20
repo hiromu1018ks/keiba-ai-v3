@@ -53,13 +53,16 @@ def _build_label_joined_feature_df(
     n_train_races: int = 200,
     n_calib_races: int = 40,
     n_test_races: int = 40,
+    n_holdout_races: int = 20,
     seed: int = 42,
 ) -> pd.DataFrame:
-    """split_3way の3区間にまたがる label-joined feature_df を構築する。
+    """split_3way の3区間 + holdout_2025_plus にまたがる label-joined feature_df を構築する。
 
     train 区間 [2016-07-01, 2023-12-31]・calib [2024-01-01, 2024-06-30]・
-    test [2024-07-01, 2024-12-31] にそれぞれ ``n_*_races`` レース (8頭立て) を配置。
+    test [2024-07-01, 2024-12-31]・holdout_2025_plus [2025-01-01, 2025-12-31] に
+    それぞれ ``n_*_races`` レース (8頭立て) を配置。
     fukusho_hit_validated 列を含む (= label join 済み・Cycle 2 residual #13 契約)。
+    split_3way は holdout_2025_plus が空でも ValueError になるため・必ず配置する。
     """
     rng = np.random.default_rng(seed)
     rows: list[dict] = []
@@ -79,8 +82,13 @@ def _build_label_joined_feature_df(
             kaiji = ((race_i // 10) % 8) + 1
             nichiji = ((race_i // 80) % 12) + 1
             racenum = jyocd
+            # race_key を区間 + race_i + レース日で一意にする (異なる区間・年のレースが
+            # 同一 race_key になるのを防止・split_3way の disjoint 検査通過のため)。
+            # 正準 race_key = year-jyocd-kaiji-nichiji-racenum の形式を維持しつつ・
+            # race_i と period をエンコードして一意性を保証。
             race_key = (
-                f"{race_dt.year}-{jyocd:02d}-{kaiji:02d}-{nichiji:02d}-{racenum}"
+                f"{race_dt.year}-{jyocd:02d}-{kaiji:02d}-"
+                f"{nichiji:02d}-{racenum}-p{period_seed_offset}-r{race_i}"
             )
             for umaban in range(1, 9):
                 rows.append(
@@ -95,7 +103,7 @@ def _build_label_joined_feature_df(
                         "racenum": racenum,
                         "umaban": umaban,
                         "kettonum": int(
-                            rng.integers(1, 100_000)
+                            rng.integers(1, 100_000_000)
                         ),  # PK 一意性のためにレース内で異なる値
                         "sexcd": str(int(rng.choice([1, 2, 3]))),
                         "class_code_normalized": str(
@@ -128,6 +136,70 @@ def _build_label_joined_feature_df(
                         "barei": int(rng.integers(2, 9)),
                         "futan": int(rng.integers(48, 58)),
                         "wakuban": int(rng.integers(1, 9)),
+                        # rolling_* numeric features (FEATURE_COLUMNS に含まれる全て)
+                        "rolling_babacd_latest_5": float(
+                            rng.normal(0.5, 0.1)
+                        ),
+                        "rolling_babacd_mean_5": float(
+                            rng.normal(0.5, 0.1)
+                        ),
+                        "rolling_babacd_sd_5": float(
+                            rng.normal(0.05, 0.01)
+                        ),
+                        "rolling_days_since_prev_latest_5": int(
+                            rng.integers(7, 60)
+                        ),
+                        "rolling_days_since_prev_mean_5": float(
+                            rng.normal(30.0, 5.0)
+                        ),
+                        "rolling_days_since_prev_sd_5": float(
+                            rng.normal(10.0, 2.0)
+                        ),
+                        "rolling_harontimel3_latest_5": float(
+                            rng.normal(35.0, 1.0)
+                        ),
+                        "rolling_harontimel3_mean_5": float(
+                            rng.normal(35.0, 1.0)
+                        ),
+                        "rolling_harontimel3_sd_5": float(
+                            rng.normal(0.5, 0.1)
+                        ),
+                        "rolling_jyuni3c_jyuni4c_latest_5": float(
+                            rng.normal(5.0, 2.0)
+                        ),
+                        "rolling_jyuni3c_jyuni4c_mean_5": float(
+                            rng.normal(5.0, 2.0)
+                        ),
+                        "rolling_jyuni3c_jyuni4c_sd_5": float(
+                            rng.normal(2.0, 0.5)
+                        ),
+                        "rolling_kakuteijyuni_latest_5": float(
+                            rng.normal(5.0, 2.0)
+                        ),
+                        "rolling_kakuteijyuni_mean_5": float(
+                            rng.normal(5.0, 2.0)
+                        ),
+                        "rolling_kakuteijyuni_sd_5": float(
+                            rng.normal(2.0, 0.5)
+                        ),
+                        "rolling_kyori_latest_5": int(
+                            rng.choice([1400, 1600, 1800, 2000])
+                        ),
+                        "rolling_kyori_mean_5": float(
+                            rng.normal(1800.0, 100.0)
+                        ),
+                        "rolling_kyori_sd_5": float(
+                            rng.normal(100.0, 20.0)
+                        ),
+                        "rolling_timediff_latest_5": float(
+                            rng.normal(0.0, 0.5)
+                        ),
+                        "rolling_timediff_mean_5": float(
+                            rng.normal(0.0, 0.3)
+                        ),
+                        "rolling_timediff_sd_5": float(
+                            rng.normal(0.3, 0.05)
+                        ),
                         "is_model_eligible": True,
                         "label_validation_status": "ok",
                         "fukusho_hit_validated": int(
@@ -139,6 +211,7 @@ def _build_label_joined_feature_df(
     _add_period(n_train_races, "2016-07-01", "2023-12-31", 0)
     _add_period(n_calib_races, "2024-01-01", "2024-06-30", 1)
     _add_period(n_test_races, "2024-07-01", "2024-12-31", 2)
+    _add_period(n_holdout_races, "2025-01-01", "2025-12-31", 3)
 
     df = pd.DataFrame(rows)
     df = df.sort_values(
@@ -364,9 +437,14 @@ def test_data_api_boundary_explicit():
 
     source = inspect.getsource(orch_mod)
 
-    # orchestrator に label join 経路が無い (load_labels / readonly_cur 引数なし)
-    assert "load_labels" not in source, (
-        "orchestrator に load_labels 呼出がある (Cycle 2 residual #13: "
+    # orchestrator に label join の実呼出経路が無い (load_labels() 呼出 / readonly_cur 引数なし)。
+    # docstring 内の言及は許容する (実呼出でないため)。実呼出形式 (load_labels( / def load_labels)
+    # と readonly_cur 引数の不在を検証する。
+    assert "def load_labels" not in source, (
+        "orchestrator に load_labels 関数定義がある (Cycle 2 residual #13)"
+    )
+    assert "load_labels(" not in source, (
+        "orchestrator に load_labels() 実呼出がある (Cycle 2 residual #13: "
         "label join は run_train_predict 側でのみ発生すべき・orchestrator は再実行しない)"
     )
     assert "readonly_cur" not in source, (
