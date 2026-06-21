@@ -859,7 +859,10 @@ def _assert_jodds_coverage_horse_level(
     RuntimeError
         horse-level coverage < threshold または race-level coverage < race_threshold の時。
     """
-    no_bet_reasons = {"no_bet", "no_bet_empty", "special_value", "fukusyoflag_not_normal_sale"}
+    # WR-02: select_odds_snapshot (src/ev/odds_snapshot.py) の odds_missing_reason は
+    # 'no_bet_empty' / 'no_bet' / None の3値のみ生成する。旧実装の 'special_value' /
+    # 'fukusyoflag_not_normal_sale' はコード上現れない sentinel だったため実装と一致させる。
+    no_bet_reasons = {"no_bet", "no_bet_empty"}
     if "odds_missing_reason" in snapshot.columns:
         usable_mask = ~snapshot["odds_missing_reason"].fillna("__ok__").isin(no_bet_reasons)
     else:
