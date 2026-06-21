@@ -1099,12 +1099,26 @@ def _run_pipeline(
                 else:
                     pred_df_this = pred_df_by_model[mt]
 
-                # write_cur を backtest_id 毎に取得 (idempotent load)
-                write_cur_ctx = None
+                # WR-01: 標準 with 文で connection / cursor を管理し・例外安全と
+                # トランザクション一貫性を保証 (旧実装は __enter__/__exit__ の手動呼出しで
+                # etl_pool.connection() を2回呼び別 connection になり commit/rollback が
+                # 伝播しない問題があった)。no_write_db の場合は write_cur=None を渡す。
                 if etl_pool is not None:
-                    write_cur_ctx = etl_pool.connection().__enter__().cursor().__enter__()
-
-                try:
+                    with etl_pool.connection() as conn, conn.cursor() as cur:
+                        row = _run_main_model_backtest(
+                            bt, policy, mt,
+                            pred_df=pred_df_this,
+                            jodds_df=jodds_df,
+                            label_df=label_df,
+                            harai_race_df=harai_race_df,
+                            feature_snapshot_id=args.snapshot_id,
+                            model_version=model_version_by_type[mt],
+                            periods=periods,
+                            write_cur=cur,
+                            reader_role=settings.db_reader_role,
+                            no_write_db=False,
+                        )
+                else:
                     row = _run_main_model_backtest(
                         bt, policy, mt,
                         pred_df=pred_df_this,
@@ -1114,17 +1128,10 @@ def _run_pipeline(
                         feature_snapshot_id=args.snapshot_id,
                         model_version=model_version_by_type[mt],
                         periods=periods,
-                        write_cur=write_cur_ctx,
+                        write_cur=None,
                         reader_role=settings.db_reader_role,
-                        no_write_db=(etl_pool is None),
+                        no_write_db=True,
                     )
-                finally:
-                    if write_cur_ctx is not None:
-                        try:
-                            write_cur_ctx.__exit__(None, None, None)
-                            etl_pool.connection().__exit__(None, None, None)
-                        except Exception:  # noqa: BLE001
-                            pass
 
                 all_backtests.append(row)
                 logger.info(
@@ -1134,10 +1141,21 @@ def _run_pipeline(
                 )
 
         # --- BL-3: 5窓 × 1 (D-04) ---
-        write_cur_ctx = None
+        # WR-01: 主モデルと同様に標準 with 文で管理 (例外安全・トランザクション一貫性)。
         if etl_pool is not None:
-            write_cur_ctx = etl_pool.connection().__enter__().cursor().__enter__()
-        try:
+            with etl_pool.connection() as conn, conn.cursor() as cur:
+                bl3_row = _run_bl3_backtest(
+                    bt,
+                    market_df=market_df,
+                    label_df=label_df,
+                    harai_race_df=harai_race_df,
+                    periods=periods,
+                    feature_snapshot_id=args.snapshot_id,
+                    write_cur=cur,
+                    reader_role=settings.db_reader_role,
+                    no_write_db=False,
+                )
+        else:
             bl3_row = _run_bl3_backtest(
                 bt,
                 market_df=market_df,
@@ -1145,17 +1163,10 @@ def _run_pipeline(
                 harai_race_df=harai_race_df,
                 periods=periods,
                 feature_snapshot_id=args.snapshot_id,
-                write_cur=write_cur_ctx,
+                write_cur=None,
                 reader_role=settings.db_reader_role,
-                no_write_db=(etl_pool is None),
+                no_write_db=True,
             )
-        finally:
-            if write_cur_ctx is not None:
-                try:
-                    write_cur_ctx.__exit__(None, None, None)
-                    etl_pool.connection().__exit__(None, None, None)
-                except Exception:  # noqa: BLE001
-                    pass
         all_backtests.append(bl3_row)
         logger.info(
             "BL-3 backtest %s: recovery=%.4f P/L=%d selected=%d",
