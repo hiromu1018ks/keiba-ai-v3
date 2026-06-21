@@ -506,11 +506,20 @@ def _zero_out_non_selected_accounting(
     effective_stake=100 / profit が付与されてしまう。永続化前にこれらをゼロ化する。
     """
     out = full_candidate_with_accounting.copy()
-    zero_cols = ["stake", "effective_stake", "payout", "refund", "profit"]
+    # WR-03: 数値系会計列を全てゼロ化 (refund_amount / payout_amount を追加)。
+    # 旧実装は stake/effective_stake/payout/refund/profit のみで非選択行の
+    # refund_flag=True / refund_amount=100 / payout_amount=200 が残り不整合状態になった。
+    zero_cols = [
+        "stake", "effective_stake", "payout", "refund", "profit",
+        "refund_amount", "payout_amount",
+    ]
     zero_cols = [c for c in zero_cols if c in out.columns]
     non_selected_mask = out["selected_flag"].fillna(False).astype(bool) == False
     if non_selected_mask.any():
         out.loc[non_selected_mask, zero_cols] = 0
+        # bool 系会計列は別途 False 化 (非選択行の refund_flag=True 残りを防止)
+        if "refund_flag" in out.columns:
+            out.loc[non_selected_mask, "refund_flag"] = False
     return out
 
 
