@@ -557,10 +557,62 @@ def _run_main_model_backtest(
             "(snapshot が馬単位でない・race_key 単独 JOIN 等)"
         )
 
-    # --- compute_ev_and_rank (fuku_odds_lower/upper を消費) ---
-    pred_with_ev = compute_ev_and_rank(pred_with_odds)
+    # --- HIGH-C cycle-2: HARAI race-level merge (validate='many_to_one') ---
+    # CR-03: HARAI merge を compute_ev_and_rank / select_bets の前に実行。
+    harai_cols = [c for c in harai_race_df.columns if c != "race_key"]
+    pred_with_harai = pred_with_odds.merge(
+        harai_race_df[["race_key"] + harai_cols],
+        on=["race_key"],
+        how="left",
+        validate="many_to_one",
+    )
+    if len(pred_with_harai) != len(pred_with_odds):
+        raise RuntimeError(
+            f"HIGH-C cycle-2 HARAI broadcast 膨張検出: backtest_id={backtest_id} "
+            f"len(before)={len(pred_with_odds)} != len(after)={len(pred_with_harai)} "
+            "(HARAI race_key 単位の重複行が存在する・validate='many_to_one' 違反)"
+        )
+
+    # --- label 馬単位 merge (HIGH-2: on=['race_key','umaban']) ---
+    # CR-03: label merge も select_bets の前に実行。select_bets は is_fukusho_sale_available /
+    # is_model_eligible (label 由来) で事前 filter するため・merge 前だと実データで KeyError。
+    # CR-06: suffixes=('_left','_label') で左側無修飾を許さず・label 系列は常に _label 付きを正とする。
+    label_cols = [c for c in label_df.columns if c not in {"race_key", "umaban"}]
+    full_candidate_with_label = pred_with_harai.merge(
+        label_df[["race_key", "umaban"] + label_cols],
+        on=["race_key", "umaban"],
+        how="left",
+        suffixes=("_left", "_label"),
+    )
+    if len(full_candidate_with_label) != len(pred_with_harai):
+        raise RuntimeError(
+            f"HIGH-2 label merge 行数不変違反: backtest_id={backtest_id} "
+            f"len(before)={len(pred_with_harai)} != len(after)={len(full_candidate_with_label)}"
+        )
+    # CR-06: label 系列の同名列衝突時は _label を正とし・_left は破棄して元列名に正規化。
+    # 現状の実データ pred_df (PREDICTION_COLUMNS のみ) では衝突しないが・将来の label 列混入
+    # (debug join 等) で silent に誤扱いになるのを構造的に防止 (silent leak 経路の潜在リスク)。
+    for col in label_cols:
+        left_col = f"{col}_left"
+        label_col = f"{col}_label"
+        if (
+            left_col in full_candidate_with_label.columns
+            and label_col in full_candidate_with_label.columns
+        ):
+            full_candidate_with_label[col] = full_candidate_with_label[label_col]
+            full_candidate_with_label = full_candidate_with_label.drop(
+                columns=[left_col, label_col]
+            )
+        elif label_col in full_candidate_with_label.columns:
+            # 左側に同名列が無かった場合は pandas は suffix を付与しないが・安全のため。
+            full_candidate_with_label[col] = full_candidate_with_label[label_col]
+            full_candidate_with_label = full_candidate_with_label.drop(columns=[label_col])
+
+    # --- compute_ev_and_rank (fuku_odds_lower/upper と p_fukusho_hit のみ消費・label 系列に非依存) ---
+    pred_with_ev = compute_ev_and_rank(full_candidate_with_label)
 
     # --- select_bets → full_candidate table 構築 (MEDIUM-A cycle-2) ---
+    # CR-03: label merge 済みのため is_fukusho_sale_available / is_model_eligible が存在。
     selected = select_bets(pred_with_ev)
     full_candidate = pred_with_ev.copy()
     # selected_flag: select_bets で選ばれた馬は True・それ以外は False
@@ -575,35 +627,6 @@ def _run_main_model_backtest(
     # odds_missing_reason は snapshot 側から伝播 (no_bet/special_value/normal)
     if "odds_missing_reason" not in full_candidate.columns:
         full_candidate["odds_missing_reason"] = None
-
-    # --- HIGH-C cycle-2: HARAI race-level merge (validate='many_to_one') ---
-    harai_cols = [c for c in harai_race_df.columns if c != "race_key"]
-    full_candidate_with_harai = full_candidate.merge(
-        harai_race_df[["race_key"] + harai_cols],
-        on=["race_key"],
-        how="left",
-        validate="many_to_one",
-    )
-    if len(full_candidate_with_harai) != len(full_candidate):
-        raise RuntimeError(
-            f"HIGH-C cycle-2 HARAI broadcast 膨張検出: backtest_id={backtest_id} "
-            f"len(before)={len(full_candidate)} != len(after)={len(full_candidate_with_harai)} "
-            "(HARAI race_key 単位の重複行が存在する・validate='many_to_one' 違反)"
-        )
-
-    # --- label 馬単位 merge (HIGH-2: on=['race_key','umaban']) ---
-    label_cols = [c for c in label_df.columns if c not in {"race_key", "umaban"}]
-    full_candidate_with_label = full_candidate_with_harai.merge(
-        label_df[["race_key", "umaban"] + label_cols],
-        on=["race_key", "umaban"],
-        how="left",
-        suffixes=("", "_label"),
-    )
-    if len(full_candidate_with_label) != len(full_candidate_with_harai):
-        raise RuntimeError(
-            f"HIGH-2 label merge 行数不変違反: backtest_id={backtest_id} "
-            f"len(before)={len(full_candidate_with_harai)} != len(after)={len(full_candidate_with_label)}"
-        )
 
     # --- determine_stake_payout で会計付与 (行ベース slot lookup 含む) ---
     full_candidate_with_accounting = _attach_accounting(full_candidate_with_label)
