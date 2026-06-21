@@ -1017,6 +1017,14 @@ def _run_pipeline(
                 label_df = load_labels(cur)
                 market_df = fetch_market_data(cur)
                 harai_race_df = _fetch_harai_race_level(cur)
+            # CR-02: load_labels は race_key を SELECT しないため・make_race_key で正準形式を付与。
+            # 後続の _run_main_model_backtest / _run_bl3_backtest が label_df[['race_key','umaban']]
+            # で merge を試みるため・実データパスで KeyError になる silent 障害を防止。
+            if "race_key" not in label_df.columns:
+                from src.model.data import make_race_key
+
+                label_df = label_df.copy()
+                label_df["race_key"] = make_race_key(label_df).to_numpy()
             # label を馬単位に filter (BT窓 test 期間)
             label_df = _filter_label_by_period(label_df, periods["test"][0], periods["test"][1])
 
