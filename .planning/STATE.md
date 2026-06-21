@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 05
-current_phase_name: ev-backtest
-status: ready_for_verification
-stopped_at: Completed 05-06-PLAN.md (Phase 5 自動化部分 完了・実データ backtest は manual-only 分離)
-last_updated: "2026-06-21T00:50:00.000Z"
+current_phase: 6
+current_phase_name: Evaluation & Calibration Gates
+status: completed
+stopped_at: Completed 05-05-PLAN.md
+last_updated: "2026-06-21T07:06:11.548Z"
 last_activity: 2026-06-21
-last_activity_desc: Completed 05-06-PLAN.md
+last_activity_desc: Phase 05 complete, transitioned to Phase 6
 progress:
   total_phases: 9
   completed_phases: 6
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 
 ## Current Position
 
-Phase: 05 (ev-backtest) — READY_FOR_VERIFICATION (自動化部分完了・実データ backtest は manual-only)
-Plan: 6 of 6 (complete)
+Phase: 6 — Evaluation & Calibration Gates
+Plan: Not started
 Status: Plan 05-06 complete (live-DB backtest スキーマ適用 + 合成データフル行列 smoke GREEN + checkpoint approved・Phase 5 自動化部分 完了宣言)
-Last activity: 2026-06-21 — Completed 05-06-PLAN.md
+Last activity: 2026-06-21 — Phase 05 complete, transitioned to Phase 6
 
 Progress: [██████████] 100%
 
@@ -39,7 +39,7 @@ Progress: [██████████] 100%
 
 **Velocity:**
 
-- Total plans completed: 23
+- Total plans completed: 29
 - Average duration: — min
 - Total execution time: 0.0 hours
 
@@ -52,6 +52,7 @@ Progress: [██████████] 100%
 | 03 | 5 | - | - |
 | 03.1 | 4 | - | - |
 | 04 | 6 | - | - |
+| 05 | 6 | - | - |
 
 **Recent Trend:**
 
