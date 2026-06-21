@@ -202,6 +202,21 @@ def _carve_calib_from_train_tail(
     import pandas as pd
 
     bt_train_end = pd.Timestamp(bt.train_end)
+    # WR-04: calib_months が train 期間全体より長い場合は train が空 (または逆転) する
+    # silent リスクがあるため早期検証。現状の BT-1..5 は全て train 期間 3 年以上のため
+    # 問題ないが・将来的な短い train 窓の BT 追加で発覚するのを防止。
+    train_start_ts = pd.Timestamp(bt.train_start)
+    train_duration_months = (
+        (bt_train_end.year - train_start_ts.year) * 12
+        + (bt_train_end.month - train_start_ts.month)
+    )
+    if calib_months >= train_duration_months:
+        raise ValueError(
+            f"_carve_calib_from_train_tail: calib_months={calib_months} >= "
+            f"train duration ({train_duration_months} months) for {bt.name} "
+            f"(train_start={bt.train_start}, train_end={bt.train_end})・"
+            "carve 後に train が空になるため BT窓設定を確認"
+        )
     # calib_end は BT窓 train_end に一致
     calib_end = bt_train_end
     # calib_start = calib_end から calib_months 月遡る (月初に正規化)
