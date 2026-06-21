@@ -18,7 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: As-of Features & Snapshots** - PIT-correct feature builder + immutable versioned Parquet snapshots (4/4 plans executed + 1 gap-closure plan 03-05 COMPLETE; CR-01/02/03/04 + WR-01 全解消・live-DB snapshot rebuild で registry↔実体 parity 実証) (completed 2026-06-19)
 - [x] **Phase 3.1: Timediff/Babacd Rolling Restoration (INSERTED)** - normalized ETL 拡張 (timediff/baba3) + rolling 8系統化 + advisory 4件 hardening + live snapshot rebuild (snapshot-id=20260619-1a-v3・feature_count=63・SHA256 byte-repro・216 passed) (completed 2026-06-19)
 - [x] **Phase 4: Model & Prediction** - Baselines BL-1..BL-5 + Phase 1-A LightGBM/CatBoost + calibrated p_fukusho_hit (completed 2026-06-20)
-- [ ] **Phase 5: EV & Backtest** - EV/rank module + race_id-grouped virtual-purchase simulator with fixed odds policy
+- [x] **Phase 5: EV & Backtest** - EV/rank module + race_id-grouped virtual-purchase simulator with fixed odds policy (自動化部分 completed 2026-06-21・実データ backtest BT期間 2019-2025 は JODDS 取得完了後の manual-only 検証として分離)
 - [ ] **Phase 6: Evaluation & Calibration Gates** - Acceptance criteria (Brier/LogLoss/calibration/sum(p)/stability)
 - [ ] **Phase 7: Presentation** - Streamlit minimal UI + prediction/backtest CSV export
 - [ ] **Phase 8: Adversarial Audit Suite** - Cross-cutting leakage-prevention test set spanning all critical surfaces
@@ -189,7 +189,7 @@ Plans:
   4. Refund/dead-loss accounting is honest: 取消/除外 → `effective_stake=0` (refund); 競走中止 → `effective_stake=100` counted as a loss (no exclusion inflating ROI) — verified by a unit test that builds a race with each scenario and asserts the stake/payout
   5. The `odds_snapshot_policy` is fixed (30-min-before or 10-min-before), `odds_missing_policy = no_bet` (never substitutes a convenient snapshot), and ALL candidate policies × BT configs are reported together — never the post-hoc winner alone
 
-**Plans**: 4/6 plans executed
+**Plans**: 6/6 plans complete
 
 **Wave 1**（基盤・先行）
 
@@ -210,7 +210,7 @@ Plans:
 
 **Wave 5**（blocked on Wave 4 完了）
 
-- [ ] 05-06-PLAN.md — Wave 5 live-DB backtest スキーマ適用 + 合成データフル行列 smoke + checkpoint:human-verify（実データ backtest は manual-only 分離）— BACK-01/02/03/04 — Plan 05 に依存
+- [x] 05-06-PLAN.md — Wave 5 live-DB backtest スキーマ適用 + 合成データフル行列 smoke + checkpoint:human-verify（実データ backtest は manual-only 分離）— BACK-01/02/03/04 — Plan 05 に依存
 
 ### Phase 6: Evaluation & Calibration Gates
 
@@ -264,7 +264,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 3. As-of Features & Snapshots | 5/5 | Complete    | 2026-06-19 |
 | 3.1 Timediff/Babacd Rolling Restoration (INSERTED) | 4/4 | Complete    | 2026-06-19 |
 | 4. Model & Prediction | 6/6 | Complete    | 2026-06-20 |
-| 5. EV & Backtest | 3/6 | In Progress|  |
+| 5. EV & Backtest | 6/6 | Complete (自動化部分・実データ backtest は manual-only)   | 2026-06-21 |
 | 6. Evaluation & Calibration Gates | 0/TBD | Not started | - |
 | 7. Presentation | 0/TBD | Not started | - |
 | 8. Adversarial Audit Suite | 0/TBD | Not started | - |

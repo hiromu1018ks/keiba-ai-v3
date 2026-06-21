@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 05
 current_phase_name: ev-backtest
-status: executing
-stopped_at: Completed 05-05-PLAN.md
-last_updated: "2026-06-21T00:25:00.000Z"
+status: ready_for_verification
+stopped_at: Completed 05-06-PLAN.md (Phase 5 自動化部分 完了・実データ backtest は manual-only 分離)
+last_updated: "2026-06-21T00:50:00.000Z"
 last_activity: 2026-06-21
-last_activity_desc: Completed 05-05-PLAN.md
+last_activity_desc: Completed 05-06-PLAN.md
 progress:
   total_phases: 9
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 29
-  completed_plans: 28
-  percent: 62
+  completed_plans: 29
+  percent: 67
 ---
 
 # Project State
@@ -28,12 +28,12 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 
 ## Current Position
 
-Phase: 05 (ev-backtest) — EXECUTING
-Plan: 6 of 6
-Status: Plan 05-05 complete (run_backtest + report・フル行列 25 backtest pipeline + 合成データ E2E smoke)
-Last activity: 2026-06-21 — Completed 05-05-PLAN.md
+Phase: 05 (ev-backtest) — READY_FOR_VERIFICATION (自動化部分完了・実データ backtest は manual-only)
+Plan: 6 of 6 (complete)
+Status: Plan 05-06 complete (live-DB backtest スキーマ適用 + 合成データフル行列 smoke GREEN + checkpoint approved・Phase 5 自動化部分 完了宣言)
+Last activity: 2026-06-21 — Completed 05-06-PLAN.md
 
-Progress: [█████████░] 90%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -88,6 +88,7 @@ Progress: [█████████░] 90%
 | Phase 05 P03 | 7m | 2 tasks | 4 files |
 | Phase 05 P04 | 10m | 2 tasks | 9 files |
 | Phase 05 P05 | 32m | 2 tasks | 3 files |
+| Phase 05 P06 | 35m | 2 tasks | 5 files |
 
 ### Decisions
 
@@ -170,6 +171,10 @@ Recent decisions affecting current work:
 - [Phase ?]: 05-05 MEDIUM cycle-3: determine_stake_payout が selected_flag 分岐を持たないため non-selected 行の stake/effective_stake/payout/refund/profit を永続化前に 0 にゼロ化 (架空会計防止・ROI 計算は selected_flag=True filter 済みで非影響)
 - [Phase ?]: 05-05 LOW-05: REPORT_COLUMNS を外部定数で定義し md 列ヘッダ + json comparison_table キーと 1:1 になることを presence assert で機械検証 (grep 否定でない)
 - [Phase ?]: 05-05 BACK-04: 全候補を backtest_id 辞書順で一括提示・highest-recovery を推奨/採用候補として突出させる記述は一切生成しない (主モデル確定は Phase 6 D-03/D-04 事前登録選定基準)
+- [Phase 05] 05-06: live-DB backtest.fukusho_backtest テーブル + GRANT 適用 (CREATE TABLE IF NOT EXISTS・PK 8カラム + CHECK 制約2個・reader=SELECT/etl=全権・run_apply_schema.py APPLY_ORDER 経由)
+- [Phase 05] 05-06 Rule 1 fix: PostgreSQL 引用符なし識別子小文字化で BACKTEST_COLUMNS (EV_lower/upper 大文字混在) と不整合 → DDL 側で引用符付き保持 + tests DDL パーサー強化 + DROP TABLE→TRUNCATE (admin 所有テーブル・ETL ロール DROP 不可)
+- [Phase 05] 05-06: 実データ backtest (BT期間 2019-2025) は JODDS 取得進行中のため manual-only 検証として分離 (2段階実行計画・MEDIUM-05 _assert_jodds_coverage_horse_level gate で coverage<0.90 は loud fail)
+- [Phase 05] 05-06: Phase 5 自動化部分 完了宣言 (フル suite 350 passed + 合成データフル行列 25 backtest GREEN + BACK-01..04 構造的ブロック全 GREEN)・主モデル確定は Phase 6 D-03/D-04 事前登録選定基準 (Calibration 重視) に引き継ぎ
 
 ### Pending Todos
 
@@ -193,6 +198,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-21T00:25:00.000Z
+Last session: 2026-06-21T00:46:40.000Z
 Stopped at: Completed 05-05-PLAN.md
 Resume file: None

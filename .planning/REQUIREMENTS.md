@@ -125,10 +125,10 @@
 | MODL-03 | Phase 4: Model & Prediction | In Progress (data API + calibrator prefit wrapper 完了・LightGBM/CatBoost 本体は wave 03) |
 | EV-01 | Phase 5: EV & Backtest | Complete |
 | EV-02 | Phase 5: EV & Backtest | Complete |
-| BACK-01 | Phase 5: EV & Backtest | Complete |
-| BACK-02 | Phase 5: EV & Backtest | Complete |
-| BACK-03 | Phase 5: EV & Backtest | Complete |
-| BACK-04 | Phase 5: EV & Backtest | Complete |
+| BACK-01 | Phase 5: EV & Backtest | Complete (構造的ブロック GREEN・実データ backtest 数値検証は JODDS 取得完了後 manual-only) |
+| BACK-02 | Phase 5: EV & Backtest | Complete (構造的ブロック GREEN・実データ backtest 数値検証は JODDS 取得完了後 manual-only) |
+| BACK-03 | Phase 5: EV & Backtest | Complete (構造的ブロック GREEN・live-DB backtest.fukusho_backtest テーブル適用済み・実データ backtest 数値検証は JODDS 取得完了後 manual-only) |
+| BACK-04 | Phase 5: EV & Backtest | Complete (構造的ブロック GREEN・合成データ 25 backtest で winner 強調禁止実証・実データ backtest 数値検証は JODDS 取得完了後 manual-only) |
 | EVAL-01 | Phase 6: Evaluation & Calibration Gates | Pending |
 | EVAL-02 | Phase 6: Evaluation & Calibration Gates | Pending |
 | EVAL-03 | Phase 6: Evaluation & Calibration Gates | Pending |
