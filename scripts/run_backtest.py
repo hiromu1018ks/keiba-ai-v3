@@ -724,6 +724,14 @@ def _run_bl3_backtest(
 
     # full_candidate (BL-3 は主モデルと異なり EV 列を持たない)
     full_candidate = market_df.copy()
+    # CR-04: fetch_market_data は race_date を返さないが・compute_backtest_metrics が
+    # sort_values(['race_date','race_key','umaban']) を呼ぶため・label_df から race_key 単位で
+    # race_date を補完 (race_date は race 単位・全馬同値のため race_key 単位 map で安全)。
+    if "race_date" not in full_candidate.columns and "race_date" in label_df.columns:
+        date_map = label_df.drop_duplicates("race_key")[["race_key", "race_date"]]
+        full_candidate = full_candidate.merge(
+            date_map, on="race_key", how="left", validate="many_to_one"
+        )
     selected_keys = set(zip(selected["race_key"], selected["umaban"]))
     full_candidate["selected_flag"] = [
         (rk, um) in selected_keys
@@ -1048,6 +1056,24 @@ def _run_pipeline(
 
                 label_df = label_df.copy()
                 label_df["race_key"] = make_race_key(label_df).to_numpy()
+            # CR-04: fetch_market_data は race_key / is_fukusho_sale_available を返さないため・
+            # make_race_key で race_key を付与し・is_fukusho_sale_available は label_df から
+            # (race_key, umaban) 単位で補完 (BL-3 select_bl3_bets が事前 filter で必要)。
+            if "race_key" not in market_df.columns:
+                from src.model.data import make_race_key
+
+                market_df = market_df.copy()
+                market_df["race_key"] = make_race_key(market_df).to_numpy()
+            if (
+                "is_fukusho_sale_available" not in market_df.columns
+                and "is_fukusho_sale_available" in label_df.columns
+            ):
+                sale_map = label_df.drop_duplicates("race_key")[
+                    ["race_key", "is_fukusho_sale_available"]
+                ]
+                market_df = market_df.merge(
+                    sale_map, on="race_key", how="left", validate="many_to_one"
+                )
             # label を馬単位に filter (BT窓 test 期間)
             label_df = _filter_label_by_period(label_df, periods["test"][0], periods["test"][1])
 
