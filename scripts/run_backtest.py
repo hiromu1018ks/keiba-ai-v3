@@ -1,4 +1,4 @@
-# ruff: noqa: E501  (長い docstring / SQL リテラルを保持するため行長は緩和)
+# ruff: noqa: E501, F401  (長い docstring / SQL リテラル・Plan 05-05 で今後使用予定 import を保持)
 """Phase 5 entry point: BT窓再学習 + フル行列 backtest + reports/05-backtest 生成.
 
 D-03 (BT窓再学習ループ) / BACK-01..04 / §11.2 odds policy 固定 / §15.5 BT窓 /

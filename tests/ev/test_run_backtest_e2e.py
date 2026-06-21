@@ -1,3 +1,4 @@
+# ruff: noqa: E501  (長い docstring / テスト説明を保持するため行長は緩和)
 """Plan 05-05 Task 2: 合成データ E2E smoke テスト (run_backtest --synthetic).
 
 実JODDS取得進行中でも・``--synthetic`` でフル行列 backtest pipeline が完走し
@@ -23,7 +24,6 @@ reports/05-backtest.{md,json} が生成されることを検証する。
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 import pandas as pd

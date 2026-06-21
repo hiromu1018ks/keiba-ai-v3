@@ -1,3 +1,4 @@
+# ruff: noqa: E501  (長い docstring / note 文字列を保持するため行長は緩和)
 """Phase 5 backtest フル行列 report 生成（BACK-04 / §11.2 / RESEARCH §10）.
 
 Plan 05-05 で ``scripts/run_backtest.py`` が消費する report 出力層。全25候補
@@ -28,8 +29,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from src.model.artifact import _atomic_write_text
 from src.ev.bl3_betting import BL3_BETTING_CAVEAT
+from src.model.artifact import _atomic_write_text
 
 # ---------------------------------------------------------------------------
 # 定数
@@ -225,7 +226,7 @@ def generate_report(
     md_lines.append("\n")
     md_lines.append(f"- {ODDS_POLICY_FIXED_NOTE}\n")
     md_lines.append(
-        f"- 事前登録 policy 一覧: 30min_before / 10min_before (主モデル 20 backtest)・"
+        "- 事前登録 policy 一覧: 30min_before / 10min_before (主モデル 20 backtest)・"
         "confirmed (BL-3 5 backtest・JODDS 時点非依存 sentinel)\n"
     )
     md_lines.append(
