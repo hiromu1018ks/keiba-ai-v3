@@ -130,12 +130,14 @@ def fetch_jodds(
         # 空結果でも後続の select_odds_snapshot が扱えるよう必要列を整える
         return pd.DataFrame(columns=cols + ["race_key", "happyo_datetime"])
 
-    # race_key 構築（select_odds_snapshot の by= で使用）
-    df["race_key"] = (
-        df["year"].astype(str) + "-" + df["monthday"].astype(str) + "-"
-        + df["jyocd"].astype(str) + "-" + df["kaiji"].astype(str) + "-"
-        + df["nichiji"].astype(str) + "-" + df["racenum"].astype(str)
-    )
+    # race_key 構築 (CR-01): make_race_key と同一の正準形式
+    # (year-jyocd-kaiji-nichiji-racenum・5要素・monthday 無し) に統一。
+    # 旧実装は 6要素 (monthday 挿入) で・make_race_key / fetch_harai_race_level /
+    # _fetch_market_data の暗黙 race_key と絶対に一致せず・実データでオッズ全件 NaN 化。
+    # monthday は happyo_datetime 計算用に別途保持 (SELECT 列に残す)。
+    from src.model.data import make_race_key
+
+    df["race_key"] = make_race_key(df).to_numpy()
     # happyo_datetime: mmddHHMM (例 '01031833') を year 基準で完全日時に解釈
     # HappyoTime は mmddHHMM varchar(8)
     df["happyo_datetime"] = pd.to_datetime(

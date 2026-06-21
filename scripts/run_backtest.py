@@ -1171,12 +1171,11 @@ def _fetch_harai_race_level(readonly_cur) -> pd.DataFrame:  # type: ignore[name-
     cols = [d.name for d in readonly_cur.description]
     rows = readonly_cur.fetchall()
     df = pd.DataFrame(rows, columns=cols)
-    # race_key 構築 (fetch_jodds と同一形式)
-    df["race_key"] = (
-        df["year"].astype(str) + "-" + df["jyocd"].astype(str) + "-"
-        + df["kaiji"].astype(str) + "-" + df["nichiji"].astype(str) + "-"
-        + df["racenum"].astype(str)
-    )
+    # race_key 構築 (CR-01): make_race_key 正準形式で単一 source of truth 化。
+    # fetch_jodds / fetch_market_data の暗黙 race_key と同一形式 (5要素)。
+    from src.model.data import make_race_key
+
+    df["race_key"] = make_race_key(df).to_numpy()
     return df
 
 
