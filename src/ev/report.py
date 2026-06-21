@@ -228,6 +228,9 @@ def generate_report(
         f"- 事前登録 policy 一覧: 30min_before / 10min_before (主モデル 20 backtest)・"
         "confirmed (BL-3 5 backtest・JODDS 時点非依存 sentinel)\n"
     )
+    md_lines.append(
+        "- backtest_strategy_version (全 backtest 行共通): fukusho_ev_v1 (§19.1 再現性 stamp)\n"
+    )
     md_lines.append("\n")
 
     if coverage_summary:

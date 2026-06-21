@@ -276,6 +276,11 @@ def _build_synthetic_feature_df() -> pd.DataFrame:  # type: ignore[name-defined]
     BT-1 (train 2019-06..2022 / calib 2022-07..12 / test 2023) が空にならないよう十分な行数を
     確保する。FEATURE_COLUMNS 互換ではなく・run_backtest --synthetic は train_and_predict を
     呼ばず (モデル学習は skip) ・pred_df / odds / label を直接合成するため FEATURE 内容は問わない。
+
+    **select_odds_snapshot の pandas merge_asof 制約**: ``merge_asof`` は ``left_on`` 列
+    (cutoff_datetime) の大域的単調増加を要求する。race_key と race_start_datetime の sort 順序が
+    一致するよう race_key 文字列を ``{year}-{month:02d}-{jyocd}-...`` 形式で構築する
+    (race_key 辞書順 = race_start_datetime 時系列順)。
     """
     import pandas as pd
 
@@ -289,8 +294,16 @@ def _build_synthetic_feature_df() -> pd.DataFrame:  # type: ignore[name-defined]
                 for racenum in (1, 2):  # 2レース/月/競馬場
                     race_key_idx += 1
                     race_date = pd.Timestamp(year=year, month=month, day=5)
-                    race_start_dt = race_date + pd.Timedelta(hours=15, minutes=30)
-                    race_key = f"{year}-{jyocd}-1-{month:02d}-{racenum}"
+                    # select_odds_snapshot の merge_asof が left_on/right_on の大域単調増加を
+                    # 要求するため・race_start_datetime を race_key sort 順 (= 時系列順) で
+                    # 単調増加させる。jyocd/racenum を時刻に反映し・同一 race_key 内では
+                    # 全馬同一時刻・race_key 跨ぎで必ず時刻が進むようにする。
+                    hour = 10 + int(jyocd) - 5  # jyocd=05→10時・06→11時
+                    minute = (racenum - 1) * 30  # racenum=1→00分・2→30分
+                    race_start_dt = race_date + pd.Timedelta(hours=hour, minutes=minute)
+                    # race_key を year-month-jyocd-kaiji-nichiji-racenum 順にして
+                    # race_key sort = race_start_datetime sort と一致させる (merge_asof 制約)
+                    race_key = f"{year}-{month:02d}-{jyocd}-1-{month:02d}-{racenum}"
                     for umaban in range(1, 9):  # 8頭
                         rows.append({
                             "year": str(year),
@@ -325,34 +338,37 @@ def _build_synthetic_feature_df() -> pd.DataFrame:  # type: ignore[name-defined]
 def _build_synthetic_jodds_df(feature_df_test: pd.DataFrame) -> pd.DataFrame:  # type: ignore[name-defined]
     """``--synthetic`` 用の JODDS snapshot mock を構築する (馬単位)。
 
-    test 期間の各 (race_key, umaban) に対し・cutoff 時刻より前の snapshot を2件生成する。
+    test 期間の各 (race_key, umaban) に対し・race_start_datetime - 20分の snapshot 1件を生成する。
+
+    **select_odds_snapshot の merge_asof 制約**: pandas merge_asof は left_on/right_on の
+    大域的単調増加を要求する (by= セマンティクスに関わらず)。合成データは各馬1件の snapshot で・
+    race_key sort 順 = race_start_datetime sort 順 = happyo_datetime sort 順 になるよう構築する。
     """
     import pandas as pd
 
     rows = []
     for _, r in feature_df_test.iterrows():
         race_start = r["race_start_datetime"]
-        # cutoff 前 30分・60分の snapshot
-        for minutes_before, low_high in [(60, ("0012", "0018")), (30, ("0011", "0015"))]:
-            snap_time = race_start - pd.Timedelta(minutes=minutes_before)
-            mmdd = f"{snap_time.month:02d}{snap_time.day:02d}"
-            hhmm = f"{snap_time.hour:02d}{snap_time.minute:02d}"
-            rows.append({
-                "year": r["year"],
-                "monthday": mmdd,
-                "jyocd": r["jyocd"],
-                "kaiji": r["kaiji"],
-                "nichiji": r["nichiji"],
-                "racenum": r["racenum"],
-                "umaban": int(r["umaban"]),
-                "happyotime": f"{mmdd}{hhmm}",
-                "fukuoddslow": low_high[0],
-                "fukuoddshigh": low_high[1],
-                "fukusyoflag": "7",
-                "datakubun": "1",
-                "race_key": r["race_key"],
-                "happyo_datetime": snap_time,
-            })
+        # snapshot 時刻 = race_start - 20分 (cutoff 30分/10分のいずれでも選択される安全な時刻)
+        snap_time = race_start - pd.Timedelta(minutes=20)
+        mmdd = f"{snap_time.month:02d}{snap_time.day:02d}"
+        hhmm = f"{snap_time.hour:02d}{snap_time.minute:02d}"
+        rows.append({
+            "year": r["year"],
+            "monthday": mmdd,
+            "jyocd": r["jyocd"],
+            "kaiji": r["kaiji"],
+            "nichiji": r["nichiji"],
+            "racenum": r["racenum"],
+            "umaban": int(r["umaban"]),
+            "happyotime": f"{mmdd}{hhmm}",
+            "fukuoddslow": "0012",
+            "fukuoddshigh": "0018",
+            "fukusyoflag": "7",
+            "datakubun": "1",
+            "race_key": r["race_key"],
+            "happyo_datetime": snap_time,
+        })
     return pd.DataFrame(rows)
 
 
@@ -391,11 +407,23 @@ def _build_synthetic_harai_df(feature_df_test: pd.DataFrame) -> pd.DataFrame:  #
 
 
 def _build_synthetic_pred_df(feature_df_test: pd.DataFrame) -> pd.DataFrame:  # type: ignore[name-defined]
-    """``--synthetic`` 用の予測 DataFrame を構築する (train_and_predict を呼ばない)。"""
-    cols = [
+    """``--synthetic`` 用の予測 DataFrame を構築する (train_and_predict を呼ばない)。
+
+    ``race_start_datetime`` を必ず含める (HIGH-1: ``select_odds_snapshot`` が race_start_datetime
+    基準で cutoff を計算するため・馬単位 race_times に必須)。また ``select_bets`` / label merge /
+    refund_accounting が消費する ``is_fukusho_sale_available`` / ``is_model_eligible`` /
+    ``is_scratch_cancel`` / ``is_race_excluded`` / ``is_race_cancelled`` / ``is_dead_loss`` /
+    ``fukusho_payout_places`` / ``fukusho_hit_validated`` 列も保持する (合成データは feature_df
+    から直接予測として扱うため・select_bets の事前 filter が動作するのに必要)。
+    """
+    base_cols = [
         "year", "jyocd", "kaiji", "nichiji", "racenum", "umaban", "kettonum",
-        "race_key", "race_date", "p_fukusho_hit",
+        "race_key", "race_date", "race_start_datetime", "p_fukusho_hit",
+        "is_fukusho_sale_available", "is_model_eligible",
+        "is_scratch_cancel", "is_race_excluded", "is_race_cancelled", "is_dead_loss",
+        "fukusho_payout_places", "fukusho_hit_validated",
     ]
+    cols = [c for c in base_cols if c in feature_df_test.columns]
     return feature_df_test[cols].copy()
 
 
@@ -438,6 +466,33 @@ def _attach_provenance(
     out["model_type"] = model_type
     out["model_version"] = model_version
     out["feature_snapshot_id"] = feature_snapshot_id
+    return out
+
+
+def _attach_accounting(
+    df_with_label: pd.DataFrame,  # type: ignore[name-defined]
+) -> pd.DataFrame:  # type: ignore[name-defined]
+    """``determine_stake_payout`` を各行に適用し・stake/refund/payout/profit/effective_stake を付与する。
+
+    元の ``df_with_label`` が ``stake`` 等の会計列を持つ場合は事前に削除してから付与する
+    (select_bets / select_bl3_bets が ``stake`` 列を設定するため・determine_stake_payout の
+    戻り値と concat すると同名列が複数でき pandas が Series を返す問題を防止)。
+    """
+    import pandas as pd
+
+    # 既存の会計列を削除 (select_bets / select_bl3_bets 由来の stake 等)
+    accounting_cols = ["stake", "refund", "payout", "profit", "effective_stake"]
+    base = df_with_label.drop(
+        columns=[c for c in accounting_cols if c in df_with_label.columns],
+        errors="ignore",
+    )
+    accounting = base.apply(determine_stake_payout, axis=1, result_type="expand")
+    accounting.columns = accounting_cols
+    out = pd.concat([base, accounting], axis=1)
+    # BACKTEST_COLUMNS 互換の補助会計列を付与
+    out["refund_flag"] = out["refund"] > 0
+    out["refund_amount"] = out["refund"]
+    out["payout_amount"] = out["payout"]
     return out
 
 
@@ -551,19 +606,7 @@ def _run_main_model_backtest(
         )
 
     # --- determine_stake_payout で会計付与 (行ベース slot lookup 含む) ---
-    accounting = full_candidate_with_label.apply(
-        determine_stake_payout, axis=1, result_type="expand"
-    )
-    accounting.columns = ["stake", "refund", "payout", "profit", "effective_stake"]
-    full_candidate_with_accounting = pd.concat(
-        [full_candidate_with_label, accounting], axis=1
-    )
-    # refund_flag / refund_amount / payout_amount を BACKTEST_COLUMNS 互換に付与
-    full_candidate_with_accounting["refund_flag"] = (
-        full_candidate_with_accounting["refund"] > 0
-    )
-    full_candidate_with_accounting["refund_amount"] = full_candidate_with_accounting["refund"]
-    full_candidate_with_accounting["payout_amount"] = full_candidate_with_accounting["payout"]
+    full_candidate_with_accounting = _attach_accounting(full_candidate_with_label)
 
     # --- MEDIUM cycle-3: non-selected 会計ゼロ化 ---
     full_candidate_with_accounting = _zero_out_non_selected_accounting(
@@ -687,9 +730,12 @@ def _run_bl3_backtest(
         determine_stake_payout, axis=1, result_type="expand"
     )
     accounting.columns = ["stake", "refund", "payout", "profit", "effective_stake"]
-    full_candidate_with_accounting = pd.concat(
-        [full_candidate_with_label, accounting], axis=1
+    # _attach_accounting と同様に既存 stake 等との衝突を避けるため drop → concat
+    base = full_candidate_with_label.drop(
+        columns=[c for c in accounting.columns if c in full_candidate_with_label.columns],
+        errors="ignore",
     )
+    full_candidate_with_accounting = pd.concat([base, accounting], axis=1)
     full_candidate_with_accounting["refund_flag"] = (
         full_candidate_with_accounting["refund"] > 0
     )
@@ -1093,9 +1139,12 @@ def _prepare_feature_df(args: argparse.Namespace, readonly_pool) -> pd.DataFrame
 
 
 def _build_synthetic_market_df(feature_df_test: pd.DataFrame) -> pd.DataFrame:  # type: ignore[name-defined]
-    """``--synthetic`` 用の市場データ (BL-3 用・確定オッズ) を構築する。"""
+    """``--synthetic`` 用の市場データ (BL-3 用・確定オッズ) を構築する。
+
+    ``compute_backtest_metrics`` が race_date を消費するため・``race_date`` 列も保持する。
+    """
     out = feature_df_test[
-        ["race_key", "umaban", "is_fukusho_sale_available"]
+        ["race_key", "umaban", "race_date", "is_fukusho_sale_available"]
     ].copy()
     # fukuoddslow: 人気順 (umaban 昇順でオッズ低下)
     out["fukuoddslow"] = 1.5 + 0.3 * (out["umaban"] - 1)
