@@ -143,6 +143,13 @@ def _apply_category_map(
         # Phase 4 等価 (A5)・feature snapshot 構築済み _code 列をそのまま使用
         return feature_df
 
+    # CR-08 / WR-07: 呼出元 frame 保護のため copy する。
+    # _assert_deterministic が同一 feature_df で2回 train_and_predict を呼ぶ際・
+    # in-place で _code 列を書き換えると2回目が1回目の変換済み列 (int 化済み) に対して
+    # 再変換を試み・apply_category_map の astype(str) で 0 → '0' → __UNSEEN__ code になり
+    # bit-identical が崩れて RuntimeError (SC#4 / §19.1 構造的ブロック違反) になる。
+    feature_df = feature_df.copy()
+
     from src.utils.category_map import apply_category_map
 
     for raw_id_col, frozen_map in category_map.items():
