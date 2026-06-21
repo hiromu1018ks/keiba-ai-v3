@@ -653,7 +653,10 @@ def _run_main_model_backtest(
         full_candidate["odds_missing_reason"] = None
 
     # --- determine_stake_payout で会計付与 (行ベース slot lookup 含む) ---
-    full_candidate_with_accounting = _attach_accounting(full_candidate_with_label)
+    # CR-03 回帰修正: selected_flag / odds_missing_reason は full_candidate (pred_with_ev.copy)
+    # に付与したため・label merge 直後の full_candidate_with_label でなく full_candidate を渡す。
+    # さもないと _zero_out_non_selected_accounting が out["selected_flag"] で KeyError。
+    full_candidate_with_accounting = _attach_accounting(full_candidate)
 
     # --- MEDIUM cycle-3: non-selected 会計ゼロ化 ---
     full_candidate_with_accounting = _zero_out_non_selected_accounting(
