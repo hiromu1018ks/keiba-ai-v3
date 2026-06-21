@@ -1031,9 +1031,9 @@ def _run_pipeline(
                 )
                 coverage_summary.append(cov)
                 logger.info(
-                    "coverage %s/%s: horse=%.2%% race=%.2%% [%s]",
+                    "coverage %s/%s: horse=%.2f%% race=%.2f%% [%s]",
                     bt.name, policy,
-                    cov["horse_level_coverage"], cov["race_level_coverage"], cov["status"],
+                    cov["horse_level_coverage"] * 100, cov["race_level_coverage"] * 100, cov["status"],
                 )
 
             for mt in ALL_MODEL_TYPES:
