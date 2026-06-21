@@ -222,8 +222,12 @@ def select_odds_snapshot(
 
     # DataKubun filter（D-01・Pitfall 2・T-05-07 mitigate）
     # datakubun 列が存在する場合のみ '1'(中間) で filter（合成 mock でも省略可能）
+    # WR-08: NaN (JOIN ミスマッチ等で head 側が NULL) を明示的に除外してから比較。
+    # astype(str) で NaN が 'nan' 文字列になるのを除外し・将来のスキーマ変更
+    # (int/varchar 混在) でも破綻しないよう .str.strip() で正規化する。
     if "datakubun" in jodds.columns:
-        jodds = jodds[jodds["datakubun"].astype(str) == "1"].copy()
+        dk = jodds["datakubun"]
+        jodds = jodds[dk.notna() & (dk.astype(str).str.strip() == "1")].copy()
 
     # cutoff_datetime 計算（Pitfall 1 日跨ぎ回避・race_start_datetime + Timedelta）
     cutoff_base["cutoff_datetime"] = (
