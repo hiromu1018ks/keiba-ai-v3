@@ -16,7 +16,10 @@
     selected_count = 返還を含む選択数
     effective_bet_count = 返還を除く実購入数
     refund_count = 返還数
-    hit_count = fukusho_hit_validated=1 の件数
+    hit_count = selected_flag=True かつ fukusho_hit_validated=1 の件数
+               (返還系は fukusho_hit_validated=0 のため hit_count に含まれない)
+    hit_rate = hit_count / effective_bet_count
+             (返還を分母から除外した比率・返還馬が多いレースで見かけ上高くなる)
 """
 
 from __future__ import annotations
@@ -65,6 +68,12 @@ def compute_backtest_metrics(df: pd.DataFrame) -> dict:
       行ごとの ``profit``（``refund_accounting`` 出力）との不変量
       ``sum(row.profit) == sum(payout)+sum(refund)-sum(stake)`` は
       ``test_metrics_profit_invariant`` で混在シナリオ検証済み（MEDIUM-02）。
+    - WR-09: ``hit_count`` は selected_flag=True かつ fukusho_hit_validated=1 の件数。
+      返還系（effective_stake=0）の行は fukusho_hit_validated=0 のため hit_count に
+      含まれない（仕様上正しい・返馬は不的中扱い）。``hit_rate = hit_count / effective_bet``
+      は返還を分母から除外した比率であり・返還馬が多いレースで見かけ上高くなる点に注意
+      （run_backtest.py:644 で計算）。report の hit_rate を見る利用者はこの仕様を理解する
+      こと（返還馬分母除外効果）。
     """
     total_payout = float(df["payout_amount"].sum())
     total_effective_stake = float(df["effective_stake"].sum())
