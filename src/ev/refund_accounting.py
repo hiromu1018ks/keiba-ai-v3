@@ -148,13 +148,23 @@ def determine_stake_payout(
     # （§2.4・T-05-23 mitigate・的中フラグ非依存・HARAI PayFukusyoPay 一次）
     # ※ _lookup_payfukusyo_pay は umaban='00' slot にはマッチしないため・特払時は
     #    determine_stake_payout が tokubaraiflag2 を見て PayFukusyoPay slot1 を計上する。
+    # WR-06: 特払時は PayFukusyoUmaban1..5 全てが '00' (的中馬番無し) であることを検証し・
+    # もし slot に選択馬番と一致する umaban があれば通常扱い (tokubarai flag と slot データ
+    # が矛盾する場合) にフォールバック。特払金額は JRA ルール上 対象馬のオッズに拠らず
+    # 一律のため slot1 を計上する。
     tokubarai = str(row.get("tokubaraiflag2", "0")).strip() == "1"
     if tokubarai:
-        # 特払: PayFukusyoUmaban1='00' の場合でも PayFukusyoPay1 を payout に計上
-        try:
-            payout = int(str(row.get("payfukusyopay1", "0")).strip())
-        except (ValueError, TypeError):
-            payout = 0
+        # 選択馬と一致する slot があるか確認 (矛盾時の安全フォールバック)
+        normal_payout = _lookup_payfukusyo_pay(row)
+        if normal_payout > 0:
+            # tokubaraiflag=1 だが slot に選択馬番が入っている → 通常の中り扱い (安全側)
+            payout = normal_payout
+        else:
+            # 特払: PayFukusyoUmaban1='00' の場合でも PayFukusyoPay1 を payout に計上
+            try:
+                payout = int(str(row.get("payfukusyopay1", "0")).strip())
+            except (ValueError, TypeError):
+                payout = 0
     else:
         payout = _lookup_payfukusyo_pay(row)
 
