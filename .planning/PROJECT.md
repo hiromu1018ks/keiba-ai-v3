@@ -18,14 +18,14 @@ JRA競馬データを用いて、各出走馬の**複勝払戻対象確率 `p_fu
 - [x] normalized層の初期ETL（型変換・コード変換・クラス正規化）— Validated in Phase 1: Trust & Foundation（全 varchar 明示キャスト + class_normalization.yaml 機械導出・raw 不変性 D-06 を REVOKE + fingerprint で実証）
 - [x] 複勝ラベル `fukusho_hit` の生成と払戻テーブル突合（発売開始時点ベース、`sales_start_entry_count` 取得・復元含む）— Validated in Phase 2: Fukusho Labels（2層 raw/validated label + D-04 4値 status・§10.5 6検査 BLOCK/INFO ゲート・>99.9% agreement 実測 100.0%・idempotent staging-swap・raw 不変・label.fukusho_label 554,267行）
 - [x] as-of特徴量管理（`as_of_datetime` / `feature_cutoff_datetime` / `feature_availability` によるリーク防止）— Validated in Phase 3: As-of Features & Snapshots（PIT-correct feature builder + 不変 versioned Parquet・3者 registry parity・WR-01 PIT pre-filter on estimated_running_style・CR-02 JOIN 両側 filter・CR-03 race_date fail-loud・CR-04 joblib→JSON・live snapshot 554,267行 byte-reproducible・verification passed 4/4）
+- [x] 複勝EV計算（`EV_lower` / `EV_upper`）と推奨ランク算出 — Validated in Phase 5: EV & Backtest（EV-01/EV-02・純粋関数 ev_rank/purchase_simulator/metrics/bl3_betting・§11.1/11.4/11.5/11.6・合成データ GREEN・code review Critical 8 + Warning 10 修正済み・CR-03 回帰も解消）
 
 ### Active
 
 <!-- 現在のスコープ。要件定義書の Phase 1 を中心とする。すべて出荷検証まで仮説。 -->
 
 - [ ] 出馬表・馬番・枠番確定後モデル（Phase 1-A）による `p_fukusho_hit` 算出
-- [ ] 複勝EV計算（`EV_lower` / `EV_upper`）と推奨ランク算出
-- [ ] 固定ルール仮想購入バックテスト（race_id単位・時系列順、返還・競走中止の扱いを含む回収率再現）
+- [ ] 固定ルール仮想購入バックテスト（race_id単位・時系列順、返還・競走中止の扱いを含む回収率再現）— Phase 5 で構造的ブロック GREEN（BACK-01..04・race_id grouping・返還/中止 honest 会計・回収率計算・合成データ 25 backtest・フル suite 350 passed）・**実データ backtest は JODDS 取得完了後 manual-only**（回収率「再現」の実データ検証は未実行・VERIFICATION.md Manual-Only）
 - [ ] 評価指標と確率品質受入基準（Calibration / Brier / LogLoss / sum(p) 分布 / 安定性）
 - [ ] Streamlit最小画面（レース一覧・p_fukusho_hit・オッズ・EV・推奨ランク・スナップショット情報）
 - [ ] CSV出力（予測CSV・バックテストCSV）
@@ -106,4 +106,4 @@ This document evolves at phase transitions and milestone boundaries.
 - **Phase 4: Model & Prediction — Complete (2026-06-20).** leak-free・bit-identical な `p_fukusho_hit` pipeline を確立。LightGBM 4.6.0（native categorical・非負 code・`__MISSING__`/`__UNSEEN__` sentinel・`num_threads=1`・target/mean encoding 構造的禁止 §14.3）+ CatBoost 1.2.10（`cat_features` + `has_time=True`・`race_start_datetime`-sorted Pool・`thread_count=1`・高基数 `_code` 列 cat_features 化 HIGH#6/MODL-03）。`orchestrator.py`（HIGH#12 循環依存解消）+ `run_train_predict.py` E2E・`prediction.fukusho_prediction` に両モデル各 22,213 行（model_version-scoped swap HIGH#1・2回実行 idempotent checksum bit-identical）。6 plans（04-01..06）順次実行。**SC#1** Parquet-only 学習（DB由来0）・**SC#3** leak diagnostic（対抗的構造証明・target encoding 実呼出0件・`.cat.codes.min()>=0` fail-loud）・**SC#4** bit-identical（`FIXED_REPRODUCE_TS` + 固定 thread/seed・両モデル `np.array_equal` 実データ実証）達成。**SC#2 は正直に「部分証明」**: 主モデルは Brier/LogLoss/AUC で baselines 上回るが・D-04 gold-standard **Calibration** で BL-1(0.001426)/BL-4(0.044928)に劣る → Phase 6 ゲートで最終判定（review HIGH#8・ユーザー指示通り Phase-4 ブロッカーでない）。`KEIBA_SKIP_DB_TESTS` unset で 262 tests green / 0 skipped（green-by-skip 防止 HIGH#10）。**Deferred to Phase 6**: BL-2/BL-3 市場データ NaN（test split で ninki/fukuoddslow 取得不可）・BL-4/BL-5 キャリブレーション（`calibrate_bl4_bl5=False`・BL_UNCALIBRATED_NOTE）。**Deferred to Phase 8**: SC#3 live-data 証明（本 Phase は合成データの対抗的構造診断）。feature snapshot 入力: `20260620-1a-postreview-v2`（feature_count=62）。verification passed 4/4 must-haves。
 
 ---
-*Last updated: 2026-06-20 after Phase 4 complete (Model & Prediction — leak-free reproducible pipeline; SC#2 部分証明、Calibration 判定は Phase 6)*
+*Last updated: 2026-06-21 after Phase 5 complete (EV & Backtest — EV/rank/purchase/metrics/bl3 純粋関数 + odds_snapshot + refund honest 会計 + backtest 永続化 + run_backtest.py・構造的ブロック GREEN・フル suite 350 passed・実データ backtest は JODDS 取得後 manual-only)*
