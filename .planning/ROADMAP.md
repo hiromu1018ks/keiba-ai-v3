@@ -189,7 +189,7 @@ Plans:
   4. Refund/dead-loss accounting is honest: 取消/除外 → `effective_stake=0` (refund); 競走中止 → `effective_stake=100` counted as a loss (no exclusion inflating ROI) — verified by a unit test that builds a race with each scenario and asserts the stake/payout
   5. The `odds_snapshot_policy` is fixed (30-min-before or 10-min-before), `odds_missing_policy = no_bet` (never substitutes a convenient snapshot), and ALL candidate policies × BT configs are reported together — never the post-hoc winner alone
 
-**Plans**: 3/6 plans executed
+**Plans**: 4/6 plans executed
 
 **Wave 1**（基盤・先行）
 
@@ -206,7 +206,7 @@ Plans:
 
 **Wave 4**（blocked on Wave 3 完了）
 
-- [ ] 05-05-PLAN.md — Wave 4 scripts/run_backtest.py（BT窓再学習 + フル行列 25 backtest）+ reports/05-backtest 生成 — BACK-01/02/03/04 — Plan 01-04 に依存
+- [x] 05-05-PLAN.md — Wave 4 scripts/run_backtest.py（BT窓再学習 + フル行列 25 backtest・HIGH-1/2/5/B/C + MEDIUM-A/B/cycle-3 + LOW-05）+ src/ev/report.py（BACK-04 winner 強調禁止）+ 合成データ E2E smoke 14 tests — BACK-01/02/03/04 — Plan 01-04 に依存
 
 **Wave 5**（blocked on Wave 4 完了）
 

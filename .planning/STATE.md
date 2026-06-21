@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 05
 current_phase_name: ev-backtest
 status: executing
-stopped_at: Completed 05-04-PLAN.md
-last_updated: "2026-06-20T23:48:16.000Z"
-last_activity: 2026-06-20
-last_activity_desc: Completed 05-04-PLAN.md
+stopped_at: Completed 05-05-PLAN.md
+last_updated: "2026-06-21T00:25:00.000Z"
+last_activity: 2026-06-21
+last_activity_desc: Completed 05-05-PLAN.md
 progress:
   total_phases: 9
   completed_phases: 5
   total_plans: 29
-  completed_plans: 27
-  percent: 59
+  completed_plans: 28
+  percent: 62
 ---
 
 # Project State
@@ -29,11 +29,11 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 05 (ev-backtest) — EXECUTING
-Plan: 5 of 6
-Status: Plan 05-04 complete (backtest 永続化 + split_3way/orchestrator periods 拡張)
-Last activity: 2026-06-20 — Completed 05-04-PLAN.md
+Plan: 6 of 6
+Status: Plan 05-05 complete (run_backtest + report・フル行列 25 backtest pipeline + 合成データ E2E smoke)
+Last activity: 2026-06-21 — Completed 05-05-PLAN.md
 
-Progress: [█████████░] 86%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
@@ -87,6 +87,7 @@ Progress: [█████████░] 86%
 | Phase 05 P02 | 5m | 3 tasks | 9 files |
 | Phase 05 P03 | 7m | 2 tasks | 4 files |
 | Phase 05 P04 | 10m | 2 tasks | 9 files |
+| Phase 05 P05 | 32m | 2 tasks | 3 files |
 
 ### Decisions
 
@@ -159,6 +160,16 @@ Recent decisions affecting current work:
 - [Phase ?]: 05-04: backtest_id scoped staging-swap（review HIGH#1 と同一方針・同一 backtest_id のみ DELETE→INSERT・他 backtest_id 行は保持）・PK は backtest_id + RACE_KEY 7 の 8カラム（§19.1 再現性聖域・silent 履歴破壊防止）
 - [Phase ?]: 05-04: MEDIUM-04 odds_missing_reason は NULL 可能・normal 候補は NULL・no_bet/special_value/no_sale/scratch_cancel sentinel で埋まる・selected_flag=False 除外候補行も永続化（§11.3 odds_missing_policy=no_bet 監査性担保）
 - [Phase ?]: 05-04: live-DB への CREATE TABLE/GRANT 適用は後続 Plan 05-06（checkpoint:human-verify）のスコープ・本 plan は unit test（KEIBA_SKIP_DB_TESTS で skip される requires_db テストを含む）で検証
+- [Phase ?]: 05-05: scripts/run_backtest.py + src/ev/report.py で Plan 01-04 全成果物を統合・フル行列 25 backtest (5窓 × 2policy × 2model + 5 BL-3) を生成・実データ backtest は JODDS 取得進行中のため Plan 05-06 で分離（本 plan は合成データ E2E smoke）
+- [Phase ?]: 05-05 HIGH-B cycle-2: _carve_calib_from_train_tail(bt) は train_start 固定・train_end = calib_start - 1day に短縮 (calib を BT窓 train 尾の6ヶ月から切る)・max(train)<min(calib)<max(calib)<min(test) 順序を BT-1..5 全窓で deterministic に保証
+- [Phase ?]: 05-05 HIGH-1+2: pred_df/snapshot/label の merge は on=['race_key','umaban'] + len(merged)==len(pred_df) assert で cartesian duplication を構造的ブロック (HARAI は race-level slot のため on=['race_key']+validate='many_to_one' で例外・HIGH-C)
+- [Phase ?]: 05-05 HIGH-5: 各 BT窓 train 期間のみで fit_category_map・test 窓未観測 ID を __UNSEEN__ sentinel に mapping (全期間固定 category_map 再利用回避・05-04 HIGH-A category_map plumbing 経由で伝播)
+- [Phase ?]: 05-05 HIGH-C cycle-2: HARAI は race-level slot レコードのため race-level merge(on=['race_key'], validate='many_to_one') でブロードキャスト・払戻は 05-03 _lookup_payfukusyo_pay の行ベース slot lookup で確定
+- [Phase ?]: 05-05 MEDIUM-A cycle-2: select_bets 後に selected + non-selected の全候補 (full_candidate_with_accounting・odds_missing_reason 埋め) を load_backtest に渡し §11.3 監査性を担保
+- [Phase ?]: 05-05 MEDIUM-B cycle-2: --synthetic 外す実行で candidate-horse usable-odds coverage < 0.90 で RuntimeError (race-level coverage < 0.95 も secondary check・取得未完の不正 backtest を loud fail)
+- [Phase ?]: 05-05 MEDIUM cycle-3: determine_stake_payout が selected_flag 分岐を持たないため non-selected 行の stake/effective_stake/payout/refund/profit を永続化前に 0 にゼロ化 (架空会計防止・ROI 計算は selected_flag=True filter 済みで非影響)
+- [Phase ?]: 05-05 LOW-05: REPORT_COLUMNS を外部定数で定義し md 列ヘッダ + json comparison_table キーと 1:1 になることを presence assert で機械検証 (grep 否定でない)
+- [Phase ?]: 05-05 BACK-04: 全候補を backtest_id 辞書順で一括提示・highest-recovery を推奨/採用候補として突出させる記述は一切生成しない (主モデル確定は Phase 6 D-03/D-04 事前登録選定基準)
 
 ### Pending Todos
 
@@ -182,6 +193,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-20T23:48:16.000Z
-Stopped at: Completed 05-04-PLAN.md
+Last session: 2026-06-21T00:25:00.000Z
+Stopped at: Completed 05-05-PLAN.md
 Resume file: None
