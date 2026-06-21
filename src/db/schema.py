@@ -144,8 +144,11 @@ CREATE TABLE IF NOT EXISTS backtest.fukusho_backtest (
     -- 的中・rank・EV
     fukusho_hit_validated int,
     recommend_rank varchar(2),
-    EV_lower double precision,
-    EV_upper double precision,
+    -- EV_lower/EV_upper は引用符付きで大文字を保持（BACKTEST_COLUMNS / Identifier / DataFrame
+    -- 列名と整合させるため・Plan 05-06 Rule 1 fix: PostgreSQL は引用符なし識別子を小文字化するが
+    -- ビジネスロジック全般（ev_rank/purchase_simulator/report）が "EV_lower" を使うため DDL 側で保持）
+    "EV_lower" double precision,
+    "EV_upper" double precision,
     -- odds provenance（§11.2 保持項目・MEDIUM-04: NULL 可能）
     odds_snapshot_at timestamp,
     odds_source_type varchar(16),

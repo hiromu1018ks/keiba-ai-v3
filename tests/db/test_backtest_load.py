@@ -98,9 +98,15 @@ def test_backtest_load_columns_contract():
             continue
         # 先頭トークンが列名
         first_token = stripped.split()[0]
-        # 列名は SQL identifier（引用符でなければ英数字+アンダースコア）
-        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", first_token):
-            ddl_cols.append(first_token)
+        # 列名は SQL identifier（引用符なし: 英数字+アンダーススア / 引用符付き: "name"・大文字保持）
+        # Plan 05-06 Rule 1 fix: EV_lower/EV_upper は DDL で引用符付き定義（大文字保持）のため
+        # パーサーも引用符付き識別子をサポート。
+        m_unquoted = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)$", first_token)
+        m_quoted = re.match(r'^"([A-Za-z_][A-Za-z0-9_]*)"$', first_token)
+        if m_unquoted:
+            ddl_cols.append(m_unquoted.group(1))
+        elif m_quoted:
+            ddl_cols.append(m_quoted.group(1))
 
     assert ddl_cols == list(BACKTEST_COLUMNS), (
         f"BACKTEST_COLUMNS が DDL 列順と不一致:\n"
@@ -180,17 +186,28 @@ def test_backtest_schema_apply(write_cur):
     """scripts/run_apply_schema.py 相当の BACKTEST_TABLE_DDL で backtest.fukusho_backtest テーブル
     + GRANT が作成される（requires_db）。
 
-    本テストは ``BACKTEST_TABLE_DDL`` を直接実行してテーブル作成を検証する
-    （scripts/run_apply_schema.py の完全適用は Plan 05-06 checkpoint で実施）。
+    本テーブルは ``scripts/run_apply_schema.py`` が admin ロールで作成・所有する
+    （Plan 05-06 で live-DB 適用を実施）。ETL ロール（write_cur）は所有者でないため
+    ``CREATE TABLE IF NOT EXISTS`` を既存テーブルに発行すると ``must be owner`` になる
+    （PostgreSQL 仕様）。したがって本テストは (a) DDL 文字列に必須列が含まれること
+    （unit 検証）・(b) run_apply_schema.py で作成済みの実テーブル列定義を SELECT 検証
+    （integration 検証）の2段構成とする。DDL 適用実行自体は admin の
+    run_apply_schema.py の責務。
     """
     from src.db.schema import BACKTEST_TABLE_DDL
 
+    # (a) DDL 文字列の unit 検証（必須列が DDL に含まれる）
+    assert "backtest_id" in BACKTEST_TABLE_DDL
+    assert "umaban" in BACKTEST_TABLE_DDL, "umaban 列が DDL に無い（HIGH-1 馬単位永続性違反）"
+    assert "odds_missing_reason" in BACKTEST_TABLE_DDL, (
+        "odds_missing_reason 列が DDL に無い（MEDIUM-04 監査性違反）"
+    )
+
     # staging クリーンアップ（前回テスト残留防止）
     write_cur.execute("DROP TABLE IF EXISTS backtest.fukusho_backtest_staging")
-    write_cur.execute("DROP TABLE IF EXISTS backtest.fukusho_backtest")
-    # DDL 実行
-    write_cur.execute(BACKTEST_TABLE_DDL)
-    # テーブル存在確認
+    write_cur.execute("TRUNCATE backtest.fukusho_backtest")
+
+    # (b) 実テーブル列定義の integration 検証（run_apply_schema.py で作成済み前提）
     write_cur.execute(
         "SELECT column_name FROM information_schema.columns "
         "WHERE table_schema='backtest' AND table_name='fukusho_backtest' "
@@ -211,12 +228,11 @@ def test_backtest_schema_apply(write_cur):
 def test_backtest_load_idempotent(write_cur):
     """2回連続実行で checksum が bit-identical（staging-swap idempotent・§19.1）。"""
     from src.db.backtest_load import load_backtest
-    from src.db.schema import BACKTEST_TABLE_DDL
 
-    # テーブル準備
+    # テーブル準備（Rule 1 fix: 本テーブルは admin 所有のため ETL ロールで DROP/CREATE IF NOT
+    # EXISTS 不可→TRUNCATE のみ。DDL 適用は run_apply_schema.py の責務）
     write_cur.execute("DROP TABLE IF EXISTS backtest.fukusho_backtest_staging")
-    write_cur.execute("DROP TABLE IF EXISTS backtest.fukusho_backtest")
-    write_cur.execute(BACKTEST_TABLE_DDL)
+    write_cur.execute("TRUNCATE backtest.fukusho_backtest")
 
     df = _make_backtest_df()
     checksum1 = load_backtest(write_cur, df)
@@ -238,12 +254,11 @@ def test_backtest_load_idempotent(write_cur):
 def test_backtest_load_scoped_swap(write_cur):
     """backtest_id A 書込後 B 書込で A が残る（backtest_id scoped swap・他 scope 行は保持）。"""
     from src.db.backtest_load import load_backtest
-    from src.db.schema import BACKTEST_TABLE_DDL
 
-    # テーブル準備
+    # テーブル準備（Rule 1 fix: 本テーブルは admin 所有のため ETL ロールで DROP/CREATE IF NOT
+    # EXISTS 不可→TRUNCATE のみ。DDL 適用は run_apply_schema.py の責務）
     write_cur.execute("DROP TABLE IF EXISTS backtest.fukusho_backtest_staging")
-    write_cur.execute("DROP TABLE IF EXISTS backtest.fukusho_backtest")
-    write_cur.execute(BACKTEST_TABLE_DDL)
+    write_cur.execute("TRUNCATE backtest.fukusho_backtest")
 
     df_a = _make_backtest_df("BT-1-30min_before-lightgbm")
     df_b = _make_backtest_df("BT-1-30min_before-catboost")
@@ -269,12 +284,11 @@ def test_backtest_load_carries_odds_missing_reason(write_cur):
     no_bet の監査性担保・後続監査で除外理由別件数を SQL 集計可能）。
     """
     from src.db.backtest_load import load_backtest
-    from src.db.schema import BACKTEST_TABLE_DDL
 
-    # テーブル準備
+    # テーブル準備（Rule 1 fix: 本テーブルは admin 所有のため ETL ロールで DROP/CREATE IF NOT
+    # EXISTS 不可→TRUNCATE のみ。DDL 適用は run_apply_schema.py の責務）
     write_cur.execute("DROP TABLE IF EXISTS backtest.fukusho_backtest_staging")
-    write_cur.execute("DROP TABLE IF EXISTS backtest.fukusho_backtest")
-    write_cur.execute(BACKTEST_TABLE_DDL)
+    write_cur.execute("TRUNCATE backtest.fukusho_backtest")
 
     # selected_flag=True の的中行 + selected_flag=False の no_bet 除外候補行
     df_hit = _make_backtest_df("BT-1-30min_before-lightgbm")
