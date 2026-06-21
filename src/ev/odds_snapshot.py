@@ -326,7 +326,13 @@ def select_odds_snapshot(
 
     result_df = pd.DataFrame(result_rows)
     # 行数不変（HIGH-1・race_times と同行数）
-    assert len(result_df) == n_expected, (
-        f"select_odds_snapshot 行数不変条件違反: expected {n_expected}, got {len(result_df)}"
-    )
+    # WR-11: assert でなく raise RuntimeError にし・python -O で削除されないよう
+    # 構造的ブロック化 (CLAUDE.md / HIGH #3 / group_split.py 規約)。merge_asof が稀に
+    # cutoff_sorted の重複キーで行数を変えることがあり・python -O 実行で行数不変条件が
+    # silent に破れる (HIGH-1 馬単位 odds 保証の silent 回帰リスク) のを防止。
+    if len(result_df) != n_expected:
+        raise RuntimeError(
+            f"select_odds_snapshot 行数不変条件違反: expected {n_expected}, got {len(result_df)} "
+            "(merge_asof の by= グループ内重複の可能性・HIGH-1 馬単位 odds 保証違反)"
+        )
     return result_df
