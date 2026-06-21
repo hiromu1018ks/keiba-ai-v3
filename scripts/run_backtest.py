@@ -1241,12 +1241,29 @@ def _filter_label_by_period(
     start: str,
     end: str,
 ) -> pd.DataFrame:  # type: ignore[name-defined]
-    """label_df を test 期間で filter する (race_date があれば)。"""
+    """label_df を test 期間で filter する (race_date があれば)。
+
+    CR-07 / WR-05: silent fallback (空結果時に未 filter の全体を返す) を廃止し・
+    fail-loud 化。空結果は BT窓 test 期間外のラベルまで backtest 対象になる silent leak
+    経路 (§19.1 聖域違反・CLAUDE.md が禁止する silent fallback) になるため ValueError。
+    また between 前に pd.to_datetime で型を正規化し・文字列 / date / Timestamp 混在で
+    境界日が silent に欠損 / 重複するリスクを排除。
+    """
     if "race_date" not in label_df.columns:
         return label_df
-    mask = label_df["race_date"].between(start, end)
-    out = label_df.loc[mask].copy()
-    return out if len(out) > 0 else label_df
+    # 型正規化 (文字列・date・Timestamp 混在を統一)
+    out = label_df.copy()
+    out["race_date"] = pd.to_datetime(out["race_date"], errors="coerce")
+    start_ts = pd.to_datetime(start)
+    end_ts = pd.to_datetime(end)
+    mask = out["race_date"].between(start_ts, end_ts)
+    filtered = out.loc[mask].copy()
+    if len(filtered) == 0:
+        raise ValueError(
+            f"_filter_label_by_period: test 期間 ({start}..{end}) に該当する label 行が0件 "
+            "(silent フォールバック禁止・race_date 型または BT窓区間を確認・§19.1 聖域)"
+        )
+    return filtered
 
 
 if __name__ == "__main__":
