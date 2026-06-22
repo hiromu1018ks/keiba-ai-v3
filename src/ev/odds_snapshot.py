@@ -70,6 +70,7 @@ def fetch_jodds(
     readonly_cur: Any,
     *,
     year: int | None = None,
+    years: list[str] | None = None,
 ) -> pd.DataFrame:
     """``public.n_jodds_tanpuku`` (時系列オッズ単複) + ``n_jodds_tanpukuwaku_head`` JOIN で
     中間オッズ (``datakubun='1'``) の snapshot を取得する（D-01・readonly_cur で SELECT-only）。
@@ -94,7 +95,11 @@ def fetch_jodds(
     """
     where_clauses: list[str] = ["h.datakubun = '1'"]  # 中間オッズ固定（D-01）
     params: list[Any] = []
-    if year is not None:
+    if years is not None:
+        # 複数年 filter（backtest test 窓絞り・全期間8407万件の取得回避・性能最適化）
+        where_clauses.append("j.year = ANY(%s)")
+        params.append([str(y) for y in years])
+    elif year is not None:
         where_clauses.append("j.year = %s")
         params.append(str(year))
     where_sql = "WHERE " + " AND ".join(where_clauses)

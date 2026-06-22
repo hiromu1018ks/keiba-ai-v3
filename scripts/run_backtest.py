@@ -1089,7 +1089,13 @@ def _run_pipeline(
                 )
             # JODDS / label / HARAI 取得 (readonly)
             with readonly_cursor(readonly_pool) as cur:
-                jodds_df = fetch_jodds(cur)
+                # 性能最適化: test 窓の年だけ取得（全期間8407万件の回避・WR-10/12）
+                test_years = [
+                    str(y) for y in range(
+                        int(periods["test"][0][:4]), int(periods["test"][1][:4]) + 1
+                    )
+                ]
+                jodds_df = fetch_jodds(cur, years=test_years)
                 label_df = load_labels(cur)
                 market_df = fetch_market_data(cur)
                 harai_race_df = _fetch_harai_race_level(cur)
