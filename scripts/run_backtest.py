@@ -501,8 +501,17 @@ def _attach_accounting(
         columns=[c for c in accounting_cols if c in df_with_label.columns],
         errors="ignore",
     )
-    accounting = base.apply(determine_stake_payout, axis=1, result_type="expand")
-    accounting.columns = accounting_cols
+    # 性能最適化: selected_flag=True の行のみ determine_stake_payout を適用。
+    # non-selected 行は会計ゼロ（_zero_out_non_selected と整合・metrics は selected のみ）。
+    # 全行に apply すると実データ規模（数万行）で非現実的（WR-10/12・Phase 5 で前倒し対処）。
+    selected_mask = base.get("selected_flag", False) == True  # noqa: E712
+    accounting = pd.DataFrame(0, index=base.index, columns=accounting_cols)
+    if selected_mask.any():
+        sel = base[selected_mask].apply(
+            determine_stake_payout, axis=1, result_type="expand"
+        )
+        sel.columns = accounting_cols
+        accounting.loc[selected_mask] = sel.to_numpy()
     out = pd.concat([base, accounting], axis=1)
     # BACKTEST_COLUMNS 互換の補助会計列を付与
     out["refund_flag"] = out["refund"] > 0
@@ -784,10 +793,16 @@ def _run_bl3_backtest(
         suffixes=("", "_label"),
     )
 
-    accounting = full_candidate_with_label.apply(
-        determine_stake_payout, axis=1, result_type="expand"
-    )
-    accounting.columns = ["stake", "refund", "payout", "profit", "effective_stake"]
+    # 性能最適化: selected_flag=True の行のみ determine_stake_payout（_attach_accounting と同様・WR-10/12）
+    accounting_cols = ["stake", "refund", "payout", "profit", "effective_stake"]
+    selected_mask = full_candidate_with_label.get("selected_flag", False) == True  # noqa: E712
+    accounting = pd.DataFrame(0, index=full_candidate_with_label.index, columns=accounting_cols)
+    if selected_mask.any():
+        sel = full_candidate_with_label[selected_mask].apply(
+            determine_stake_payout, axis=1, result_type="expand"
+        )
+        sel.columns = accounting_cols
+        accounting.loc[selected_mask] = sel.to_numpy()
     # _attach_accounting と同様に既存 stake 等との衝突を避けるため drop → concat
     base = full_candidate_with_label.drop(
         columns=[c for c in accounting.columns if c in full_candidate_with_label.columns],
