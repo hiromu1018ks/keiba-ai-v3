@@ -1276,6 +1276,7 @@ def _fetch_harai_race_level(readonly_cur) -> pd.DataFrame:  # type: ignore[name-
     HARAI は race-level slot レコード (``PayFukusyoUmaban1..5`` + ``PayFukusyoPay1..5``) で・
     umaban 列を持たない。``run_backtest`` は race-level のまま予測馬行に broadcast する。
     """
+    import pandas as pd  # 遅延 import（実データパス・他関数と同パターン）
     query = """
         SELECT
             year, jyocd, kaiji, nichiji, racenum,
@@ -1314,6 +1315,7 @@ def _filter_label_by_period(
     if "race_date" not in label_df.columns:
         return label_df
     # 型正規化 (文字列・date・Timestamp 混在を統一)
+    import pandas as pd  # 遅延 import（実データパス・他関数と同パターン）
     out = label_df.copy()
     out["race_date"] = pd.to_datetime(out["race_date"], errors="coerce")
     start_ts = pd.to_datetime(start)
