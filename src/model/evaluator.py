@@ -47,6 +47,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from scipy.stats import spearmanr
 from sklearn.calibration import calibration_curve
 from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 
@@ -88,6 +89,29 @@ METRIC_COLUMNS: list[str] = [
 CALIBRATION_CURVE_BINS: int = 10
 CALIBRATION_CURVE_STRATEGY: str = "uniform"
 CALIBRATION_CURVE_MIN_BIN_COUNT: int = 30
+
+# ---------------------------------------------------------------------------
+# Phase 6 (Plan 06-02) 新規定数 — D-05 新指標 / D-02 構造的 BLOCK 閾値
+# 既存 METRIC_COLUMNS / CALIBRATION_CURVE_* は一切変更しない（D-04 事前登録指標不変・T-04-24 回避）
+# ---------------------------------------------------------------------------
+
+# METRIC_COLUMNS_EXTENDED — 事前登録 9 列に Phase 6 の新指標 3 列を追加（D-05）
+# METRIC_COLUMNS（事前登録・ガードなし max_dev 含む）は不変・拡張リストは別名で定義
+METRIC_COLUMNS_EXTENDED: list[str] = METRIC_COLUMNS + [
+    "quantile_max_dev",  # D-05: quantile bin の max|dev|（BL-1 bin 退化バイアス解除）
+    "ece",  # D-05: Expected Calibration Error（Naeini 2015・重み付け平均）
+    "mce",  # D-05: Maximum Calibration Error（worst-case・MIN_BIN_COUNT ガード付き）
+]
+
+# SUM_P_BLOCK_THRESHOLD — D-02 構造的 BLOCK 条件2（sum(p) 著乖離）の閾値
+# §15.2 [2.7,3.3]/[1.8,2.2] から 30% 超違反で BLOCK（large/small いずれかの bucket）
+# REVIEW HIGH#5: 0.30 は仮置き・Plan 06-05 Wave 3 Step 3a で実データ violation_rate を
+# 計測し偽陽性 BLOCK を出さないか検証する。現データ LightGBM sum_p_mean=3.04 でほぼ 0% 想定。
+SUM_P_BLOCK_THRESHOLD: float = 0.30
+
+# COMPARABLE_BASELINES — D-02 構造的 BLOCK 条件1（baselines 全敗）の比較対象
+# BL-2 (NaN・single-class 未定義) / BL-3 (§14.2 caveat・同一情報条件でない市場暗示確率) は除外
+COMPARABLE_BASELINES: tuple[str, ...] = ("bl1", "bl4", "bl5")
 
 # BL-3 §14.2 注記 (同一情報条件の比較でない)
 BL3_MARKET_REFERENCE_NOTE = (
@@ -219,6 +243,20 @@ def compute_metrics(
         y_true_arr, y_pred_arr
     )
 
+    # Phase 6 (Plan 06-02) D-05 新指標: quantile_max_dev / ECE / MCE
+    # 事前登録 calibration_max_dev / _guarded は上記の通り不変（D-04・T-04-24）
+    metrics["quantile_max_dev"] = _compute_quantile_max_dev(y_true_arr, y_pred_arr)
+    metrics["ece"] = _compute_ece(
+        y_true_arr, y_pred_arr, strategy="quantile", n_bins=CALIBRATION_CURVE_BINS
+    )
+    metrics["mce"] = _compute_mce(
+        y_true_arr,
+        y_pred_arr,
+        strategy="quantile",
+        n_bins=CALIBRATION_CURVE_BINS,
+        min_bin_count=CALIBRATION_CURVE_MIN_BIN_COUNT,
+    )
+
     # review MEDIUM: sum(p) 診断注記
     metrics["sum_p_note"] = SUM_P_DIAGNOSTIC_NOTE
 
@@ -333,6 +371,213 @@ def _compute_calibration_max_dev_guarded(y_true: np.ndarray, y_pred: np.ndarray)
 
     devs = np.abs(mean_pred[keep_mask] - frac_pos[keep_mask])
     return float(np.max(devs))
+
+
+# ---------------------------------------------------------------------------
+# Phase 6 (Plan 06-02): 新規キャリブ指標ヘルパー（D-05・純 NumPy bit-identical）
+# 既存 _compute_calibration_max_dev / _compute_calibration_max_dev_guarded は一切変更しない
+# （D-04 事前登録指標不変・T-04-24 回避）。strategy='quantile' の bin_edges 構築は
+# np.unique(np.quantile(...)) で重複 edge を削除（BL-1 離散値対策・Pitfall 1）。
+# y_pred==1.0 は np.clip で最終 bin に（Pitfall 2・Specialist 指摘 (b) と同一パターン）。
+# 整列 assert で off-by-one 防止（Specialist 指摘 (c)）。
+# ---------------------------------------------------------------------------
+
+
+def _compute_calibration_curve_bins(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    *,
+    strategy: str,
+    n_bins: int = CALIBRATION_CURVE_BINS,
+    min_bin_count: int = CALIBRATION_CURVE_MIN_BIN_COUNT,
+) -> dict[str, np.ndarray]:
+    """bin ごとに (mean_pred, frac_pos, counts, bin_edges) を純 NumPy で計算（bit-identical）。
+
+    Phase 6 (Plan 06-02) 新規ヘルパー。既存 ``_compute_calibration_max_dev_guarded``
+    の binning パターン（np.linspace + digitize + bincount + clip）を切り出し・
+    ``strategy`` 引数で ``'uniform'`` と ``'quantile'`` を切替可能にする。
+
+    Parameters
+    ----------
+    y_true : np.ndarray
+        バイナリ真ラベル (0/1)。
+    y_pred : np.ndarray
+        予測確率・[0,1] 区間。
+    strategy : str
+        ``'uniform'``: ``np.linspace(0,1,n+1)`` で等幅 bin
+        （既存 ``_compute_calibration_max_dev_guarded`` と同一）。
+        ``'quantile'``: ``np.unique(np.quantile(y_pred, np.linspace(0,1,n+1)))`` で等頻度 bin。
+        重複 edge は ``np.unique`` で削除（BL-1 離散値対策・Pitfall 1）。
+    n_bins : int
+        bin 数（``CALIBRATION_CURVE_BINS=10`` がデフォルト）。
+    min_bin_count : int
+        ガード閾値（``CALIBRATION_CURVE_MIN_BIN_COUNT=30``・本ヘルパー自身はガードしないが・
+        呼出側 ``_compute_mce`` が counts 配列を使ってガードするため戻り値に含める）。
+
+    Returns
+    -------
+    dict[str, np.ndarray]
+        ``mean_pred`` / ``frac_pos`` / ``counts`` / ``bin_edges`` キー。
+        空でない bin のみ抽出（count > 0）。整列は assert で保証。
+        ``single-class`` の場合は空配列を返さず・呼出側で
+        ``len(np.unique(y_true))<2`` で NaN 判定する。
+        ``bin_edges`` は reference 用（実際に使用した境界値・重複削除後）。
+
+    Notes
+    -----
+    - 戻り値の ``counts`` 配列は ``min_bin_count`` によるガードを**行わない**。
+      ガードは呼出側（``_compute_mce`` 等）の責務。
+    - ``y_pred==1.0`` の out-of-range は ``np.clip`` で ``[0, n_bins_actual-1]`` に捕捉
+      （Specialist 指摘 (b)・既存 ``_compute_calibration_max_dev_guarded`` と同一パターン）。
+    """
+    if strategy == "uniform":
+        bin_edges = np.linspace(0.0, 1.0, n_bins + 1)
+    elif strategy == "quantile":
+        # 重複 edge を np.unique で削除（BL-1 離散値で多数の同値が発生する・Pitfall 1）
+        bin_edges = np.unique(np.quantile(y_pred, np.linspace(0.0, 1.0, n_bins + 1)))
+    else:
+        raise ValueError(f"_compute_calibration_curve_bins: unsupported strategy={strategy!r}")
+
+    n_bins_actual = len(bin_edges) - 1
+    if n_bins_actual < 1:
+        # bin が構築不能（全予測値が同一等）・空配列を返す
+        return {
+            "mean_pred": np.array([], dtype=float),
+            "frac_pos": np.array([], dtype=float),
+            "counts": np.array([], dtype=float),
+            "bin_edges": bin_edges,
+        }
+
+    # 境界値 1.0 が out-of-range になるのを防ぐため digitize 後に clip（Specialist 指摘 (b)）
+    bin_idx_full = np.digitize(y_pred, bins=bin_edges[1:-1], right=False)
+    bin_idx_clipped = np.clip(bin_idx_full, 0, n_bins_actual - 1)
+
+    y_true_f = y_true.astype(float)
+    counts_full = np.bincount(bin_idx_clipped, minlength=n_bins_actual).astype(float)
+    pos_sum_full = np.bincount(bin_idx_clipped, weights=y_true_f, minlength=n_bins_actual)
+    pred_sum_full = np.bincount(bin_idx_clipped, weights=y_pred, minlength=n_bins_actual)
+
+    # 空でない bin のみ抽出（count > 0）
+    nonempty_mask = counts_full > 0
+    counts = counts_full[nonempty_mask]
+    pos_sums = pos_sum_full[nonempty_mask]
+    pred_sums = pred_sum_full[nonempty_mask]
+
+    if len(counts) == 0:
+        return {
+            "mean_pred": np.array([], dtype=float),
+            "frac_pos": np.array([], dtype=float),
+            "counts": np.array([], dtype=float),
+            "bin_edges": bin_edges,
+        }
+
+    frac_pos = pos_sums / counts
+    mean_pred = pred_sums / counts
+
+    # 整列 assert（off-by-one 防止・Specialist 指摘 (c)）
+    assert len(counts) == len(frac_pos) == len(mean_pred), (
+        f"_compute_calibration_curve_bins: alignment mismatch "
+        f"len(counts)={len(counts)}, len(frac_pos)={len(frac_pos)}, "
+        f"len(mean_pred)={len(mean_pred)}"
+    )
+
+    return {
+        "mean_pred": mean_pred,
+        "frac_pos": frac_pos,
+        "counts": counts,
+        "bin_edges": bin_edges,
+    }
+
+
+def _compute_quantile_max_dev(
+    y_true: np.ndarray, y_pred: np.ndarray, *, n_bins: int = CALIBRATION_CURVE_BINS
+) -> float:
+    """quantile bin での worst-case max|frac_pos - mean_pred|（D-05・REVIEW C5: ガードなし）。
+
+    ``strategy='quantile'`` の bin で ``max|dev|`` を計算するが・**MIN_BIN_COUNT ガードなし**
+    （全 bin 対象）。事前登録 ``calibration_max_dev``（uniform・ガードなし）との対比を明確にする
+    ため・``_compute_mce``（MIN_BIN_COUNT ガード付き）とは別実装とする（METRIC_COLUMNS_EXTENDED
+    でも別列）。
+
+    single-class の場合は定義不可・NaN を返す。
+    """
+    if len(np.unique(y_true)) < 2:
+        return float("nan")
+    bins = _compute_calibration_curve_bins(y_true, y_pred, strategy="quantile", n_bins=n_bins)
+    if len(bins["counts"]) == 0:
+        return float("nan")
+    return float(np.max(np.abs(bins["frac_pos"] - bins["mean_pred"])))
+
+
+def _compute_ece(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    *,
+    strategy: str = "quantile",
+    n_bins: int = CALIBRATION_CURVE_BINS,
+) -> float:
+    """ECE = Σ(n_m/N) × |frac_pos - mean_pred|（D-05・Naeini 2015・重み付け平均）。
+
+    ``_compute_calibration_curve_bins`` を消費し・各 bin の ``|dev|`` をサンプル数で重み付け
+    した平均を返す（robust 指標・worst-case bin に支配されない）。
+
+    Parameters
+    ----------
+    strategy : str
+        ``'quantile'``（デフォルト・BL-1 bin 退化バイアス解除）または ``'uniform'``。
+    n_bins : int
+        bin 数（``CALIBRATION_CURVE_BINS=10`` がデフォルト）。
+
+    single-class の場合は定義不可・NaN を返す。空 bin の場合は NaN。
+    """
+    if len(np.unique(y_true)) < 2:
+        return float("nan")
+    bins = _compute_calibration_curve_bins(y_true, y_pred, strategy=strategy, n_bins=n_bins)
+    if len(bins["counts"]) == 0:
+        return float("nan")
+    n_total = float(len(y_pred))
+    devs = np.abs(bins["frac_pos"] - bins["mean_pred"])
+    return float(np.sum(bins["counts"] / n_total * devs))
+
+
+def _compute_mce(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    *,
+    strategy: str = "quantile",
+    n_bins: int = CALIBRATION_CURVE_BINS,
+    min_bin_count: int = CALIBRATION_CURVE_MIN_BIN_COUNT,
+) -> float:
+    """MCE = max|dev|（D-05・worst-case・MIN_BIN_COUNT ガード付き）。
+
+    ``_compute_calibration_curve_bins`` を消費し・``counts >= min_bin_count`` の bin のみ
+    ``max|dev|`` を計算する。全 bin が基準未満（残り 0 bin）の場合は NaN。
+
+    REVIEW C5: ``_compute_quantile_max_dev``（ガードなし）と定義を分離。本関数は
+    MIN_BIN_COUNT ガード付きの worst-case・極小サンプル bin の統計ノイズを除外する。
+
+    Parameters
+    ----------
+    strategy : str
+        ``'quantile'``（デフォルト）または ``'uniform'``。
+    n_bins : int
+        bin 数。
+    min_bin_count : int
+        ガード閾値（``CALIBRATION_CURVE_MIN_BIN_COUNT=30`` がデフォルト）。
+
+    single-class の場合は定義不可・NaN を返す。
+    """
+    if len(np.unique(y_true)) < 2:
+        return float("nan")
+    bins = _compute_calibration_curve_bins(
+        y_true, y_pred, strategy=strategy, n_bins=n_bins, min_bin_count=min_bin_count
+    )
+    if len(bins["counts"]) == 0:
+        return float("nan")
+    keep_mask = bins["counts"] >= min_bin_count
+    if not np.any(keep_mask):
+        return float("nan")
+    return float(np.max(np.abs(bins["frac_pos"][keep_mask] - bins["mean_pred"][keep_mask])))
 
 
 # ---------------------------------------------------------------------------
@@ -621,9 +866,12 @@ def evaluate_all_models(
 __all__ = [
     "SUM_P_BOUNDS",
     "METRIC_COLUMNS",
+    "METRIC_COLUMNS_EXTENDED",
     "CALIBRATION_CURVE_BINS",
     "CALIBRATION_CURVE_STRATEGY",
     "CALIBRATION_CURVE_MIN_BIN_COUNT",
+    "SUM_P_BLOCK_THRESHOLD",
+    "COMPARABLE_BASELINES",
     "BL3_MARKET_REFERENCE_NOTE",
     "BL_UNCALIBRATED_NOTE",
     "D04_SELECTION_CRITERION_NOTE",
@@ -633,4 +881,9 @@ __all__ = [
     "build_comparison_table",
     "write_eval_report",
     "evaluate_all_models",
+    # Phase 6 (Plan 06-02) 新規
+    "_compute_calibration_curve_bins",
+    "_compute_quantile_max_dev",
+    "_compute_ece",
+    "_compute_mce",
 ]
