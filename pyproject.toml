@@ -21,6 +21,8 @@ dependencies = [
     "pyyaml",
     "lightgbm==4.6.0",
     "catboost==1.2.10",
+    "plotly>=6.8.0",
+    "scipy>=1.17.1",
 ]
 
 [build-system]
