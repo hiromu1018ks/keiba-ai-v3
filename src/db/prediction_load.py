@@ -51,6 +51,7 @@ lightgbm 書込後 catboost 書込でも lightgbm 行が残る (review HIGH#1・
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 import pandas as pd
@@ -410,10 +411,157 @@ def load_predictions(
     return _idempotent_load_prediction(write_cur, rows, reader_role=reader_role)
 
 
+# ---------------------------------------------------------------------------
+# set_primary_model — 主モデル確定フラグの付与 (Phase 6 D-09)
+# ---------------------------------------------------------------------------
+
+
+def _canonicalize_as_of_datetime(as_of_datetime: Any) -> datetime:
+    """as_of_datetime を ``datetime.datetime`` に canonical 化 (REVIEW C11).
+
+    ISO8601 文字列・``datetime.datetime``・``pd.Timestamp`` のいずれかを受付・
+    ``pd.Timestamp(...).to_pydatetime()`` で正規化する。これにより timezone 表記差や
+    microsecond 表現差で WHERE 句が 0 行 UPDATE になる silent no-op を防止する
+    (REVIEW HIGH#7 / C11 の二重防御)。
+
+    ``tzinfo`` が付いている場合は UTC に正規化せずそのまま返す（DB 側の格納値が
+    naive ``timestamp`` の場合は UTC 解釈されるため・呼出側が DB 格納値と同じ表現で
+    渡すのが基本。本関数は timezone 正規化でなく表現の canonical 化のみ担当）。
+    """
+    if isinstance(as_of_datetime, datetime):
+        return as_of_datetime
+    if isinstance(as_of_datetime, pd.Timestamp):
+        return as_of_datetime.to_pydatetime()
+    if isinstance(as_of_datetime, str):
+        return pd.Timestamp(as_of_datetime).to_pydatetime()
+    raise TypeError(
+        f"as_of_datetime must be datetime/str/pd.Timestamp, got "
+        f"{type(as_of_datetime).__name__} (REVIEW C11 canonical parse)"
+    )
+
+
+def set_primary_model(
+    write_cur: Cursor,
+    *,
+    primary_model_type: str,
+    primary_model_version: str,
+    feature_snapshot_id: str,
+    as_of_datetime: Any,
+) -> None:
+    """主モデルの ``is_primary`` フラグを model_version scoped で設定する (Phase 6 D-09).
+
+    当該 ``feature_snapshot_id + as_of_datetime`` スコープで:
+      1. 全行の ``is_primary`` を ``false`` にリセット
+      2. 選定 ``model_type + model_version`` の行を ``is_primary = true`` に UPDATE
+
+    **設計方針 (D-09 / staging-swap idiom と同方針):**
+      - **両モデル行は保持**: ``is_primary`` フラグのみ UPDATE し・行を DELETE しない
+        （silent 履歴破壊防止・他 model_type/version の行はそのまま残る）。
+      - **idempotent**: 2回実行で同一状態になる（reset → true の2段 UPDATE が決定論的）。
+      - **model_version scoped**: ``feature_snapshot_id + as_of_datetime`` で WHERE を絞り・
+        全行 UPDATE でない（監査性担保・他 snapshot の is_primary に影響しない）。
+      - **SQL injection 防御 (T-06-09)**: psycopg.sql.SQL + Placeholder で parameterized
+        query を構築・文字列組み立て禁止（既存 ``_idempotent_load_prediction`` と同方針）。
+
+    **REVIEW HIGH#7 (post-condition assert・silent no-op 防止):**
+      - Step 2 で 0 行 UPDATE の場合は ``RuntimeError`` を raise（model_version /
+        as_of_datetime の timezone/microsecond ズレ・存在しないスコープ指定を即時検知）。
+      - 完了後に SELECT で post-condition を検証: 当該スコープで ``is_primary = true``
+        が丁度1つの model_type のみで・かつ true 行数 >= 1。
+
+    Parameters
+    ----------
+    write_cur : Cursor
+        書込用 cursor（``make_pool(role='etl')`` 由来・同一トランザクション内）。
+    primary_model_type : str
+        主モデルとして選定した ``model_type``（``"lightgbm"`` / ``"catboost"`` / ``"logreg"``）。
+    primary_model_version : str
+        主モデルの ``model_version``（``make_model_version`` 形式）。
+    feature_snapshot_id : str
+        対象スコープの ``feature_snapshot_id``。
+    as_of_datetime : datetime | str | pd.Timestamp
+        対象スコープの ``as_of_datetime``。ISO8601 文字列・datetime・pd.Timestamp の
+        いずれか（``_canonicalize_as_of_datetime`` で正規化・REVIEW C11）。
+
+    Raises
+    ------
+    RuntimeError
+        Step 2 で 0 行 UPDATE（model_version/as_of_datetime ズレ）の時、または
+        post-condition（``is_primary=true`` が1 model_type のみ・>=1 行）違反の時
+        （REVIEW HIGH#7）。
+    TypeError
+        ``as_of_datetime`` が datetime/str/pd.Timestamp のいずれでもない時 (REVIEW C11)。
+    """
+    # REVIEW C11: as_of_datetime を canonical 化（timezone/microsecond ズレで 0 行 UPDATE になるのを防止）
+    ao_dt = _canonicalize_as_of_datetime(as_of_datetime)
+    fs_id = str(feature_snapshot_id)
+
+    # --- Step 1: 当該スコープの全行を is_primary=false にリセット ---
+    reset_sql = SQL(
+        "UPDATE prediction.fukusho_prediction SET is_primary = false "
+        "WHERE feature_snapshot_id = {fs} AND as_of_datetime = {ao}"
+    ).format(fs=Placeholder(), ao=Placeholder())
+    write_cur.execute(reset_sql, (fs_id, ao_dt))
+
+    # --- Step 2: 選定 model_type+model_version の行を is_primary=true に UPDATE ---
+    set_true_sql = SQL(
+        "UPDATE prediction.fukusho_prediction SET is_primary = true "
+        "WHERE model_type = {mt} AND model_version = {mv} "
+        "AND feature_snapshot_id = {fs} AND as_of_datetime = {ao}"
+    ).format(mt=Placeholder(), mv=Placeholder(), fs=Placeholder(), ao=Placeholder())
+    write_cur.execute(
+        set_true_sql,
+        (primary_model_type, primary_model_version, fs_id, ao_dt),
+    )
+    step2_rowcount = write_cur.rowcount
+
+    # REVIEW HIGH#7 post-condition: 0 行 UPDATE は RuntimeError（silent no-op 防止）
+    if step2_rowcount == 0:
+        raise RuntimeError(
+            f"set_primary_model: 0 rows updated for "
+            f"model_type={primary_model_type!r} "
+            f"model_version={primary_model_version!r} "
+            f"feature_snapshot_id={fs_id!r} "
+            f"as_of_datetime={ao_dt!r}. "
+            "model_version / as_of_datetime の指定・timezone/microsecond ズレを確認"
+            " (REVIEW HIGH#7: silent no-op prevented)."
+        )
+
+    # --- Step 3: post-condition 検証（is_primary=true が1 model_type のみ・>=1 行） ---
+    verify_sql = SQL(
+        "SELECT model_type, count(*) FILTER (WHERE is_primary) "
+        "FROM prediction.fukusho_prediction "
+        "WHERE feature_snapshot_id = {fs} AND as_of_datetime = {ao} "
+        "GROUP BY model_type"
+    ).format(fs=Placeholder(), ao=Placeholder())
+    write_cur.execute(verify_sql, (fs_id, ao_dt))
+    groups = {mt: int(n) for mt, n in write_cur.fetchall()}
+
+    true_model_types = [mt for mt, n in groups.items() if n > 0]
+    if len(true_model_types) != 1:
+        raise RuntimeError(
+            f"set_primary_model: post-condition violated — is_primary=true の model_type が"
+            f" {len(true_model_types)} 種類ある（1種類期待）: true_model_types={true_model_types}, "
+            f"groups={groups} (REVIEW HIGH#7)."
+        )
+    if true_model_types[0] != primary_model_type:
+        raise RuntimeError(
+            f"set_primary_model: post-condition violated — is_primary=true の model_type が"
+            f" {true_model_types[0]!r}（期待: {primary_model_type!r}）, groups={groups} "
+            "(REVIEW HIGH#7)."
+        )
+    if groups[primary_model_type] < 1:
+        raise RuntimeError(
+            f"set_primary_model: post-condition violated — is_primary=true 行数が 0 "
+            f"(groups={groups}, REIVEW HIGH#7)."
+        )
+
+
 __all__ = [
     "PREDICTION_COLUMNS",
     "_PREDICTION_TABLE",
     "_df_to_prediction_tuples",
     "_idempotent_load_prediction",
     "load_predictions",
+    "set_primary_model",
 ]

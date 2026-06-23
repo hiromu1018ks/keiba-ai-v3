@@ -26,7 +26,7 @@ from src.db.schema import (
     PREDICTION_ADD_IS_PRIMARY_SQL,
     PREDICTION_TABLE_DDL,
 )
-from src.db.prediction_load import _df_to_prediction_tuples
+from src.db.prediction_load import _df_to_prediction_tuples, set_primary_model
 from src.model.predict import PREDICTION_COLUMNS
 
 
@@ -81,6 +81,43 @@ def _delete_test_scope(write_cur, model_version: str) -> None:
         "DELETE FROM prediction.fukusho_prediction WHERE model_version = %s",
         (model_version,),
     )
+
+
+def _insert_rows(write_cur, rows: list[tuple]) -> None:
+    """PREDICTION_COLUMNS 順の tuple list を直接 INSERT する (staging-swap 経由でなく)。"""
+    cols_sql = ", ".join(PREDICTION_COLUMNS)
+    placeholders = ", ".join(["%s"] * len(PREDICTION_COLUMNS))
+    write_cur.executemany(
+        f"INSERT INTO prediction.fukusho_prediction ({cols_sql}) VALUES ({placeholders})",
+        rows,
+    )
+
+
+def _seed_two_models(write_cur, tag: str, as_of_dt: datetime, snapshot_id: str = "test_snap"):
+    """lightgbm + catboost の合成 prediction 行を INSERT し teardown 用 tag を返す。"""
+    rows_raw = [
+        _make_prediction_row(
+            model_type="lightgbm",
+            model_version=tag,
+            feature_snapshot_id=snapshot_id,
+            as_of_datetime=as_of_dt,
+            umaban=1,
+            kettonum=101,
+            is_primary=False,
+        ),
+        _make_prediction_row(
+            model_type="catboost",
+            model_version=tag,
+            feature_snapshot_id=snapshot_id,
+            as_of_datetime=as_of_dt,
+            umaban=1,
+            kettonum=101,
+            is_primary=False,
+        ),
+    ]
+    df = pd.DataFrame(rows_raw)
+    tuples = _df_to_prediction_tuples(df)
+    _insert_rows(write_cur, tuples)
 
 
 # ---------------------------------------------------------------------------
@@ -347,3 +384,249 @@ def test_is_primary_check_constraint(write_cur):
         "CHECK 制約 prediction_is_primary_domain が存在しない（REVIEW HIGH#8 二重防御）"
     )
     assert row[0] == "prediction_is_primary_domain"
+
+
+# ===========================================================================
+# Task 2: set_primary_model — DB 統合テスト (requires_db)
+# (D-09 / REVIEW HIGH#7 post-condition / REVIEW C11 canonical parse)
+# ===========================================================================
+
+
+def test_canonicalize_as_of_datetime_accepts_str_datetime_timestamp():
+    """_canonicalize_as_of_datetime が str/datetime/pd.Timestamp を受け入れる (REVIEW C11)。"""
+    from src.db.prediction_load import _canonicalize_as_of_datetime
+
+    # datetime
+    dt = datetime(2026, 6, 23, 12, 0, 0, tzinfo=UTC)
+    assert _canonicalize_as_of_datetime(dt) == dt
+    # pd.Timestamp
+    ts = pd.Timestamp("2026-06-23 12:00:00")
+    result = _canonicalize_as_of_datetime(ts)
+    assert isinstance(result, datetime)
+    assert result == ts.to_pydatetime()
+    # str (ISO8601)
+    result_str = _canonicalize_as_of_datetime("2026-06-23T12:00:00")
+    assert isinstance(result_str, datetime)
+    assert result_str == datetime(2026, 6, 23, 12, 0, 0)
+    # 不正型は TypeError
+    with pytest.raises(TypeError, match="as_of_datetime must be"):
+        _canonicalize_as_of_datetime(12345)  # type: ignore[arg-type]
+
+
+@pytest.mark.requires_db
+def test_set_primary_model_basic(write_cur):
+    """lightgbm を主モデルに設定 → lightgbm=true / catboost=false (D-09)。"""
+    tag = _unique_test_tag()
+    ao_dt = datetime(2026, 6, 23, 12, 0, 0, tzinfo=UTC)
+    try:
+        _seed_two_models(write_cur, tag, ao_dt)
+        set_primary_model(
+            write_cur,
+            primary_model_type="lightgbm",
+            primary_model_version=tag,
+            feature_snapshot_id="test_snap",
+            as_of_datetime=ao_dt,
+        )
+        write_cur.execute(
+            "SELECT model_type, is_primary FROM prediction.fukusho_prediction "
+            "WHERE model_version = %s ORDER BY model_type",
+            (tag,),
+        )
+        results = dict(write_cur.fetchall())
+        assert results.get("lightgbm") is True, f"lightgbm is_primary != true: {results}"
+        assert results.get("catboost") is False, f"catboost is_primary != false: {results}"
+    finally:
+        _delete_test_scope(write_cur, tag)
+
+
+@pytest.mark.requires_db
+def test_set_primary_model_idempotent(write_cur):
+    """2回連続実行で同一状態 (idempotent・D-09・staging-swap と同方針)。"""
+    tag = _unique_test_tag()
+    ao_dt = datetime(2026, 6, 23, 12, 0, 0, tzinfo=UTC)
+    try:
+        _seed_two_models(write_cur, tag, ao_dt)
+        for _ in range(2):
+            set_primary_model(
+                write_cur,
+                primary_model_type="lightgbm",
+                primary_model_version=tag,
+                feature_snapshot_id="test_snap",
+                as_of_datetime=ao_dt,
+            )
+        write_cur.execute(
+            "SELECT model_type, is_primary FROM prediction.fukusho_prediction "
+            "WHERE model_version = %s ORDER BY model_type",
+            (tag,),
+        )
+        results = dict(write_cur.fetchall())
+        assert results == {"lightgbm": True, "catboost": False}, (
+            f"2回実行で同一状態でない: {results} (idempotent 違反)"
+        )
+    finally:
+        _delete_test_scope(write_cur, tag)
+
+
+@pytest.mark.requires_db
+def test_set_primary_model_both_models_retained(write_cur):
+    """is_primary 更新後も両モデル行が保持される (silent 履歴破壊防止・D-09)。"""
+    tag = _unique_test_tag()
+    ao_dt = datetime(2026, 6, 23, 12, 0, 0, tzinfo=UTC)
+    try:
+        _seed_two_models(write_cur, tag, ao_dt)
+        write_cur.execute(
+            "SELECT count(*) FROM prediction.fukusho_prediction WHERE model_version = %s",
+            (tag,),
+        )
+        before = write_cur.fetchone()[0]
+        set_primary_model(
+            write_cur,
+            primary_model_type="lightgbm",
+            primary_model_version=tag,
+            feature_snapshot_id="test_snap",
+            as_of_datetime=ao_dt,
+        )
+        write_cur.execute(
+            "SELECT count(*) FROM prediction.fukusho_prediction WHERE model_version = %s",
+            (tag,),
+        )
+        after = write_cur.fetchone()[0]
+        assert before == after == 2, (
+            f"行数が変わった: before={before} after={after} (silent 履歴破壊・D-09 違反)"
+        )
+        write_cur.execute(
+            "SELECT count(DISTINCT model_type) FROM prediction.fukusho_prediction "
+            "WHERE model_version = %s",
+            (tag,),
+        )
+        distinct_types = write_cur.fetchone()[0]
+        assert distinct_types == 2, (
+            f"model_type が {distinct_types} 種類しか無い (両モデル保持違反)"
+        )
+    finally:
+        _delete_test_scope(write_cur, tag)
+
+
+@pytest.mark.requires_db
+def test_set_primary_model_scoped(write_cur):
+    """異なる feature_snapshot_id の行は is_primary が変更されない (model_version scoped・全行 UPDATE でない)。"""
+    tag = _unique_test_tag()
+    ao_dt = datetime(2026, 6, 23, 12, 0, 0, tzinfo=UTC)
+    try:
+        # scope A: feature_snapshot_id='snap_A' (2行)
+        _seed_two_models(write_cur, tag, ao_dt, snapshot_id="snap_A")
+        # scope B: feature_snapshot_id='snap_B' (2行・is_primary=false のまま期待)
+        _seed_two_models(write_cur, tag, ao_dt, snapshot_id="snap_B")
+        # scope A だけ lightgbm を主モデルに
+        set_primary_model(
+            write_cur,
+            primary_model_type="lightgbm",
+            primary_model_version=tag,
+            feature_snapshot_id="snap_A",
+            as_of_datetime=ao_dt,
+        )
+        write_cur.execute(
+            "SELECT model_type, is_primary FROM prediction.fukusho_prediction "
+            "WHERE model_version = %s AND feature_snapshot_id = %s ORDER BY model_type",
+            (tag, "snap_A"),
+        )
+        scope_a = dict(write_cur.fetchall())
+        assert scope_a == {"lightgbm": True, "catboost": False}, (
+            f"scope A が正しく更新されていない: {scope_a}"
+        )
+        write_cur.execute(
+            "SELECT is_primary FROM prediction.fukusho_prediction "
+            "WHERE model_version = %s AND feature_snapshot_id = %s",
+            (tag, "snap_B"),
+        )
+        scope_b = [r[0] for r in write_cur.fetchall()]
+        assert all(v is False for v in scope_b), (
+            f"scope B が意図せず変更された (scoped 違反): {scope_b}"
+        )
+    finally:
+        _delete_test_scope(write_cur, tag)
+
+
+@pytest.mark.requires_db
+def test_set_primary_model_switch(write_cur):
+    """lightgbm→catboost 切替で lightgbm=false catboost=true (再選定可能・D-09)。"""
+    tag = _unique_test_tag()
+    ao_dt = datetime(2026, 6, 23, 12, 0, 0, tzinfo=UTC)
+    try:
+        _seed_two_models(write_cur, tag, ao_dt)
+        set_primary_model(
+            write_cur,
+            primary_model_type="lightgbm",
+            primary_model_version=tag,
+            feature_snapshot_id="test_snap",
+            as_of_datetime=ao_dt,
+        )
+        set_primary_model(
+            write_cur,
+            primary_model_type="catboost",
+            primary_model_version=tag,
+            feature_snapshot_id="test_snap",
+            as_of_datetime=ao_dt,
+        )
+        write_cur.execute(
+            "SELECT model_type, is_primary FROM prediction.fukusho_prediction "
+            "WHERE model_version = %s ORDER BY model_type",
+            (tag,),
+        )
+        results = dict(write_cur.fetchall())
+        assert results == {"lightgbm": False, "catboost": True}, (
+            f"主モデル切替が反映されていない: {results}"
+        )
+    finally:
+        _delete_test_scope(write_cur, tag)
+
+
+@pytest.mark.requires_db
+def test_set_primary_model_raises_on_zero_rows(write_cur):
+    """存在しない model_version で 0 行 UPDATE → RuntimeError (REVIEW HIGH#7・silent no-op 防止)。"""
+    nonexistent_version = f"nonexistent_{uuid.uuid4().hex[:12]}"
+    ao_dt = datetime(2026, 6, 23, 12, 0, 0, tzinfo=UTC)
+    with pytest.raises(RuntimeError, match="0 rows|set_primary_model"):
+        set_primary_model(
+            write_cur,
+            primary_model_type="lightgbm",
+            primary_model_version=nonexistent_version,
+            feature_snapshot_id="test_snap",
+            as_of_datetime=ao_dt,
+        )
+
+
+@pytest.mark.requires_db
+def test_set_primary_model_post_condition_one_true_per_model_type(write_cur):
+    """set_primary_model 完了後・is_primary=true が1 model_type のみ・かつ>=1 行 (REVIEW HIGH#7)。"""
+    tag = _unique_test_tag()
+    ao_dt = datetime(2026, 6, 23, 12, 0, 0, tzinfo=UTC)
+    try:
+        _seed_two_models(write_cur, tag, ao_dt)
+        set_primary_model(
+            write_cur,
+            primary_model_type="lightgbm",
+            primary_model_version=tag,
+            feature_snapshot_id="test_snap",
+            as_of_datetime=ao_dt,
+        )
+        write_cur.execute(
+            "SELECT model_type, count(*) FILTER (WHERE is_primary) "
+            "FROM prediction.fukusho_prediction "
+            "WHERE feature_snapshot_id = %s AND as_of_datetime = %s "
+            "GROUP BY model_type",
+            ("test_snap", ao_dt),
+        )
+        groups = {r[0]: int(r[1]) for r in write_cur.fetchall()}
+        true_model_types = [mt for mt, n in groups.items() if n > 0]
+        assert len(true_model_types) == 1, (
+            f"is_primary=true の model_type が1種類でない: {true_model_types} (groups={groups})"
+        )
+        assert true_model_types[0] == "lightgbm", (
+            f"is_primary=true の model_type が lightgbm でない: {true_model_types[0]}"
+        )
+        assert groups["lightgbm"] >= 1, (
+            f"is_primary=true 行数が 0: {groups} (post-condition 違反)"
+        )
+    finally:
+        _delete_test_scope(write_cur, tag)
