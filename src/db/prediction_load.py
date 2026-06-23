@@ -91,6 +91,8 @@ _PK_ORDER_COLUMNS = [
 _FLOAT_COLS = {"p_fukusho_hit"}
 # int 型の PK 列
 _INT_COLS = {"year", "kaiji", "racenum", "umaban", "kettonum"}
+# bool 型の列 (Phase 6 D-09 / REVIEW HIGH#8: None→False 正規化・NOT NULL 整合)
+_BOOL_COLS = {"is_primary"}
 
 
 def _is_na(v: Any) -> bool:
@@ -116,6 +118,7 @@ def _df_to_prediction_tuples(df: pd.DataFrame) -> list[tuple]:
       - ``year`` / ``kaiji`` / ``racenum`` / ``umaban`` / ``kettonum`` → int
       - ``p_fukusho_hit`` → float
       - ``race_date`` → date (pd.Timestamp → .date())
+      - ``is_primary`` → bool (None→False 正規化・Phase 6 D-09 / REVIEW HIGH#8)
 
     Parameters
     ----------
@@ -155,6 +158,19 @@ def _df_to_prediction_tuples(df: pd.DataFrame) -> list[tuple]:
                     vals.append(None)
                 else:
                     vals.append(float(v))
+            elif c in _BOOL_COLS:
+                # Phase 6 D-09 (REVIEW HIGH#8): None/NaN は False に正規化（NOT NULL 整合）。
+                # True/False は bool(v) で正規化。その他の型は厳格に ValueError（silent fallback 禁止）。
+                if v is None or _is_na(v):
+                    vals.append(False)
+                elif isinstance(v, bool):
+                    vals.append(bool(v))
+                else:
+                    raise ValueError(
+                        f"_df_to_prediction_tuples: bool col {c!r} got non-bool value "
+                        f"{v!r} (type={type(v).__name__}). Expected True/False/None "
+                        "(REVIEW HIGH#8: is_primary NOT NULL DEFAULT false)."
+                    )
             elif isinstance(v, str):
                 vals.append(v if v != "" else None)
             else:

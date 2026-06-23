@@ -70,6 +70,9 @@ def _make_synthetic_prediction_df(
                 "p_fukusho_hit": 0.1 + 0.05 * i,  # [0.1, 0.55] 範囲
                 "race_date": pd.Timestamp("2024-01-01").date(),
                 "split": "test",
+                # Phase 6 D-09 (Plan 06-04): is_primary 列追加に伴う Pitfall 4 回帰修正。
+                # 予測生成時は False（set_primary_model で True に UPDATE・本テストは load 経路確認）。
+                "is_primary": False,
             }
         )
     df = pd.DataFrame(rows)

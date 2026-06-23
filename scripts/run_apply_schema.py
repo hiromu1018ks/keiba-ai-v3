@@ -121,6 +121,9 @@ def apply(dsn: str, reader: str, etl: str, sql_text: str, dry_run: bool) -> None
                 # Phase 4: prediction_table DDL を GRANT の直前に適用
                 # （schema.py APPLY_ORDER と同期・review HIGH#1/Cross-Plan #3 の11カラム PK + CHECK 制約）
                 ("prediction_table", schema_module.PREDICTION_TABLE_DDL),
+                # Phase 6 Plan 06-04 Rule 3 fix: is_primary 列追加 ALTER も適用
+                # （schema.py APPLY_ORDER と同期・REVIEW HIGH#8 NOT NULL DEFAULT false 明示）
+                ("prediction_add_is_primary", schema_module.PREDICTION_ADD_IS_PRIMARY_SQL),
                 # Phase 5: backtest_table DDL も GRANT の直前に適用
                 # （schema.py APPLY_ORDER と同期・BACK-03 backtest_id 8カラム PK + CHECK・T-05-13）
                 ("backtest_table", schema_module.BACKTEST_TABLE_DDL),

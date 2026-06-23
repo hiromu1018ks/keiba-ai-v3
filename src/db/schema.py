@@ -94,6 +94,35 @@ COMMENT ON TABLE prediction.fukusho_prediction IS
 """
 
 # ---------------------------------------------------------------------------
+# Phase 6 Plan 06-04: prediction.fukusho_prediction へ is_primary 列追加 ALTER
+# (D-09 / REVIEW HIGH#8: NOT NULL DEFAULT false 明示 / CHECK は NOT NULL の二重防御)
+#
+# - idempotent ALTER（ADD COLUMN IF NOT EXISTS / DROP CONSTRAINT IF EXISTS + ADD）
+# - boolean NOT NULL DEFAULT false（REVIEW HIGH#8・CHECK 制約 is_primary IN (true,false) は
+#   PostgreSQL の boolean 型に対しては NULL 許容を禁止しないvacuous な制約だが・
+#   NOT NULL と併用することで「主モデルフラグは true/false いずれか必須」の二重防御として機能。
+#   C16 注記: 実質的な NULL 拒否は NOT NULL 制約が担う）
+# - GRANT は既存 GRANT_ETL_SQL（lines 248-253）が prediction スキーマの
+#   SELECT/INSERT/UPDATE/DELETE/TRUNCATE を etl ロールに付与済・is_primary UPDATE に
+#   追加権限不要。reader も SELECT 済（lines 222-224）。
+# ---------------------------------------------------------------------------
+PREDICTION_ADD_IS_PRIMARY_SQL = """
+ALTER TABLE prediction.fukusho_prediction
+    ADD COLUMN IF NOT EXISTS is_primary boolean NOT NULL DEFAULT false;
+ALTER TABLE prediction.fukusho_prediction
+    DROP CONSTRAINT IF EXISTS prediction_is_primary_domain;
+ALTER TABLE prediction.fukusho_prediction
+    ADD CONSTRAINT prediction_is_primary_domain CHECK (is_primary IN (true, false));
+COMMENT ON COLUMN prediction.fukusho_prediction.is_primary IS
+    'Phase 6 D-09: 主モデル確定フラグ. 選定モデル=true/未選定=false. '
+    'NOT NULL DEFAULT false (REVIEW HIGH#8 明示). '
+    'CHECK 制約 prediction_is_primary_domain は NOT NULL の二重防御 (REVIEW C16). '
+    'etl ロールで model_type+model_version+feature_snapshot_id+as_of_datetime スコープ UPDATE '
+    '(src/db/prediction_load.py::set_primary_model・0 行 UPDATE は RuntimeError post-condition). '
+    'GRANT: reader SELECT / etl SELECT+INSERT+UPDATE+DELETE は GRANT_ETL_SQL で既に付与済.';
+"""
+
+# ---------------------------------------------------------------------------
 # Phase 5 backtest.fukusho_backtest テーブル DDL（BACK-03 / D-03 / §16.2 / §19.1）
 #
 # PK は backtest_id + 7カラム RACE_KEY (year, jyocd, kaiji, nichiji, racenum, umaban, kettonum)
@@ -297,6 +326,9 @@ APPLY_ORDER = [
     # Phase 4: prediction_table DDL は GRANT の直前に適用（CREATE SCHEMA で prediction
     # スキーマ自体は既に作成済・GRANT が GRANT SELECT ON ALL TABLES で本テーブルを拾えるように）
     ("prediction_table", PREDICTION_TABLE_DDL),
+    # Phase 6 Plan 06-04: is_primary 列追加 ALTER（idempotent・REVIEW HIGH#8 NOT NULL 明示）。
+    # prediction_table の直後・backtest_table の前（GRANT が両テーブルを拾うように）。
+    ("prediction_add_is_primary", PREDICTION_ADD_IS_PRIMARY_SQL),
     # Phase 5: backtest_table DDL も GRANT の直前に適用（CREATE SCHEMA で backtest
     # スキーマ自体は既に作成済・GRANT が GRANT SELECT ON ALL TABLES で本テーブルを拾えるように）
     ("backtest_table", BACKTEST_TABLE_DDL),
@@ -320,6 +352,7 @@ __all__ = [
     "ALTER_ETL_PASSWORD_TEMPLATE",
     "ALTER_READER_PASSWORD_TEMPLATE",
     "PREDICTION_TABLE_DDL",
+    "PREDICTION_ADD_IS_PRIMARY_SQL",
     "BACKTEST_TABLE_DDL",
     "APPLY_ORDER",
 ]

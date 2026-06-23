@@ -54,11 +54,12 @@ import numpy as np
 import pandas as pd
 
 # ---------------------------------------------------------------------------
-# 定数 — schema.py PREDICTION_TABLE_DDL の列順と 1:1 (review HIGH#1: 11カラム PK)
+# 定数 — schema.py PREDICTION_TABLE_DDL + PREDICTION_ADD_IS_PRIMARY_SQL の列順と 1:1
+# (review HIGH#1: 11カラム PK / Phase 6 D-09: is_primary 末尾追加)
 # ---------------------------------------------------------------------------
-# provenance (5) + PK RACE_KEY (7) + 予測値 (1) + 補助メタ (2) = 15 列
-# schema.py の PREDICTION_TABLE_DDL の定義順と完全一致すること (prediction_load.py が
-# この順序で INSERT する)。
+# provenance (5) + PK RACE_KEY (7) + 予測値 (1) + 補助メタ (2) + is_primary (1) = 16 列
+# schema.py の PREDICTION_TABLE_DDL + PREDICTION_ADD_IS_PRIMARY_SQL の定義順と完全一致する
+# こと (prediction_load.py がこの順序で INSERT する・Pitfall 4 3ファイル連鎖)。
 PREDICTION_COLUMNS: list[str] = [
     # provenance (§19.1 再現性・NOT NULL)
     "model_type",
@@ -79,6 +80,9 @@ PREDICTION_COLUMNS: list[str] = [
     # 補助メタ (Phase 5/6/7 が参照)
     "race_date",
     "split",
+    # Phase 6 D-09 追加（bool・NOT NULL DEFAULT false・予測生成時は False で正規化・
+    # Phase 6 set_primary_model で True に UPDATE・REVIEW HIGH#8）
+    "is_primary",
 ]
 
 # D-10 model_type → short mapping (review HIGH#4 / Cycle 3 NEW-4)
@@ -271,6 +275,10 @@ def predict_p_fukusho(
     df["p_fukusho_hit"] = pred_series.values
     df["race_date"] = race_df["race_date"].values
     df["split"] = split_label
+    # Phase 6 D-09 (REVIEW HIGH#8): 予測生成時は主モデル未確定のため is_primary=False で正規化。
+    # NOT NULL DEFAULT false 制約と整合し・DB INSERT で NOT NULL 違反にならない。
+    # 主モデル確定は set_primary_model が UPDATE で行う（本関数は予測時の初期化のみ）。
+    df["is_primary"] = False
 
     # PREDICTION_COLUMNS 列順に整列
     df = df[list(PREDICTION_COLUMNS)]
