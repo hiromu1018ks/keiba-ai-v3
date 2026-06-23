@@ -493,3 +493,16 @@ CYCLE_SUMMARY: current_high=0 current_actionable=1
 
 - current_high=0: cycle-1 の 8 HIGH（cycle 2 で FULLY RESOLVED）および cycle-2 の改訂が導入した新規 HIGH ともにゼロ。Codex 独立レビューでも Risk LOW・regression なし。
 - current_actionable=1: N3（race_id_split_disjoint check が test-only 読込の上で vacuous になる可能性・MEDIUM・検証品質）。N4（test 名 misnomer）は INFO のため actionable に含めず。N3 は HIGH blocker でなく Phase 6 は新規リークを導入しないため実行ラウンドトリップまたは軽微な PLAN 06-05 追記で解決可能。
+
+---
+
+## N3 Disposition — Resolved (manual fix after cycle-3 escalation, commit 8a8f440)
+
+ユーザーが cycle-3 escalation gate で「N3 を修正して収束」を選択。§8.4（race_id train/test またぎ禁止）は Core Value 聖域のため、vacuous check（常時 disjoint=True）を真の disjoint 検証に修正:
+
+- **06-05 Step 1:** split_integrity_df（`SELECT DISTINCT race_key, split FROM prediction ... WHERE split IN ('train','val','test')`）を追加。評価本体・指標計算は引き続き test-only。
+- **06-05 Step 4:** split_integrity_df を用い train/val と test の race_key 集合の disjoint を確認。両 split 非空の場合のみ真の検証・片方が空（該当 split 行なし）なら `race_id_split_disjoint="N/A: split データ不足・Phase 4 GroupTimeSeriesSplit 担保"` と明示記録（常時 True の vacuous check を排除）。
+- **06-05 Test 9:** 合成 fixture に train/val/test 全 split の prediction 行を含め・disjoint=True / 同一 race_key で False / 空 split で "N/A" の3ケースを検証。
+- **06-05 L171/L294:** reproducibility_checks の型を `bool|"N/A"` に更新。
+
+**結果: current_actionable=0**（HIGH=0・actionable=0）。Phase 6 計画は収束完了。
