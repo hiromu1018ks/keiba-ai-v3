@@ -41,6 +41,7 @@ Python date object / object dtype / datetime64[ns] のいずれでも AttributeE
 from __future__ import annotations
 
 import json
+import math
 import warnings
 from pathlib import Path
 from typing import Any
@@ -88,6 +89,27 @@ SEGMENT_AXES: dict[str, str] = {
 
 # segment 欠損値ラベル（banding 関数で NaN をこのラベルに変換）
 _MISSING_LABEL = "__MISSING__"
+
+
+def _sanitize_nan_to_null(obj: Any) -> Any:
+    """dict/list/float 再帰的に走査し NaN/Inf を None に正規化する（RFC 8259 strict JSON 化）。
+
+    segment scalar はサンプル不足（MIN_BIN_COUNT 未満・bin 未構築）で NaN になる場合がある
+    （例: ``odds_band.__MISSING__`` / ``entry_count.6.0``）。Python json.dumps はデフォルトで
+    NaN を ``NaN`` リテラルとして出力するが・これは RFC 8259 strict 仕様違反で Phase 7 Streamlit
+    や外部パーサで失敗するリスクがある。NaN は「データなし」の正しい意味論なので null に正規化する。
+
+    ``allow_nan=False`` と組み合わせ・変換漏れがあれば json.dumps が ValueError で fail-loud。
+    """
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_nan_to_null(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_nan_to_null(v) for v in obj]
+    return obj
 
 
 # ---------------------------------------------------------------------------
@@ -459,19 +481,26 @@ def write_segment_reports(
     plotly_min_js_path = out_dir_obj / "plotly.min.js"
 
     for axis_name, segment_results in all_segment_results.items():
-        # JSON（byte-reproducible・sort_keys=True）
+        # JSON（byte-reproducible・sort_keys=True・RFC 8259 strict）
+        # segment scalar はサンプル不足で NaN になる場合がある（odds_band.__MISSING__ 等）。
+        # NaN は strict JSON 仕様違反のため null に正規化（run_evaluation._sanitize_nan_to_null と同一契約）。
         json_payload_dict = {
             "axis_name": axis_name,
             "segments": [
                 {
                     "segment_value": seg_val,
-                    "curve": data.get("curve", {}),
-                    "scalar": data.get("scalar", {}),
+                    "curve": _sanitize_nan_to_null(data.get("curve", {})),
+                    "scalar": _sanitize_nan_to_null(data.get("scalar", {})),
                 }
                 for seg_val, data in sorted(segment_results.items())
             ],
         }
-        json_payload = json.dumps(json_payload_dict, sort_keys=True, ensure_ascii=False)
+        json_payload = json.dumps(
+            json_payload_dict,
+            sort_keys=True,
+            ensure_ascii=False,
+            allow_nan=False,  # 変換漏れがあれば fail-loud で検出
+        )
         json_path = out_dir_obj / f"{axis_name}.json"
         _atomic_write_text(json_path, json_payload)
 

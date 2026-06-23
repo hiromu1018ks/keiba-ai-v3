@@ -43,22 +43,22 @@
 
 ## 主モデル比較表（全指標）
 
-| model_name | brier | logloss | auc | sum_p_mean | sum_p_median | sum_p_p10 | sum_p_p90 | calibration_max_dev | calibration_max_dev_guarded | market_reference | bl_calib_note | d04_selection_criterion | bt_recovery_rate | bt_profit_loss | bt_max_drawdown | bt_representative_policy |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| bl1 | 0.169530 | 0.521015 | 0.573953 | 2.958365 | 3.000000 | 3.000000 | 3.000000 | 0.001426 | nan |  |  | D-04 事前登録: Calibration 重視 (calibration_max_dev + sum(p) 適合度を主要・brier/logloss 次点・auc 参考)。Phase 6 で最終選定基準として採用 | nan | nan | nan |  |
-| bl2 | nan | nan | nan | nan | nan | nan | nan | nan | nan |  |  | D-04 事前登録: Calibration 重視 (calibration_max_dev + sum(p) 適合度を主要・brier/logloss 次点・auc 参考)。Phase 6 で最終選定基準として採用 | nan | nan | nan |  |
-| bl3 | nan | nan | nan | nan | nan | nan | nan | nan | nan | Phase 1-A モデルと同一情報条件の比較ではない (§14.2): BL-3 は確定複勝オッズ由来の市場暗示確率であり・Phase 1-A モデルは odds-free feature のみ使用 |  | D-04 事前登録: Calibration 重視 (calibration_max_dev + sum(p) 適合度を主要・brier/logloss 次点・auc 参考)。Phase 6 で最終選定基準として採用 | nan | nan | nan |  |
-| bl4 | 0.168700 | 0.518246 | 0.601986 | 3.246690 | 3.303847 | 2.613266 | 3.793841 | 0.044928 | nan |  | BL-4/BL-5 は主モデルと同一 calib slice でキャリブレーションされていない (calibrate_bl4_bl5=False)・比較公平性に注意 | D-04 事前登録: Calibration 重視 (calibration_max_dev + sum(p) 適合度を主要・brier/logloss 次点・auc 参考)。Phase 6 で最終選定基準として採用 | nan | nan | nan |  |
-| bl5 | 0.167097 | 0.513048 | 0.619879 | 3.107942 | 3.145625 | 2.458588 | 3.707469 | 0.343709 | nan |  | BL-4/BL-5 は主モデルと同一 calib slice でキャリブレーションされていない (calibrate_bl4_bl5=False)・比較公平性に注意 | D-04 事前登録: Calibration 重視 (calibration_max_dev + sum(p) 適合度を主要・brier/logloss 次点・auc 参考)。Phase 6 で最終選定基準として採用 | nan | nan | nan |  |
-| catboost | 0.154529 | 0.482434 | 0.718001 | 3.067278 | 3.033874 | 1.972756 | 4.177213 | 0.257893 | nan |  |  | D-04 事前登録: Calibration 重視 (calibration_max_dev + sum(p) 適合度を主要・brier/logloss 次点・auc 参考)。Phase 6 で最終選定基準として採用 | 0.680783 | -129146.000000 | 157200.000000 | 30min_before |
-| lightgbm | 0.152216 | 0.474883 | 0.732295 | 3.041678 | 3.000430 | 1.931710 | 4.154802 | 0.230769 | nan |  |  | D-04 事前登録: Calibration 重視 (calibration_max_dev + sum(p) 適合度を主要・brier/logloss 次点・auc 参考)。Phase 6 で最終選定基準として採用 | 0.702153 | -126736.000000 | 147890.000000 | 10min_before |
+| model_name | brier | logloss | auc | sum_p_mean | sum_p_median | sum_p_p10 | sum_p_p90 | calibration_max_dev | calibration_max_dev_guarded | market_reference | bl_calib_note | d04_selection_criterion | bt_recovery_rate | bt_hit_rate | bt_profit_loss | bt_max_drawdown | bt_representative_policy |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| bl1 | 0.169530 | 0.521015 | 0.573953 | 2.958365 | 3.000000 | 3.000000 | 3.000000 | 0.001426 | nan |  |  | D-04 事前登録: Calibration 重視 (calibration_max_dev + sum(p) 適合度を主要・brier/logloss 次点・auc 参考)。Phase 6 で最終選定基準として採用 | nan | nan | nan | nan |  |
+| bl2 | nan | nan | nan | nan | nan | nan | nan | nan | nan |  |  | D-04 事前登録: Calibration 重視 (calibration_max_dev + sum(p) 適合度を主要・brier/logloss 次点・auc 参考)。Phase 6 で最終選定基準として採用 | nan | nan | nan | nan |  |
+| bl3 | nan | nan | nan | nan | nan | nan | nan | nan | nan | Phase 1-A モデルと同一情報条件の比較ではない (§14.2): BL-3 は確定複勝オッズ由来の市場暗示確率であり・Phase 1-A モデルは odds-free feature のみ使用 |  | D-04 事前登録: Calibration 重視 (calibration_max_dev + sum(p) 適合度を主要・brier/logloss 次点・auc 参考)。Phase 6 で最終選定基準として採用 | nan | nan | nan | nan |  |
+| bl4 | 0.168700 | 0.518246 | 0.601986 | 3.246690 | 3.303847 | 2.613266 | 3.793841 | 0.044928 | nan |  | BL-4/BL-5 は主モデルと同一 calib slice でキャリブレーションされていない (calibrate_bl4_bl5=False)・比較公平性に注意 | D-04 事前登録: Calibration 重視 (calibration_max_dev + sum(p) 適合度を主要・brier/logloss 次点・auc 参考)。Phase 6 で最終選定基準として採用 | nan | nan | nan | nan |  |
+| bl5 | 0.167097 | 0.513048 | 0.619879 | 3.107942 | 3.145625 | 2.458588 | 3.707469 | 0.343709 | nan |  | BL-4/BL-5 は主モデルと同一 calib slice でキャリブレーションされていない (calibrate_bl4_bl5=False)・比較公平性に注意 | D-04 事前登録: Calibration 重視 (calibration_max_dev + sum(p) 適合度を主要・brier/logloss 次点・auc 参考)。Phase 6 で最終選定基準として採用 | nan | nan | nan | nan |  |
+| catboost | 0.154529 | 0.482434 | 0.718001 | 3.067278 | 3.033874 | 1.972756 | 4.177213 | 0.257893 | nan |  |  | D-04 事前登録: Calibration 重視 (calibration_max_dev + sum(p) 適合度を主要・brier/logloss 次点・auc 参考)。Phase 6 で最終選定基準として採用 | 0.680783 | 0.086773 | -129146.000000 | 157200.000000 | 30min_before |
+| lightgbm | 0.152216 | 0.474883 | 0.732295 | 3.041678 | 3.000430 | 1.931710 | 4.154802 | 0.230769 | nan |  |  | D-04 事前登録: Calibration 重視 (calibration_max_dev + sum(p) 適合度を主要・brier/logloss 次点・auc 参考)。Phase 6 で最終選定基準として採用 | 0.702153 | 0.091875 | -126736.000000 | 147890.000000 | 10min_before |
 
 **backtest 集計方法（REVIEW C8）:** 優位 policy の代表窓（30min_before/10min_before のうち recovery_rate が高い方を代表）
 
 ## 主モデル確定（理由記録・D-07）
 
 - **primary_model:** lightgbm (model_version=20260620-1a-postreview-v2-lgb-v1)
-- **selection_reason:** D-04 Calibration 重視の事前登録基準で LightGBM を選定（brier/logloss/auc + calibration_max_dev + monotonicity spearman + backtest 回収率 の全指標で CatBoost を上回る・D-08 tiebreak: backtest_recovery_rate 0.7022 vs 0.6808）
+- **selection_reason:** x
 - **tiebreak_applied:** backtest_recovery_rate
 
 ## segment 安定性サマリ（6軸）

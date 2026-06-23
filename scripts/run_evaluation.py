@@ -54,6 +54,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import sys
 from pathlib import Path
 from typing import Any
@@ -537,6 +538,8 @@ def aggregate_backtest_for_model(bt_rows: list[dict], model_type: str) -> dict[s
     max_drawdown = max(int(r.get("max_DD", 0)) for r in representatives)
     selected = sum(int(r.get("selected", 0)) for r in representatives)
     effective_bet = sum(int(r.get("effective_bet", 0)) for r in representatives)
+    # SC#1/EVAL-01 複勝的中率: representatives の hit_rate 単純平均（src/ev/metrics.py で計算済み）
+    hit_rate = sum(float(r.get("hit_rate", 0.0)) for r in representatives) / n
 
     # 代表窓 policy（最頻値）
     from collections import Counter
@@ -546,6 +549,7 @@ def aggregate_backtest_for_model(bt_rows: list[dict], model_type: str) -> dict[s
 
     return {
         "recovery_rate": recovery_rate,
+        "hit_rate": hit_rate,
         "profit_loss": profit_loss,
         "max_drawdown": max_drawdown,
         "selected": selected,
@@ -921,6 +925,28 @@ SC2_BLOCK_SYMMETRY_NOTE = (
 )
 
 
+def _sanitize_nan_to_null(obj: Any) -> Any:
+    """dict/list/float 再帰的に走査し NaN/Inf を None に正規化する（RFC 8259 strict JSON 化）。
+
+    reports/06-evaluation.json の segment scalar（odds_band.__MISSING__ / entry_count.6.0 等）は
+    計算不能（サンプル不足・bin 未構築）で NaN になる。Python json.dumps はデフォルトで
+    NaN を ``NaN`` リテラルとして出力するが・これは RFC 8259 strict 仕様違反で Phase 7 Streamlit
+    や外部パーサで失敗するリスクがある。NaN は「データなし」の正しい意味論なので null に正規化する。
+
+    ``allow_nan=False`` と組み合わせることで・万が一変換漏れがあれば json.dumps が ValueError を送出し
+    silent な strict 違反を防止する（fail-loud・Phase 7 消費安全性）。
+    """
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_nan_to_null(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_nan_to_null(v) for v in obj]
+    return obj
+
+
 def _df_to_markdown_table(df) -> str:  # type: ignore[no-untyped-def]
     """DataFrame を Markdown 表に変換（evaluator.py のパターンを再利用）。"""
     import pandas as pd  # 遅延 import
@@ -955,6 +981,7 @@ def _build_comparison_table_with_backtest(
 
     df = comparison_df.copy()
     df["bt_recovery_rate"] = float("nan")
+    df["bt_hit_rate"] = float("nan")
     df["bt_profit_loss"] = float("nan")
     df["bt_max_drawdown"] = float("nan")
     df["bt_representative_policy"] = ""
@@ -964,6 +991,7 @@ def _build_comparison_table_with_backtest(
         mask = df["model_name"] == mt
         if mask.any():
             df.loc[mask, "bt_recovery_rate"] = float(agg.get("recovery_rate", float("nan")))
+            df.loc[mask, "bt_hit_rate"] = float(agg.get("hit_rate", float("nan")))
             df.loc[mask, "bt_profit_loss"] = int(agg.get("profit_loss", 0))
             df.loc[mask, "bt_max_drawdown"] = int(agg.get("max_drawdown", 0))
             df.loc[mask, "bt_representative_policy"] = str(agg.get("representative_policy", ""))
@@ -1029,50 +1057,57 @@ def generate_evaluation_reports(
         primary_model_record = None
         recommended_record = recommended
 
-    # --- JSON 構築（sort_keys=True byte-reproducible） ---
+    # --- JSON 構築（sort_keys=True byte-reproducible・RFC 8259 strict） ---
     comparison_records = json.loads(comparison_df_with_bt.to_json(orient="records"))
-    # NaN → null
+    # NaN → null（comparison_records・従来処理）
     for rec in comparison_records:
         for k, v in list(rec.items()):
             if isinstance(v, float) and pd.isna(v):
                 rec[k] = None
 
-    json_payload = json.dumps(
-        {
-            "gate_result": gate_result,
-            "comparison_table": comparison_records,
-            "primary_model": primary_model_record,
-            "recommended_primary_model": recommended_record,
-            "segment_summary": result["segment_summary"],
-            "backtest_summary": backtest_summary,
-            "sum_p_measurement": sum_p_measurement,
-            "reproducibility_checks": gate_result.get("reproducibility_checks", {}),
-            "constants": {
-                "METRIC_COLUMNS_EXTENDED": list(METRIC_COLUMNS_EXTENDED),
-                "SUM_P_BLOCK_THRESHOLD": SUM_P_BLOCK_THRESHOLD,
-                "COMPARABLE_BASELINES": list(COMPARABLE_BASELINES),
-                "CALIBRATION_CURVE_BINS": CALIBRATION_CURVE_BINS,
-                "CALIBRATION_CURVE_MIN_BIN_COUNT": CALIBRATION_CURVE_MIN_BIN_COUNT,
-            },
-            "notes": {
-                "d04_selection_criterion": D04_SELECTION_CRITERION_NOTE,
-                "bl1_caveat": (
-                    "BL-1 は順序付け能力ゼロ (AUC≈0.57) の副産物で calibration_max_dev が構造的極小。"
-                    "uniform max_dev 単独で BL-1 に劣ることは実用上の問題でない（debug Resolution #4）"
-                ),
-                "bl3_caveat": BL3_MARKET_REFERENCE_NOTE,
-                "bl_uncalibrated": BL_UNCALIBRATED_NOTE,
-                "sum_p_diagnostic": SUM_P_DIAGNOSTIC_NOTE,
-                "sum_p_threshold_rationale": (
-                    f"SUM_P_BLOCK_THRESHOLD={SUM_P_BLOCK_THRESHOLD} は仮置き・"
-                    "現データ violation_rate 実測で偽陽性 BLOCK を出さないか検証済み"
-                    f"（threshold_appropriate={sum_p_measurement['threshold_appropriate']}）"
-                ),
-                "sc2_block_symmetry_note": SC2_BLOCK_SYMMETRY_NOTE,
-            },
+    # RFC 8259 strict JSON 化: ネスト dict 内の NaN/Inf を再帰的に null に正規化
+    # （segment_summary.odds_band.__MISSING__ / entry_count.6.0 の scalar 等）
+    # allow_nan=False と組み合わせ・変換漏れがあれば fail-loud で検出
+    json_obj = {
+        "gate_result": _sanitize_nan_to_null(gate_result),
+        "comparison_table": _sanitize_nan_to_null(comparison_records),
+        "primary_model": _sanitize_nan_to_null(primary_model_record),
+        "recommended_primary_model": _sanitize_nan_to_null(recommended_record),
+        "segment_summary": _sanitize_nan_to_null(result["segment_summary"]),
+        "backtest_summary": _sanitize_nan_to_null(backtest_summary),
+        "sum_p_measurement": _sanitize_nan_to_null(sum_p_measurement),
+        "reproducibility_checks": _sanitize_nan_to_null(
+            gate_result.get("reproducibility_checks", {})
+        ),
+        "constants": {
+            "METRIC_COLUMNS_EXTENDED": list(METRIC_COLUMNS_EXTENDED),
+            "SUM_P_BLOCK_THRESHOLD": SUM_P_BLOCK_THRESHOLD,
+            "COMPARABLE_BASELINES": list(COMPARABLE_BASELINES),
+            "CALIBRATION_CURVE_BINS": CALIBRATION_CURVE_BINS,
+            "CALIBRATION_CURVE_MIN_BIN_COUNT": CALIBRATION_CURVE_MIN_BIN_COUNT,
         },
+        "notes": {
+            "d04_selection_criterion": D04_SELECTION_CRITERION_NOTE,
+            "bl1_caveat": (
+                "BL-1 は順序付け能力ゼロ (AUC≈0.57) の副産物で calibration_max_dev が構造的極小。"
+                "uniform max_dev 単独で BL-1 に劣ることは実用上の問題でない（debug Resolution #4）"
+            ),
+            "bl3_caveat": BL3_MARKET_REFERENCE_NOTE,
+            "bl_uncalibrated": BL_UNCALIBRATED_NOTE,
+            "sum_p_diagnostic": SUM_P_DIAGNOSTIC_NOTE,
+            "sum_p_threshold_rationale": (
+                f"SUM_P_BLOCK_THRESHOLD={SUM_P_BLOCK_THRESHOLD} は仮置き・"
+                "現データ violation_rate 実測で偽陽性 BLOCK を出さないか検証済み"
+                f"（threshold_appropriate={sum_p_measurement['threshold_appropriate']}）"
+            ),
+            "sc2_block_symmetry_note": SC2_BLOCK_SYMMETRY_NOTE,
+        },
+    }
+    json_payload = json.dumps(
+        json_obj,
         sort_keys=True,
         ensure_ascii=False,
+        allow_nan=False,  # NaN/Inf の混入を防止（silent strict 違反回避・fail-loud）
     )
     _atomic_write_text(json_path, json_payload)
 

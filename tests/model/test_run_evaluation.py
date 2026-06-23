@@ -460,6 +460,68 @@ def test_run_evaluation_backtest_integration(tmp_path):
         rec = bs["by_model"][mt]
         for key in ("recovery_rate", "profit_loss", "max_drawdown"):
             assert key in rec, f"backtest {mt} に {key!r} がない"
+        # SC#1/EVAL-01 複勝的中率 (hit_rate) が backtest_summary に集約されている
+        assert "hit_rate" in rec, (
+            f"backtest_summary.by_model.{mt} に hit_rate がない（SC#1/EVAL-01 複勝的中率）"
+        )
+        assert rec["hit_rate"] == pytest.approx(0.09, abs=1e-9), (
+            f"backtest {mt} hit_rate が期待値 0.09（synthetic fixture）と不一致: {rec['hit_rate']}"
+        )
+    # SC#1/EVAL-01: comparison_table に bt_hit_rate 列が含まれる（主モデル行）
+    ct = payload["comparison_table"]
+    for mt in ("lightgbm", "catboost"):
+        mt_rows = [r for r in ct if r.get("model_name") == mt]
+        assert mt_rows, f"comparison_table に {mt} 行がない"
+        assert "bt_hit_rate" in mt_rows[0], (
+            f"comparison_table.{mt} に bt_hit_rate 列がない（SC#1/EVAL-01）"
+        )
+        assert mt_rows[0]["bt_hit_rate"] == pytest.approx(0.09, abs=1e-9), (
+            f"comparison_table.{mt}.bt_hit_rate が期待値 0.09 と不一致: {mt_rows[0]['bt_hit_rate']}"
+        )
+
+
+def test_run_evaluation_json_strict_no_nan(tmp_path):
+    """reports/06-evaluation.json が RFC 8259 strict JSON に準拠（NaN/Inf リテラルなし）。
+
+    Phase 7 Streamlit / 外部パーサで parse 失敗するリスクを排除するため・
+    ``allow_nan=False`` で出力し NaN→null 正規化を行う（SC#1/EVAL-01 gap closure・副次 WARNING）。
+    """
+    inputs = _make_synthetic_eval_inputs(tmp_path)
+    out_json = tmp_path / "06-eval-nan.json"
+    segments_dir = tmp_path / "06-seg-nan"
+
+    result = evaluate_integrated(
+        prediction_df=inputs["prediction_df"],
+        label_df=inputs["label_df"],
+        eval_04_path=inputs["eval_04_path"],
+        backtest_05_path=inputs["backtest_05_path"],
+        split_integrity_df=inputs["split_integrity_df"],
+        feature_snapshot_id="20260620-1a-postreview-v2",
+        as_of_datetime="2026-06-20T00:00:00Z",
+        segments_dir=str(segments_dir),
+        skip_segments=False,
+    )
+    generate_evaluation_reports(result, out_md_path=tmp_path / "x.md",
+                                out_json_path=out_json,
+                                primary_model=None, selection_reason=None)
+
+    raw_text = out_json.read_text(encoding="utf-8")
+    # strict モードでパース（NaN/Infinity を拒否・RFC 8259 準拠の検証）
+    json.loads(raw_text, parse_constant=lambda x: (_ for _ in ()).throw(
+        ValueError(f"strict JSON 違反: 非標準 constant {x} を検出（NaN/Infinity）")
+    ))
+    # 念のため NaN/Infinity リテラル文字列が含まれないことを grep 的に確認
+    for bad in (": NaN", ": Infinity", ": -Infinity"):
+        assert bad not in raw_text, f"strict JSON 違反: {bad!r} が 06-evaluation.json に残存"
+
+    # segment JSON も strict
+    for seg_json in segments_dir.glob("*.json"):
+        seg_text = seg_json.read_text(encoding="utf-8")
+        json.loads(seg_text, parse_constant=lambda x: (_ for _ in ()).throw(
+            ValueError(f"strict JSON 違反: {seg_json} に非標準 constant {x}")
+        ))
+        for bad in (": NaN", ": Infinity", ": -Infinity"):
+            assert bad not in seg_text, f"strict JSON 違反: {bad!r} が {seg_json} に残存"
 
 
 # ---------------------------------------------------------------------------
