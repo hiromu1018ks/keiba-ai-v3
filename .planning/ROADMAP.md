@@ -223,7 +223,25 @@ Plans:
   2. The acceptance gate passes: yearly calibration curves have NO extreme inversions, per-bin observed rates are monotonically-increasing-ish, LogLoss/Brier beat the baselines, `sum(p)` mean matches the theoretical payout-places per field-size bucket (~3.0 for ≥8-horse, ~2.0 for 5–7), with median/SD/p10/p90 reported
   3. Stability-by-segment evaluation produces per-year, per-month, per-競馬場, per-頭数, per-人気帯, per-オッズ帯 Calibration Curves so segment collapse (hidden by aggregate recovery rate) is visible
 
-**Plans**: TBD
+**Plans**: 5 plans in 4 waves
+
+Plans:
+**Wave 0**（基盤・前提確認）
+
+- [ ] 06-01-PLAN.md — Wave 0 基盤（uv add plotly + evaluator.py Phase4 既存契約固定化テスト新設 + segment 6軸カラム経路確認テスト・Open Question #1 解決）— EVAL-01/02/03 前提
+
+**Wave 1**（Plan 01 完了後・02/03 は並列可能・files_modified 衝突なし）
+
+- [ ] 06-02-PLAN.md — Wave 1 evaluator.py 拡張（quantile_max_dev/ECE/MCE + check_acceptance_gate/compute_monotonicity_warn・D-04 事前登録指標不変・純 NumPy bit-identical）— EVAL-01/02 — Plan 01 に依存
+- [ ] 06-03-PLAN.md — Wave 1 segment_eval.py 新規（6軸 segment 別 calibration curve + Plotly 静的 HTML + JSON・D-10/D-11/D-12）— EVAL-03 — Plan 01 に依存
+
+**Wave 2**（Plan 02/03 完了後）
+
+- [ ] 06-04-PLAN.md — Wave 2 is_primary migration（schema/predict/prediction_load 3ファイル連鎖 + set_primary_model・D-07/D-08/D-09・checkpoint:human-verify）— EVAL-01/02 — Plan 02/03 に依存
+
+**Wave 3**（Plan 04 完了後）
+
+- [ ] 06-05-PLAN.md — Wave 3 run_evaluation.py 統合 CLI（EVAL-01/02/03 統合・reports/06-evaluation.{md,json} + reports/06-segments/・SC#1/2/3 達成・主モデル確定 checkpoint:human-verify）— EVAL-01/02/03 — Plan 02/03/04 に依存
 
 ### Phase 7: Presentation
 

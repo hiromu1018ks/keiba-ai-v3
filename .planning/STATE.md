@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-16)
 
 **Core value:** オッズ非依存の確率 `p_fukusho_hit` と固定オッズ時点のEVで、過小評価されている馬の複勝払戻対象入り可能性をリークなく検出し、race_id単位・時系列順の再現可能なバックテストで定量評価できること。リーク防止と再現性だけは必ず守る。
-**Current focus:** Phase 05 — ev-backtest
+**Current focus:** Phase 06 — Evaluation & Calibration Gates
 
 ## Current Position
 
 Phase: 6 — Evaluation & Calibration Gates
-Plan: Not started
-Status: Plan 05-06 complete (live-DB backtest スキーマ適用 + 合成データフル行列 smoke GREEN + checkpoint approved・Phase 5 自動化部分 完了宣言)
-Last activity: 2026-06-21 — Phase 05 complete, transitioned to Phase 6
+Plan: Ready to execute (5 plans: 06-01..06-05・4 waves・VERIFICATION PASSED)
+Status: Phase 6 planned (research + pattern-map + planner + revision + plan-checker PASSED・ready for /gsd-execute-phase 6)
+Last activity: 2026-06-23 — Phase 6 planned
 
 Progress: [██████████] 100%
 
@@ -202,5 +202,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-06-23T03:38:56.569Z
-Stopped at: Phase 6 context gathered
-Resume file: .planning/phases/06-evaluation-calibration-gates/06-CONTEXT.md
+Stopped at: Phase 6 planned (ready to execute)
+Resume: /gsd-execute-phase 6
