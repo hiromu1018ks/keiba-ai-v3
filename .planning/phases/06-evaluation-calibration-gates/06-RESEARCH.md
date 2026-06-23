@@ -832,19 +832,21 @@ ALTER TABLE prediction.fukusho_prediction
 
 **If this table is empty:** 上記5件の ASSUMED クレームあり。planner は A1（plotly 版数）・A3（sum(p) 閾値）・A4（タイブレーク閾値）をユーザー確認または checkpoint:human-verify で確定すること。A2（segment 軸）は Wave 0 テストで検証。
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **segment 軸の ninki/odds_band データ経路の実コード確認**
+> 実質的全問解決済み。各問に RESOLVED マーカーで対応 Plan/Task を付記。
+
+1. **segment 軸の ninki/odds_band データ経路の実コード確認** — RESOLVED: Plan 06-01 Task 2（test_segment_axis_columns・実 DB で information_schema.columns を確認・取得可能軸を記録済）+ Plan 06-03 SEGMENT_AXES で経路確定
    - What we know: CONTEXT.md specifics が「label.fukusho_label + prediction.fukusho_prediction にこれら軸が揃うことを確認（researcher 確定）」と記載
    - What's unclear: ninki（人気）と fukuoddslower（複勝オッズ下限）が具体的にどのテーブルのどのカラムに存在するか。prediction.fukusho_prediction の現 DDL（schema.py）には ninki/odds 列が**存在しない**（model_type/model_version/.../p_fukusho_hit/race_date/split のみ）
    - Recommendation: Wave 0 で `SELECT column_name FROM information_schema.columns WHERE table_name='fukusho_label'` と prediction テーブルで ninki/odds 系カラムの存在を確認。欠損時は label.fukusho_label から JOIN で取得（race_key 単位）。planner はこの確認タスクを Wave 0 に含める
 
-2. **BLOCK 条件の閾値（sum(p) violation_rate 30%・baselines 全敗の BL 選択）の最終確認**
+2. **BLOCK 条件の閾値（sum(p) violation_rate 30%・baselines 全敗の BL 選択）の最終確認** — RESOLVED: Plan 06-02 Task 2（check_acceptance_gate 定数化: SUM_P_BLOCK_THRESHOLD=0.30 / COMPARABLE_BASELINES=("bl1","bl4","bl5")）+ CONTEXT D-02 で BL-2/BL-3 除外確定
    - What we know: D-02「baselines 全敗 + sum(p) 著乖離」を Claude's Discretion で具体化
    - What's unclear: 30% が適切か・BL-2/BL-3 除外が妥当か（BL-2 は NaN・BL-3 は §14.2 caveat）
    - Recommendation: planner が提案閾値を PLAN.md に明記し、ユーザーが discuss/execute で確認。現データでは発火しない安全網のため、閾値の正確性より「構造的 BLOCK が存在すること」が重要
 
-3. **reports/06-evaluation.json の主モデル確定記録の形式**
+3. **reports/06-evaluation.json の主モデル確定記録の形式** — RESOLVED: Plan 06-05 Task 1（json schema 設計: primary_model: {model_type, model_version, feature_snapshot_id, as_of_datetime, selection_reason, tiebreak_applied}）
    - What we know: D-07「人間判断・理由記録」・D-09「is_primary フラグ」
    - What's unclear: 人間が判断した主モデルと理由を json にどう記録するか（primary_model フィールド + selection_reason テキスト？）
    - Recommendation: planner が json schema を設計。`primary_model: {model_type, model_version, feature_snapshot_id, as_of_datetime, selection_reason: str, tiebreak_applied: str|null}`
