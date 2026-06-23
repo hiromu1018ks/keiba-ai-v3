@@ -5,8 +5,8 @@ milestone_name: milestone
 current_phase: 6
 current_phase_name: Evaluation & Calibration Gates
 status: completed
-stopped_at: Completed 05-05-PLAN.md
-last_updated: "2026-06-21T07:06:11.548Z"
+stopped_at: Phase 6 context gathered
+last_updated: "2026-06-23T03:38:56.575Z"
 last_activity: 2026-06-21
 last_activity_desc: Phase 05 complete, transitioned to Phase 6
 progress:
@@ -201,6 +201,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-21T00:46:40.000Z
-Stopped at: Completed 05-05-PLAN.md
-Resume file: None
+Last session: 2026-06-23T03:38:56.569Z
+Stopped at: Phase 6 context gathered
+Resume file: .planning/phases/06-evaluation-calibration-gates/06-CONTEXT.md
