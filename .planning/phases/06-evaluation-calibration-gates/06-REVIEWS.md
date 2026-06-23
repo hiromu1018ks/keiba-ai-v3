@@ -272,3 +272,27 @@ cycle: 1
 レビュー実行コマンド:
 - `cat /tmp/gsd-review-prompt-6.md | codex exec --ephemeral --dangerously-bypass-hook-trust --skip-git-repo-check -`
 - `cat /tmp/gsd-review-prompt-6.md | claude -p -`
+
+### Symbol verification (authority: grep)
+
+Phase 6 plans extend Phase 4 `src/model/evaluator.py`. Verified cited existing symbols against source declarations; symbols declared under each plan's produced-artifacts list are excluded (this phase creates them, not references to existing code).
+
+**VERIFIED** (existing symbol → declaration site):
+- `check_sum_p_distribution` → `src/model/evaluator.py:343`（06-01/06-02 参照）
+- `build_comparison_table` → `src/model/evaluator.py:418`（06-02/06-05 参照）
+- `_compute_calibration_max_dev` / `_compute_calibration_max_dev_guarded` → `src/model/evaluator.py:228` / `:259`（06-01/06-02 参照）
+- `compute_metrics` → `src/model/evaluator.py:148`
+- `write_eval_report` → `src/model/evaluator.py:461`
+- `evaluate_all_models` → `src/model/evaluator.py:552`
+
+**Excluded from verification (produced by this phase — not references to existing code):**
+- 06-02 産出: `check_acceptance_gate`, `compute_monotonicity_warn`, `quantile_max_dev`, `ece`, `mce`, `_compute_calibration_curve_bins`, `_compute_ece`, `_compute_mce`
+- 06-03 産出: `segment_eval.py` モジュール + 追加予定 `_ninki_band`/`_odds_band`（review HIGH#4 で新規追加）
+- 06-04 産出: `set_primary_model`（migration 範囲）
+- 06-05 産出: `run_evaluation.py` CLI
+
+**UNCHECKABLE under grep authority**（INFO・非ブロック）:
+- 全参照の signature/overload 適合性 — grep では signature をassert できない → UNCHECKABLE
+- `src/db/schema.py` のテーブル/カラム実体（`is_primary`, `model_version`, prediction 行）— 06-04 produced-artifact / migration 範囲で宣言、load 時正規化はテスト経由で担保、grep 非対象
+
+**hardBlock: なし**（grep authority は hard-block 不可・LSP/SCIP 専用）。サンプル参照範囲で hallucinated な既存シンボルは検出されず。完全 LSP 検証は `intel.enabled`（SCIP/LSP authority）有効時に推奨。
