@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 06
 current_phase_name: Evaluation & Calibration Gates
 status: executing
-stopped_at: Phase 6 context gathered
-last_updated: "2026-06-23T11:58:40.985Z"
+stopped_at: Phase 6 plan 02 complete
+last_updated: "2026-06-23T12:30:00.000Z"
 last_activity: 2026-06-23
-last_activity_desc: Phase 06 execution resumed (wave continue)
+last_activity_desc: Phase 06 plan 02 complete (evaluator.py 拡張: quantile_max_dev/ECE/MCE + 受入ゲート)
 progress:
   total_phases: 9
   completed_phases: 6
   total_plans: 34
-  completed_plans: 30
-  percent: 67
+  completed_plans: 31
+  percent: 68
 ---
 
 # Project State
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 06 (Evaluation & Calibration Gates) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
-Last activity: 2026-06-23 — Phase 06 execution resumed (wave continue)
+Last activity: 2026-06-23 — Phase 06 plan 02 complete (evaluator.py 拡張: quantile_max_dev/ECE/MCE + check_acceptance_gate + compute_monotonicity_warn)
 
 Progress: [██████████] 100%
 
@@ -91,6 +91,7 @@ Progress: [██████████] 100%
 | Phase 05 P05 | 32m | 2 tasks | 3 files |
 | Phase 05 P06 | 35m | 2 tasks | 5 files |
 | Phase 06 P01 | 15m | 2 tasks | 4 files |
+| Phase 06 P02 | 約25分 | 2 tasks | 3 files |
 
 ### Decisions
 
@@ -205,6 +206,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-23T11:58:40.980Z
-Stopped at: Phase 6 planned (ready to execute)
+Last session: 2026-06-23T12:30:00.000Z
+Stopped at: Phase 6 plan 02 complete (evaluator.py 拡張完了・Plan 06-03 以降 ready)
 Resume: /gsd-execute-phase 6

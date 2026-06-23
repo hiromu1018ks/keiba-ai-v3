@@ -232,7 +232,7 @@ Plans:
 
 **Wave 1**（Plan 01 完了後）
 
-- [ ] 06-02-PLAN.md — Wave 1 evaluator.py 拡張（quantile_max_dev/ECE/MCE・REVIEW C5 定義分離 + check_acceptance_gate（REVIEW HIGH#2 AND 条件）/compute_monotonicity_warn・D-04 事前登録指標不変・REVIEW C14 guarded 値 pin・純 NumPy bit-identical）— EVAL-01/02 — Plan 01 に依存
+- [x] 06-02-PLAN.md — Wave 1 evaluator.py 拡張（quantile_max_dev/ECE/MCE・REVIEW C5 定義分離 + check_acceptance_gate（REVIEW HIGH#2 AND 条件）/compute_monotonicity_warn・D-04 事前登録指標不変・REVIEW C14 guarded 値 pin・純 NumPy bit-identical）— EVAL-01/02 — Plan 01 に依存
 
 **Wave 2**（Plan 02 完了後・06-03 は 06-02 の産出シンボルに依存のため直列化・REVIEW HIGH#1）
 
@@ -286,6 +286,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 3.1 Timediff/Babacd Rolling Restoration (INSERTED) | 4/4 | Complete    | 2026-06-19 |
 | 4. Model & Prediction | 6/6 | Complete    | 2026-06-20 |
 | 5. EV & Backtest | 6/6 | Complete    | 2026-06-21 |
-| 6. Evaluation & Calibration Gates | 1/5 | In Progress|  |
+| 6. Evaluation & Calibration Gates | 2/5 | In Progress|  |
 | 7. Presentation | 0/TBD | Not started | - |
 | 8. Adversarial Audit Suite | 0/TBD | Not started | - |
