@@ -233,6 +233,30 @@ CR-03 回帰バグは orchestrator が commit 8e557d9 で解消:
 
 Phase 5 は 12/12 must-haves verified で **passed**。実データ backtest は引き続き manual-only（JODDS 取得完了後）。
 
+### Re-verification 2: 実データ backtest 完走（2026-06-23）
+
+実データ backtest（`uv run python scripts/run_backtest.py --snapshot-id 20260620-1a-postreview-v2`・全5窓・`--synthetic` 無し）が完走:
+
+- **25 backtest（主モデル 20 + BL-3 5）・exit 0**・coverage gate 全 pass（horse 99.99-100% / race 100%）
+- `reports/05-backtest.{md,json}` 生成（実データ版・mtime 2026-06-23 11:11）
+- JODDS（`public.n_jodds_tanpuku`・8,520万行・2023窓 737万行）の horse-level coverage gate（≥0.90）が pass
+- `backtest.fukusho_backtest`: 1,184,052 行 / 25 backtest_id（TRUNCATE → 再実行で checksum 同一・決定論的・§19.1）
+
+ただし完走には race_date 全行 NULL（Phase 2 負債の再発）の復元 + **実データパス固有の連鎖 bug 8件**の修正が必要だった（合成データ E2E では顕在化しなかった）:
+
+1. `label.fukusho_label.race_date` 全行 NULL → backfill 再実行で復元（554,267/554,267 non-NULL・raw 不変）
+2. pred_df に `race_start_datetime` / `race_key` 付与（orchestrator・`_build_race_times_per_horse` 前提）
+3. `merge_asof` の on 列（cutoff_datetime / happyo_datetime）大域 sort（pandas 3.x は by= ありでも大域 sorted を要求）
+4. `make_race_key` の `zfill(2)` 正規化（snapshot kaiji/racenum=int と JODDS=varchar で race_key 不一致・共通 0/3456 を解消）
+5. umaban 型統一（pred_df / snapshot / label_df を Int64・主モデル + BL-3 両パス）
+6. BL-3 `fukuoddslow` 数値化（raw varchar のまま `> 0` 比較で TypeError）
+7. BL-3 `full_candidate` を label_df（test窓）の race_key に絞る（market_df 全期間で label merge が 91% 不一致 → PK null）
+8. `_is_na`（backtest_load.py）が `pd.NaT` を捕捉（`isinstance(v,float)` で除外 → odds_snapshot_at=NaT が psycopg で 48113年オーバーフロー）
+
+各々回帰テスト追加（test_fukusho_label / test_orchestrator）。詳細は STATE.md `[Phase 05 / 2026-06-23]`。
+
+**manual-only 分離（overrides）は実データ backtest 完走により解除可能**。本検証で Phase 5 の実データ backtest truth は verified に格上げ。
+
 ---
 
 _Verified: 2026-06-21T11:30:00Z_
