@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 06
 current_phase_name: Evaluation & Calibration Gates
 status: executing
-stopped_at: Phase 6 plan 02 complete
-last_updated: "2026-06-23T12:30:00.000Z"
+stopped_at: Phase 6 plan 03 complete
+last_updated: "2026-06-23T13:00:00.000Z"
 last_activity: 2026-06-23
-last_activity_desc: Phase 06 plan 02 complete (evaluator.py 拡張: quantile_max_dev/ECE/MCE + 受入ゲート)
+last_activity_desc: "Phase 06 plan 03 complete (segment_eval.py 新規: 6軸 segment 評価 + Plotly HTML + JSON・REVIEW HIGH#4/C12/C13 対応)"
 progress:
   total_phases: 9
   completed_phases: 6
   total_plans: 34
-  completed_plans: 31
-  percent: 68
+  completed_plans: 32
+  percent: 67
 ---
 
 # Project State
@@ -29,11 +29,11 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 06 (Evaluation & Calibration Gates) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
-Last activity: 2026-06-23 — Phase 06 plan 02 complete (evaluator.py 拡張: quantile_max_dev/ECE/MCE + check_acceptance_gate + compute_monotonicity_warn)
+Last activity: 2026-06-23 — Phase 06 plan 03 complete (segment_eval.py 新規: 6軸 segment 評価 + Plotly HTML + JSON・REVIEW HIGH#4 banding/C12 race_date 正規化/C13 directory 共有参照)
 
-Progress: [██████████] 100%
+Progress: [█████████░] 94%
 
 ## Performance Metrics
 
@@ -92,6 +92,7 @@ Progress: [██████████] 100%
 | Phase 05 P06 | 35m | 2 tasks | 5 files |
 | Phase 06 P01 | 15m | 2 tasks | 4 files |
 | Phase 06 P02 | 約25分 | 2 tasks | 3 files |
+| Phase 06 P03 | 約30分 | 2 tasks | 2 files |
 
 ### Decisions
 
@@ -183,6 +184,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 06] plan 06-01: plotly>=6.8.0 + scipy>=1.17.1 明示依存追加（D-10・spearmanr 直接 import 用）
 - [Phase ?]: [Phase 06] plan 06-01: Open Question #1 RESOLVED — segment 6軸カラム経路が実 DB で確定（label 直接 + market JOIN フォールバック・prediction test 44426 行 = label JOIN 後 44426 行・cartesian duplication なし）
 - [Phase ?]: [Phase 06] plan 06-01: reports/04-eval.json の guarded 列欠損（C6 stale）解消は Plan 06-02/06-05 に委譲（Wave 0 本質は契約固定化 + segment 軸確認・unguarded 実データ値で GREEN 達成済み）
+- [Phase 06]: plan 06-03: np.digitize の right=True で banding 区間を上界閉区間 (edges[i-1], edges[i]] に（PLAN 期待通り ninki=3 → "1-3"・odds=2.9 → "1.0-2.9"・Rule 1 auto-fix）
+- [Phase 06]: plan 06-03: segment_eval.py は evaluator.py の binning 契約（_compute_calibration_curve_bins / _compute_ece / _compute_mce / CALIBRATION_CURVE_*）を import 再利用・bit-identical 保証・独自 binning 導入禁止（T-06-07）
+- [Phase 06]: plan 06-03: include_plotlyjs='directory' で plotly.min.js を共有1ファイル参照（REVIEW C13 cycle-2・N1 解消・reports/ tracked ポリシー維持・.gitignore 変更なし・~21MB 重複を ~3.5MB に集約）
 
 ### Pending Todos
 
@@ -206,6 +210,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-23T12:30:00.000Z
-Stopped at: Phase 6 plan 02 complete (evaluator.py 拡張完了・Plan 06-03 以降 ready)
+Last session: 2026-06-23T13:00:00.000Z
+Stopped at: Phase 6 plan 03 complete (segment_eval.py 新規完了: 6軸 segment 評価 + Plotly HTML + JSON・REVIEW HIGH#4/C12/C13 対応・Plan 06-04 以降 ready)
 Resume: /gsd-execute-phase 6

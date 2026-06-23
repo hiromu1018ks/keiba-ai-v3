@@ -223,7 +223,7 @@ Plans:
   2. The acceptance gate passes: yearly calibration curves have NO extreme inversions, per-bin observed rates are monotonically-increasing-ish, LogLoss/Brier beat the baselines, `sum(p)` mean matches the theoretical payout-places per field-size bucket (~3.0 for ≥8-horse, ~2.0 for 5–7), with median/SD/p10/p90 reported
   3. Stability-by-segment evaluation produces per-year, per-month, per-競馬場, per-頭数, per-人気帯, per-オッズ帯 Calibration Curves so segment collapse (hidden by aggregate recovery rate) is visible
 
-**Plans**: 1/5 plans executed
+**Plans**: 3/5 plans executed
 
 Plans:
 **Wave 0**（基盤・前提確認）
@@ -236,7 +236,7 @@ Plans:
 
 **Wave 2**（Plan 02 完了後・06-03 は 06-02 の産出シンボルに依存のため直列化・REVIEW HIGH#1）
 
-- [ ] 06-03-PLAN.md — Wave 2 segment_eval.py 新規（6軸 segment 別 calibration curve + Plotly 静的 HTML + JSON・REVIEW HIGH#4 banding 関数 _ninki_band/_odds_band・REVIEW C12 race_date 正規化・REVIEW C13 HTML Git 除外・D-10/D-11/D-12）— EVAL-03 — Plan 01/02 に依存
+- [x] 06-03-PLAN.md — Wave 2 segment_eval.py 新規（6軸 segment 別 calibration curve + Plotly 静的 HTML + JSON・REVIEW HIGH#4 banding 関数 _ninki_band/_odds_band・REVIEW C12 race_date 正規化・REVIEW C13 HTML Git 除外・D-10/D-11/D-12）— EVAL-03 — Plan 01/02 に依存
 
 **Wave 3**（Plan 02/03 完了後）
 
@@ -286,6 +286,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 3.1 Timediff/Babacd Rolling Restoration (INSERTED) | 4/4 | Complete    | 2026-06-19 |
 | 4. Model & Prediction | 6/6 | Complete    | 2026-06-20 |
 | 5. EV & Backtest | 6/6 | Complete    | 2026-06-21 |
-| 6. Evaluation & Calibration Gates | 2/5 | In Progress|  |
+| 6. Evaluation & Calibration Gates | 3/5 | In Progress|  |
 | 7. Presentation | 0/TBD | Not started | - |
 | 8. Adversarial Audit Suite | 0/TBD | Not started | - |
