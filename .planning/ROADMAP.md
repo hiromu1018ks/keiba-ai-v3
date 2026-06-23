@@ -240,7 +240,7 @@ Plans:
 
 **Wave 3**（Plan 02/03 完了後）
 
-- [ ] 06-04-PLAN.md — Wave 3 is_primary migration（schema/predict/prediction_load 3ファイル連鎖 + set_primary_model・REVIEW HIGH#7 post-condition assert・REVIEW HIGH#8 NOT NULL DEFAULT false・REVIEW C10 test scope・REVIEW C11 as_of_datetime canonical parse・REVIEW C17 checkpoint 縮小・D-07/D-08/D-09・checkpoint:human-verify）— EVAL-01/02 — Plan 02/03 に依存
+- [x] 06-04-PLAN.md — Wave 3 is_primary migration（schema/predict/prediction_load 3ファイル連鎖 + set_primary_model・REVIEW HIGH#7 post-condition assert・REVIEW HIGH#8 NOT NULL DEFAULT false・REVIEW C10 test scope・REVIEW C11 as_of_datetime canonical parse・REVIEW C17 checkpoint 縮小・D-07/D-08/D-09・checkpoint:human-verify）— EVAL-01/02 — Plan 02/03 に依存 — **COMPLETE**（commit b7b80a3 + c685ab2・17 tests GREEN・checkpoint approved・主モデル選定自体は Plan 06-05 Task 2 で実施）
 
 **Wave 4**（Plan 04 完了後）
 
@@ -286,6 +286,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 3.1 Timediff/Babacd Rolling Restoration (INSERTED) | 4/4 | Complete    | 2026-06-19 |
 | 4. Model & Prediction | 6/6 | Complete    | 2026-06-20 |
 | 5. EV & Backtest | 6/6 | Complete    | 2026-06-21 |
-| 6. Evaluation & Calibration Gates | 3/5 | In Progress|  |
+| 6. Evaluation & Calibration Gates | 4/5 | In Progress|  |
 | 7. Presentation | 0/TBD | Not started | - |
 | 8. Adversarial Audit Suite | 0/TBD | Not started | - |

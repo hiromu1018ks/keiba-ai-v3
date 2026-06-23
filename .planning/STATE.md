@@ -5,10 +5,10 @@ milestone_name: milestone
 current_phase: 06
 current_phase_name: Evaluation & Calibration Gates
 status: executing
-stopped_at: Phase 6 plan 03 complete
-last_updated: "2026-06-23T13:00:00.000Z"
+stopped_at: Phase 6 plan 04 complete
+last_updated: "2026-06-23T13:30:00.000Z"
 last_activity: 2026-06-23
-last_activity_desc: "Phase 06 plan 03 complete (segment_eval.py 新規: 6軸 segment 評価 + Plotly HTML + JSON・REVIEW HIGH#4/C12/C13 対応)"
+last_activity_desc: "Phase 06 plan 04 complete (is_primary migration 機構: schema/predict/prediction_load 3ファイル連鎖 + set_primary_model・REVIEW HIGH#7/HIGH#8/C10/C11/C17 解消・checkpoint:human-verify approved)"
 progress:
   total_phases: 9
   completed_phases: 6
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 06 (Evaluation & Calibration Gates) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
-Last activity: 2026-06-23 — Phase 06 plan 03 complete (segment_eval.py 新規: 6軸 segment 評価 + Plotly HTML + JSON・REVIEW HIGH#4 banding/C12 race_date 正規化/C13 directory 共有参照)
+Last activity: 2026-06-23 — Phase 06 plan 04 complete (is_primary migration 機構: 3ファイル連鎖 + set_primary_model・REVIEW HIGH#7/HIGH#8/C10/C11/C17 解消・checkpoint approved)
 
 Progress: [█████████░] 94%
 
@@ -93,6 +93,7 @@ Progress: [█████████░] 94%
 | Phase 06 P01 | 15m | 2 tasks | 4 files |
 | Phase 06 P02 | 約25分 | 2 tasks | 3 files |
 | Phase 06 P03 | 約30分 | 2 tasks | 2 files |
+| Phase 06 P04 | 約30分 | 3 tasks | 6 files |
 
 ### Decisions
 
@@ -187,6 +188,10 @@ Recent decisions affecting current work:
 - [Phase 06]: plan 06-03: np.digitize の right=True で banding 区間を上界閉区間 (edges[i-1], edges[i]] に（PLAN 期待通り ninki=3 → "1-3"・odds=2.9 → "1.0-2.9"・Rule 1 auto-fix）
 - [Phase 06]: plan 06-03: segment_eval.py は evaluator.py の binning 契約（_compute_calibration_curve_bins / _compute_ece / _compute_mce / CALIBRATION_CURVE_*）を import 再利用・bit-identical 保証・独自 binning 導入禁止（T-06-07）
 - [Phase 06]: plan 06-03: include_plotlyjs='directory' で plotly.min.js を共有1ファイル参照（REVIEW C13 cycle-2・N1 解消・reports/ tracked ポリシー維持・.gitignore 変更なし・~21MB 重複を ~3.5MB に集約）
+- [Phase 06]: plan 06-04: is_primary 列追加は boolean NOT NULL DEFAULT false で（REVIEW HIGH#8）・CHECK prediction_is_primary_domain は NOT NULL 二重防御・3ファイル連鎖（schema/predict/prediction_load）は Pitfall 4 列数一致 assert で機械検証
+- [Phase 06]: plan 06-04: set_primary_model は model_type+model_version+feature_snapshot_id+as_of_datetime スコープで UPDATE（staging-swap idiom と同方針・全行 UPDATE でない・silent 履歴破壊防止）・idempotent・両モデル行保持
+- [Phase 06]: plan 06-04: REVIEW HIGH#7 対応 — set_primary_model は 0 行 UPDATE で RuntimeError（post-condition assert）+ SELECT で is_primary=true が1 model_type のみ・>=1 行を検証（silent no-op を fail-loud に）・_canonicalize_as_of_datetime（pd.Timestamp 正規化）で timezone/microsecond ズレ対策（REVIEW C11）
+- [Phase 06]: plan 06-04: REVIEW C17 重複解消 — 本 plan checkpoint は「機構承認」のみに縮小・主モデル選定自体（D-07）は Plan 06-05 Task 2 checkpoint:human-verify で実施
 
 ### Pending Todos
 
@@ -210,6 +215,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-23T13:00:00.000Z
-Stopped at: Phase 6 plan 03 complete (segment_eval.py 新規完了: 6軸 segment 評価 + Plotly HTML + JSON・REVIEW HIGH#4/C12/C13 対応・Plan 06-04 以降 ready)
+Last session: 2026-06-23T13:30:00.000Z
+Stopped at: Phase 6 plan 04 complete (is_primary migration 機構完了: 3ファイル連鎖 + set_primary_model・REVIEW HIGH#7/HIGH#8/C10/C11/C17 解消・checkpoint approved・主モデル選定は Plan 06-05 Task 2 で実施・Plan 06-05 ready)
 Resume: /gsd-execute-phase 6
