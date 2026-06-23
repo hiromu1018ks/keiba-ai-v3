@@ -1,6 +1,6 @@
 # Phase 6 Evaluation Report (EVAL-01/02/03 / §15.1/§15.2/§15.3)
 
-**feature_snapshot_id:** 20260620-1a-postreview-v2  /  **as_of_datetime:** 2026-06-20T00:00:00Z
+**feature_snapshot_id:** 20260620-1a-postreview-v2  /  **as_of_datetime:** 2026-06-20T20:13:33.368966
 
 ## 受入ゲート判定（BLOCK/WARN）
 
@@ -57,14 +57,9 @@
 
 ## 主モデル確定（理由記録・D-07）
 
-- **primary_model:** 未確定（--primary-model 省略・REVIEW C7）
-
-### 推奨主モデル（D-08 タイブレーク優先順位・参考）
-
-- **recommended:** lightgbm
-- **selection_reason:** D-08 tiebreak[1] backtest_recovery_rate: lightgbm (recovery: 0.7022 vs 0.6808)
+- **primary_model:** lightgbm (model_version=20260620-1a-postreview-v2-lgb-v1)
+- **selection_reason:** D-04 Calibration 重視の事前登録基準で LightGBM を選定（brier/logloss/auc + calibration_max_dev + monotonicity spearman + backtest 回収率 の全指標で CatBoost を上回る・D-08 tiebreak: backtest_recovery_rate 0.7022 vs 0.6808）
 - **tiebreak_applied:** backtest_recovery_rate
-- **priority_order:** ['backtest_recovery_rate', 'compute_cost_lightgbm_first', 'brier', 'logloss', 'auc']
 
 ## segment 安定性サマリ（6軸）
 
