@@ -863,6 +863,244 @@ def evaluate_all_models(
     return metrics_dict
 
 
+# ---------------------------------------------------------------------------
+# Phase 6 (Plan 06-02) Task 2: 受入ゲート判定 + 単調性 WARN 指標
+# D-01/D-02: 構造的 BLOCK のみ hard fail・それ以外は WARN 参考レポート（hybrid gate）
+# D-03: 曖昧基準（Spearman・反転数・年次反転）は人間判定参考
+# 純粋関数: block_triggered フラグを返すのみ・RuntimeError 送出は呼出側（run_evaluation.py）の責務
+# ---------------------------------------------------------------------------
+
+
+def check_acceptance_gate(
+    metrics_dict: dict[str, dict[str, Any]],
+    sum_p_check: dict[str, Any],
+) -> dict[str, Any]:
+    """§15.2 確率品質受入ゲート判定（D-01/D-02/D-03・hybrid gate）。
+
+    **D-02 構造的 BLOCK（両条件の同時満たしのみ・REVIEW HIGH#2 AND 条件）:**
+      - 条件1 ``baselines_all_lose``: 主モデル (lightgbm/catboost) の LogLoss と Brier が
+        ``COMPARABLE_BASELINES`` (bl1/bl4/bl5) の**全て**の max より大きい（両指標で全敗）。
+        片方のみ劣る場合は条件1 不成立（相補完の可能性）。
+      - 条件2 ``sum_p_violation``: ``sum_p_check["large_violation_rate"]`` OR
+        ``small_violation_rate`` が ``SUM_P_BLOCK_THRESHOLD`` (0.30) を超過。
+      - **BLOCK = 条件1 AND 条件2**（両立）。片方だけでは WARN に留まる（出荷停止しない）。
+
+    **D-03 曖昧 WARN（参考レポート・人間判定）:**
+      - ``baselines_all_lose`` 単独成立・``sum_p_violation`` 単独成立は ``warn_reasons`` に記録
+        （BLOCK せず・参考レポート）。
+      - bin 単調性・年次反転は :func:`compute_monotonicity_warn` /
+        :func:`compute_yearly_inversion_warn` で別途計算し run_evaluation.py が
+        WARN セクションに併記。
+
+    **REVIEW C15 cycle-2 注記（SC#2/BLOCK 条件1 の対称性）:**
+      BLOCK 条件1 (``baselines_all_lose``) は SC#2「beat all baselines」と対称的な表現。
+      どちらも ``COMPARABLE_BASELINES`` (bl1/bl4/bl5) の LogLoss+Brier max との比較で・
+      BLOCK 条件1 は主モデルが両指標で全 baselines の max に劣る（全敗）極端例・
+      SC#2 は主モデルが両指標で全 baselines の max に勝る（全勝）。
+      中間の「一部にのみ劣る / 一部にのみ勝る」は BLOCK せず WARN に留まる
+      （D-02 AND 条件・D-03 参考レポート）。現データ（reports/04-eval.json）では LightGBM が
+      LogLoss+Brier 両方で BL-1/BL-4/BL-5 全てに勝るため SC#2 達成・BLOCK 条件1 は非該当。
+      定義の対称性を明示することで Phase 8 対抗的監査で「SC#2 達成」の解釈が曖昧にならない。
+
+    Parameters
+    ----------
+    metrics_dict : dict
+        ``{"lightgbm": {...}, "catboost": {...}, "bl1": {...}, ..., "bl5": {...}}``。
+        各値は :func:`compute_metrics` の戻り dict。BL-2/BL-3 が含まれていても
+        ``COMPARABLE_BASELINES`` に基づき比較対象から除外される。
+    sum_p_check : dict
+        :func:`check_sum_p_distribution` の戻り値 dict。``large_violation_rate`` /
+        ``small_violation_rate`` キーを消費。
+
+    Returns
+    -------
+    dict
+        ``block_triggered`` (bool) / ``block_reasons`` (list[str]) /
+        ``warn_reasons`` (list[str]) / ``gate_verdict`` ("BLOCK"|"WARN") /
+        ``comparable_baselines`` (list[str]) / ``sum_p_block_threshold`` (float) /
+        ``condition_flags`` (dict: ``baselines_all_lose`` bool, ``sum_p_violation`` bool)。
+        ``block_triggered`` は ``len(block_reasons) > 0`` で決定（T-06-05 監査性）。
+    """
+    block_reasons: list[str] = []
+    warn_reasons: list[str] = []
+
+    # --- BLOCK 条件1: baselines 全敗（順序付け能力ゼロ・SC#2 の対称） ---
+    baselines_all_lose = False
+    main_models_losing: list[str] = []
+    for main_model in ("lightgbm", "catboost"):
+        m = metrics_dict.get(main_model, {})
+        m_ll = m.get("logloss")
+        m_br = m.get("brier")
+        if m_ll is None or m_br is None or pd.isna(m_ll) or pd.isna(m_br):
+            # 主モデルの指標が未定義（single-class 等）→ skip
+            continue
+        # COMPARABLE_BASELINES の logloss/brier を収集（NaN は除外）
+        bl_ll = [
+            metrics_dict[b]["logloss"]
+            for b in COMPARABLE_BASELINES
+            if b in metrics_dict and not pd.isna(metrics_dict[b].get("logloss"))
+        ]
+        bl_br = [
+            metrics_dict[b]["brier"]
+            for b in COMPARABLE_BASELINES
+            if b in metrics_dict and not pd.isna(metrics_dict[b].get("brier"))
+        ]
+        if not bl_ll or not bl_br:
+            # 比較対象 baselines が無い → 条件1 判定不能 → skip
+            continue
+        if m_ll > max(bl_ll) and m_br > max(bl_br):
+            # 両指標で COMPARABLE_BASELINES 全てに劣る（全敗）
+            main_models_losing.append(main_model)
+
+    if main_models_losing:
+        baselines_all_lose = True
+
+    # --- BLOCK 条件2: sum(p) 著乖離（§15.2 理論値から 30% 超違反） ---
+    large_rate = sum_p_check.get("large_violation_rate", 0.0)
+    small_rate = sum_p_check.get("small_violation_rate", 0.0)
+    sum_p_violation = (large_rate > SUM_P_BLOCK_THRESHOLD) or (small_rate > SUM_P_BLOCK_THRESHOLD)
+
+    # --- BLOCK 判定: D-02 AND 条件（両立でのみ BLOCK） ---
+    block_triggered = baselines_all_lose and sum_p_violation
+
+    if block_triggered:
+        # block_reasons に両条件の詳細を記録
+        for mm in main_models_losing:
+            block_reasons.append(
+                f"baselines_all_lose: {mm} LogLoss+Brier both worse than all "
+                f"comparable baselines ({', '.join(COMPARABLE_BASELINES)})"
+            )
+        if large_rate > SUM_P_BLOCK_THRESHOLD:
+            block_reasons.append(
+                f"sum_p_violation: large_violation_rate={large_rate:.1%} >= "
+                f"{SUM_P_BLOCK_THRESHOLD:.0%}"
+            )
+        if small_rate > SUM_P_BLOCK_THRESHOLD:
+            block_reasons.append(
+                f"sum_p_violation: small_violation_rate={small_rate:.1%} >= "
+                f"{SUM_P_BLOCK_THRESHOLD:.0%}"
+            )
+    else:
+        # WARN 分離（REVIEW HIGH#2）: 片方だけ成立の場合は warn_reasons に記録（出荷停止しない）
+        if baselines_all_lose:
+            for mm in main_models_losing:
+                warn_reasons.append(
+                    f"baselines_all_lose (single condition, not BLOCK): {mm} LogLoss+Brier "
+                    f"both worse than all comparable baselines "
+                    f"({', '.join(COMPARABLE_BASELINES)}) — D-02 AND 条件未満"
+                )
+        if sum_p_violation:
+            if large_rate > SUM_P_BLOCK_THRESHOLD:
+                warn_reasons.append(
+                    f"sum_p_violation (single condition, not BLOCK): large_violation_rate="
+                    f"{large_rate:.1%} >= {SUM_P_BLOCK_THRESHOLD:.0%} — D-02 AND 条件未満"
+                )
+            if small_rate > SUM_P_BLOCK_THRESHOLD:
+                warn_reasons.append(
+                    f"sum_p_violation (single condition, not BLOCK): small_violation_rate="
+                    f"{small_rate:.1%} >= {SUM_P_BLOCK_THRESHOLD:.0%} — D-02 AND 条件未満"
+                )
+
+    return {
+        "block_triggered": block_triggered,
+        "block_reasons": block_reasons,
+        "warn_reasons": warn_reasons,
+        "gate_verdict": "BLOCK" if block_triggered else "WARN",
+        "comparable_baselines": list(COMPARABLE_BASELINES),
+        "sum_p_block_threshold": SUM_P_BLOCK_THRESHOLD,
+        "condition_flags": {
+            "baselines_all_lose": baselines_all_lose,
+            "sum_p_violation": sum_p_violation,
+        },
+    }
+
+
+def compute_monotonicity_warn(bins_dict: dict[str, Any]) -> dict[str, float]:
+    """bin 単調性 WARN 指標（D-03・曖昧 WARN・人間判定参考）。
+
+    ``frac_pos`` と ``mean_pred`` の Spearman 順位相関 + bin 逆転数を計算する。
+    キャリブレーション曲線が単調増加（理想的）であれば Spearman=1.0・bin_inversions=0。
+
+    Parameters
+    ----------
+    bins_dict : dict
+        :func:`_compute_calibration_curve_bins` の戻り値 dict（``frac_pos`` / ``mean_pred`` /
+        ``counts`` / ``bin_edges`` キー）・または segment 評価の JSON シリアライズ済み curve
+        （``list`` 型の場合 ``np.asarray`` で変換）。
+
+    Returns
+    -------
+    dict
+        ``spearman_corr`` (float) / ``spearman_pvalue`` (float) / ``bin_inversions`` (int)。
+        ``frac_pos`` の長さが 2 未満の場合は ``spearman_corr=NaN`` / ``spearman_pvalue=NaN`` /
+        ``bin_inversions=0``。
+    """
+    frac_pos = np.asarray(bins_dict.get("frac_pos", []), dtype=float)
+    mean_pred = np.asarray(bins_dict.get("mean_pred", []), dtype=float)
+
+    if len(frac_pos) < 2 or len(mean_pred) < 2:
+        return {
+            "spearman_corr": float("nan"),
+            "spearman_pvalue": float("nan"),
+            "bin_inversions": 0,
+        }
+
+    corr, pvalue = spearmanr(frac_pos, mean_pred, nan_policy="omit")
+    # bin_inversions: frac_pos[i] > frac_pos[i+1] の回数（単調減少の bin 数）
+    bin_inversions = int(np.sum(np.diff(frac_pos) < 0))
+    return {
+        "spearman_corr": float(corr),
+        "spearman_pvalue": float(pvalue),
+        "bin_inversions": bin_inversions,
+    }
+
+
+def compute_yearly_inversion_warn(
+    year_segment_results: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, float]]:
+    """年次反転 WARN 指標（D-03 年次要素・EVAL-02 SC#2 機械的 WARN レポート化）。
+
+    各年の calibration curve に :func:`compute_monotonicity_warn` を適用し・
+    ``{str(year): {spearman_corr, spearman_pvalue, bin_inversions}}`` を返す。
+
+    Parameters
+    ----------
+    year_segment_results : dict
+        ``segment_eval.evaluate_segment_axis`` の year 軸戻り値と同一スキーマ:
+        ``{str(year): {"curve": {"mean_pred": list, "frac_pos": list, "count": list},
+         "scalar": {...}}}``。
+
+    Returns
+    -------
+    dict
+        ``{str(year): {"spearman_corr": float, "spearman_pvalue": float,
+        "bin_inversions": int}}``。入力が空 dict の場合は空 dict を返す
+        （欠損軍 WARN skip 時の安全網・Pitfall 6 延長）。
+
+    Notes
+    -----
+    - 各年の ``curve`` の ``mean_pred`` / ``frac_pos`` は ``list`` の場合 ``np.asarray`` で
+      ``ndarray`` に変換してから :func:`compute_monotonicity_warn` に渡す
+      （segment_eval の JSON シリアライズ済み入力と ndarray 入力の両方を受付）。
+    - D-03「反転数・単調違反 bin 数・Spearman 順位相関等の数値で併記」の年次要素を充足。
+      run_evaluation.py（Plan 06-05 Step 3）が本関数を呼び・reports/06-evaluation.{md,json}
+      の WARN セクションに ``yearly_inversions`` / ``yearly_spearman`` として併記。
+    """
+    if not year_segment_results:
+        return {}
+
+    results: dict[str, dict[str, float]] = {}
+    for year, data in year_segment_results.items():
+        curve = data.get("curve", {}) if isinstance(data, dict) else {}
+        # list → ndarray 変換（segment_eval の JSON シリアライズ済み入力対応）
+        bins_dict = {
+            "frac_pos": curve.get("frac_pos", []),
+            "mean_pred": curve.get("mean_pred", []),
+        }
+        results[str(year)] = compute_monotonicity_warn(bins_dict)
+    return results
+
+
 __all__ = [
     "SUM_P_BOUNDS",
     "METRIC_COLUMNS",
@@ -886,4 +1124,7 @@ __all__ = [
     "_compute_quantile_max_dev",
     "_compute_ece",
     "_compute_mce",
+    "check_acceptance_gate",
+    "compute_monotonicity_warn",
+    "compute_yearly_inversion_warn",
 ]
