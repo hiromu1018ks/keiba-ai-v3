@@ -223,25 +223,28 @@ Plans:
   2. The acceptance gate passes: yearly calibration curves have NO extreme inversions, per-bin observed rates are monotonically-increasing-ish, LogLoss/Brier beat the baselines, `sum(p)` mean matches the theoretical payout-places per field-size bucket (~3.0 for ≥8-horse, ~2.0 for 5–7), with median/SD/p10/p90 reported
   3. Stability-by-segment evaluation produces per-year, per-month, per-競馬場, per-頭数, per-人気帯, per-オッズ帯 Calibration Curves so segment collapse (hidden by aggregate recovery rate) is visible
 
-**Plans**: 5 plans in 4 waves
+**Plans**: 5 plans in 5 waves
 
 Plans:
 **Wave 0**（基盤・前提確認）
 
-- [ ] 06-01-PLAN.md — Wave 0 基盤（uv add plotly + evaluator.py Phase4 既存契約固定化テスト新設 + segment 6軸カラム経路確認テスト・Open Question #1 解決）— EVAL-01/02/03 前提
+- [ ] 06-01-PLAN.md — Wave 0 基盤（uv add plotly + scipy + evaluator.py Phase4 既存契約固定化テスト新設 + segment 6軸カラム経路確認テスト（REVIEW HIGH#3 fail-loud）+ reports/04-eval.json 再生成（REVIEW C6））— EVAL-01/02/03 前提
 
-**Wave 1**（Plan 01 完了後・02/03 は並列可能・files_modified 衝突なし）
+**Wave 1**（Plan 01 完了後）
 
-- [ ] 06-02-PLAN.md — Wave 1 evaluator.py 拡張（quantile_max_dev/ECE/MCE + check_acceptance_gate/compute_monotonicity_warn・D-04 事前登録指標不変・純 NumPy bit-identical）— EVAL-01/02 — Plan 01 に依存
-- [ ] 06-03-PLAN.md — Wave 1 segment_eval.py 新規（6軸 segment 別 calibration curve + Plotly 静的 HTML + JSON・D-10/D-11/D-12）— EVAL-03 — Plan 01 に依存
+- [ ] 06-02-PLAN.md — Wave 1 evaluator.py 拡張（quantile_max_dev/ECE/MCE・REVIEW C5 定義分離 + check_acceptance_gate（REVIEW HIGH#2 AND 条件）/compute_monotonicity_warn・D-04 事前登録指標不変・REVIEW C14 guarded 値 pin・純 NumPy bit-identical）— EVAL-01/02 — Plan 01 に依存
 
-**Wave 2**（Plan 02/03 完了後）
+**Wave 2**（Plan 02 完了後・06-03 は 06-02 の産出シンボルに依存のため直列化・REVIEW HIGH#1）
 
-- [ ] 06-04-PLAN.md — Wave 2 is_primary migration（schema/predict/prediction_load 3ファイル連鎖 + set_primary_model・D-07/D-08/D-09・checkpoint:human-verify）— EVAL-01/02 — Plan 02/03 に依存
+- [ ] 06-03-PLAN.md — Wave 2 segment_eval.py 新規（6軸 segment 別 calibration curve + Plotly 静的 HTML + JSON・REVIEW HIGH#4 banding 関数 _ninki_band/_odds_band・REVIEW C12 race_date 正規化・REVIEW C13 HTML Git 除外・D-10/D-11/D-12）— EVAL-03 — Plan 01/02 に依存
 
-**Wave 3**（Plan 04 完了後）
+**Wave 3**（Plan 02/03 完了後）
 
-- [ ] 06-05-PLAN.md — Wave 3 run_evaluation.py 統合 CLI（EVAL-01/02/03 統合・reports/06-evaluation.{md,json} + reports/06-segments/・SC#1/2/3 達成・主モデル確定 checkpoint:human-verify）— EVAL-01/02/03 — Plan 02/03/04 に依存
+- [ ] 06-04-PLAN.md — Wave 3 is_primary migration（schema/predict/prediction_load 3ファイル連鎖 + set_primary_model・REVIEW HIGH#7 post-condition assert・REVIEW HIGH#8 NOT NULL DEFAULT false・REVIEW C10 test scope・REVIEW C11 as_of_datetime canonical parse・REVIEW C17 checkpoint 縮小・D-07/D-08/D-09・checkpoint:human-verify）— EVAL-01/02 — Plan 02/03 に依存
+
+**Wave 4**（Plan 04 完了後）
+
+- [ ] 06-05-PLAN.md — Wave 4 run_evaluation.py 統合 CLI（EVAL-01/02/03 統合・reports/06-evaluation.{md,json} + reports/06-segments/・REVIEW HIGH#5 sum_p violation_rate 計測・REVIEW HIGH#6 BLOCK 時 report 残存・REVIEW C7 --primary-model 省略時・REVIEW C8 SC#1 集計規則・SC#1/2/3 達成・主モデル確定 checkpoint:human-verify）— EVAL-01/02/03 — Plan 02/03/04 に依存
 
 ### Phase 7: Presentation
 
