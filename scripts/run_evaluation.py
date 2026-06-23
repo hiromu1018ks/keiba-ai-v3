@@ -218,6 +218,7 @@ def _fetch_prediction_test_df(cur, feature_snapshot_id: str):  # type: ignore[no
                race_date, p_fukusho_hit, calib_method, split, is_primary
         FROM prediction.fukusho_prediction
         WHERE feature_snapshot_id = %s AND split = 'test'
+        ORDER BY model_type, year, jyocd, kaiji, nichiji, racenum, umaban, kettonum
     """
     cur.execute(query, (feature_snapshot_id,))
     cols = [d.name for d in cur.description]

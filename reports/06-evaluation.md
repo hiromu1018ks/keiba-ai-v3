@@ -58,7 +58,7 @@
 ## 主モデル確定（理由記録・D-07）
 
 - **primary_model:** lightgbm (model_version=20260620-1a-postreview-v2-lgb-v1)
-- **selection_reason:** x
+- **selection_reason:** D-04 Calibration 重視の事前登録基準（brier/logloss/auc + calibration_max_dev + monotonicity spearman + backtest 回収率 の全指標で CatBoost を上回る・D-08 tiebreak: backtest_recovery_rate 0.7022 vs 0.6808）
 - **tiebreak_applied:** backtest_recovery_rate
 
 ## segment 安定性サマリ（6軸）

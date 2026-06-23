@@ -412,6 +412,29 @@ def test_write_segment_reports_json_byte_reproducible(tmp_path: Path) -> None:
     assert json1 == json2, "JSON が byte-reproducible でない（sort_keys=True 違反の可能性）"
 
 
+def test_render_segment_curves_html_byte_reproducible(tmp_path: Path) -> None:
+    """§19.1 再現性: 同じ入力で2回生成した HTML が byte-identical。
+
+    Plotly 既定は `<div id="random-uuid">` を吐くため非決定的 → div_id を axis 固定値にして
+    byte-reproducible 化（tracked 報告書の regeneration churn 防止）。
+    """
+    seg_results = _make_synthetic_segment_results(n_seg=2, seed=9)
+
+    html1 = render_segment_curves_html(
+        seg_results, axis_name="year", out_path=tmp_path / "run1.html"
+    )
+    html2 = render_segment_curves_html(
+        seg_results, axis_name="year", out_path=tmp_path / "run2.html"
+    )
+    content1 = html1.read_text(encoding="utf-8")
+    content2 = html2.read_text(encoding="utf-8")
+    assert content1 == content2, (
+        "HTML が byte-reproducible でない（Plotly div_id の random uuid が残っている可能性）"
+    )
+    # div_id が決定論的値（segment-{axis}）に固定されていることを確認
+    assert 'id="segment-year"' in content1, "div_id が 'segment-year' に固定されていない"
+
+
 def test_plotly_min_js_shared_single_file(tmp_path: Path) -> None:
     """REVIEW C13 cycle-2: 6軸 HTML が全て同じ plotly.min.js を共有参照・plotly.min.js は1ファイルのみ。"""
     df = _make_synthetic_segment_df(n=2000, seed=42)

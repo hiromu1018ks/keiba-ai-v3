@@ -442,7 +442,14 @@ def render_segment_curves_html(
     out_path_obj = Path(out_path)
     out_path_obj.parent.mkdir(parents=True, exist_ok=True)
     # REVIEW C13 cycle-2: include_plotlyjs='directory' で plotly.min.js 共有1ファイル参照
-    fig.write_html(str(out_path_obj), include_plotlyjs="directory", full_html=True)
+    # §19.1 再現性: div_id を axis 固有の決定論的値に固定（Plotly 既定の random uuid だと
+    # 再生成ごとに HTML バイト列が変わり tracked 報告書が churn する・div_id 指定で byte-reproducible 化）
+    fig.write_html(
+        str(out_path_obj),
+        include_plotlyjs="directory",
+        full_html=True,
+        div_id=f"segment-{axis_name}",
+    )
     return out_path_obj
 
 
