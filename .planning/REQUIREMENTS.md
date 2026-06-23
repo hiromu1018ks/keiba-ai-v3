@@ -47,9 +47,9 @@
 
 ### 評価・品質 (EVAL)
 
-- [ ] **EVAL-01**: 複勝的中率/回収率/損益/最大ドローダウン/購入点数/Brier Score/LogLoss/Calibration Curve を算出できる
-- [ ] **EVAL-02**: 確率品質受入基準（年別Calibrationの極端逆転なし・bin実測率の単調増加・LogLoss/Brierのベースライン超過・`sum(p)`平均の理論値適合・中央値/SD/p10/p90）を検証できる
-- [ ] **EVAL-03**: 年/月/競馬場/頭数/人気帯/オッズ帯 別の安定性と、全体/各軸の Calibration Curve を評価できる
+- [x] **EVAL-01**: 複勝的中率/回収率/損益/最大ドローダウン/購入点数/Brier Score/LogLoss/Calibration Curve を算出できる
+- [x] **EVAL-02**: 確率品質受入基準（年別Calibrationの極端逆転なし・bin実測率の単調増加・LogLoss/Brierのベースライン超過・`sum(p)`平均の理論値適合・中央値/SD/p10/p90）を検証できる
+- [x] **EVAL-03**: 年/月/競馬場/頭数/人気帯/オッズ帯 別の安定性と、全体/各軸の Calibration Curve を評価できる
 
 ### 画面 (UI)
 
@@ -129,9 +129,9 @@
 | BACK-02 | Phase 5: EV & Backtest | Complete (構造的ブロック GREEN・実データ backtest 数値検証は JODDS 取得完了後 manual-only) |
 | BACK-03 | Phase 5: EV & Backtest | Complete (構造的ブロック GREEN・live-DB backtest.fukusho_backtest テーブル適用済み・実データ backtest 数値検証は JODDS 取得完了後 manual-only) |
 | BACK-04 | Phase 5: EV & Backtest | Complete (構造的ブロック GREEN・合成データ 25 backtest で winner 強調禁止実証・実データ backtest 数値検証は JODDS 取得完了後 manual-only) |
-| EVAL-01 | Phase 6: Evaluation & Calibration Gates | Pending |
-| EVAL-02 | Phase 6: Evaluation & Calibration Gates | Pending |
-| EVAL-03 | Phase 6: Evaluation & Calibration Gates | Pending |
+| EVAL-01 | Phase 6: Evaluation & Calibration Gates | Complete |
+| EVAL-02 | Phase 6: Evaluation & Calibration Gates | Complete |
+| EVAL-03 | Phase 6: Evaluation & Calibration Gates | Complete |
 | UI-01 | Phase 7: Presentation | Pending |
 | OUT-01 | Phase 7: Presentation | Pending |
 | OUT-02 | Phase 7: Presentation | Pending |

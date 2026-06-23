@@ -223,12 +223,12 @@ Plans:
   2. The acceptance gate passes: yearly calibration curves have NO extreme inversions, per-bin observed rates are monotonically-increasing-ish, LogLoss/Brier beat the baselines, `sum(p)` mean matches the theoretical payout-places per field-size bucket (~3.0 for ≥8-horse, ~2.0 for 5–7), with median/SD/p10/p90 reported
   3. Stability-by-segment evaluation produces per-year, per-month, per-競馬場, per-頭数, per-人気帯, per-オッズ帯 Calibration Curves so segment collapse (hidden by aggregate recovery rate) is visible
 
-**Plans**: 5 plans in 5 waves
+**Plans**: 1/5 plans executed
 
 Plans:
 **Wave 0**（基盤・前提確認）
 
-- [ ] 06-01-PLAN.md — Wave 0 基盤（uv add plotly + scipy + evaluator.py Phase4 既存契約固定化テスト新設 + segment 6軸カラム経路確認テスト（REVIEW HIGH#3 fail-loud）+ reports/04-eval.json 再生成（REVIEW C6））— EVAL-01/02/03 前提
+- [x] 06-01-PLAN.md — Wave 0 基盤（uv add plotly + scipy + evaluator.py Phase4 既存契約固定化テスト新設 + segment 6軸カラム経路確認テスト（REVIEW HIGH#3 fail-loud）+ reports/04-eval.json 再生成（REVIEW C6））— EVAL-01/02/03 前提
 
 **Wave 1**（Plan 01 完了後）
 
@@ -286,6 +286,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 3.1 Timediff/Babacd Rolling Restoration (INSERTED) | 4/4 | Complete    | 2026-06-19 |
 | 4. Model & Prediction | 6/6 | Complete    | 2026-06-20 |
 | 5. EV & Backtest | 6/6 | Complete    | 2026-06-21 |
-| 6. Evaluation & Calibration Gates | 0/TBD | Not started | - |
+| 6. Evaluation & Calibration Gates | 1/5 | In Progress|  |
 | 7. Presentation | 0/TBD | Not started | - |
 | 8. Adversarial Audit Suite | 0/TBD | Not started | - |

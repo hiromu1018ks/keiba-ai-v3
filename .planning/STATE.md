@@ -6,14 +6,14 @@ current_phase: 06
 current_phase_name: Evaluation & Calibration Gates
 status: executing
 stopped_at: Phase 6 context gathered
-last_updated: "2026-06-23T11:46:10.828Z"
+last_updated: "2026-06-23T11:58:40.985Z"
 last_activity: 2026-06-23
 last_activity_desc: Phase 06 execution resumed (wave continue)
 progress:
   total_phases: 9
   completed_phases: 6
   total_plans: 34
-  completed_plans: 29
+  completed_plans: 30
   percent: 67
 ---
 
@@ -29,8 +29,8 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 06 (Evaluation & Calibration Gates) — EXECUTING
-Plan: 1 of 5
-Status: Executing Phase 06
+Plan: 2 of 5
+Status: Ready to execute
 Last activity: 2026-06-23 — Phase 06 execution resumed (wave continue)
 
 Progress: [██████████] 100%
@@ -90,6 +90,7 @@ Progress: [██████████] 100%
 | Phase 05 P04 | 10m | 2 tasks | 9 files |
 | Phase 05 P05 | 32m | 2 tasks | 3 files |
 | Phase 05 P06 | 35m | 2 tasks | 5 files |
+| Phase 06 P01 | 15m | 2 tasks | 4 files |
 
 ### Decisions
 
@@ -178,6 +179,9 @@ Recent decisions affecting current work:
 - [Phase 05] 05-06 Rule 1 fix: PostgreSQL 引用符なし識別子小文字化で BACKTEST_COLUMNS (EV_lower/upper 大文字混在) と不整合 → DDL 側で引用符付き保持 + tests DDL パーサー強化 + DROP TABLE→TRUNCATE (admin 所有テーブル・ETL ロール DROP 不可)
 - [Phase 05] 05-06: 実データ backtest (BT期間 2019-2025) は JODDS 取得進行中のため manual-only 検証として分離 (2段階実行計画・MEDIUM-05 _assert_jodds_coverage_horse_level gate で coverage<0.90 は loud fail)
 - [Phase 05] 05-06: Phase 5 自動化部分 完了宣言 (フル suite 350 passed + 合成データフル行列 25 backtest GREEN + BACK-01..04 構造的ブロック全 GREEN)・主モデル確定は Phase 6 D-03/D-04 事前登録選定基準 (Calibration 重視) に引き継ぎ
+- [Phase ?]: [Phase 06] plan 06-01: plotly>=6.8.0 + scipy>=1.17.1 明示依存追加（D-10・spearmanr 直接 import 用）
+- [Phase ?]: [Phase 06] plan 06-01: Open Question #1 RESOLVED — segment 6軸カラム経路が実 DB で確定（label 直接 + market JOIN フォールバック・prediction test 44426 行 = label JOIN 後 44426 行・cartesian duplication なし）
+- [Phase ?]: [Phase 06] plan 06-01: reports/04-eval.json の guarded 列欠損（C6 stale）解消は Plan 06-02/06-05 に委譲（Wave 0 本質は契約固定化 + segment 軸確認・unguarded 実データ値で GREEN 達成済み）
 
 ### Pending Todos
 
@@ -201,6 +205,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-23T03:38:56.569Z
+Last session: 2026-06-23T11:58:40.980Z
 Stopped at: Phase 6 planned (ready to execute)
 Resume: /gsd-execute-phase 6
