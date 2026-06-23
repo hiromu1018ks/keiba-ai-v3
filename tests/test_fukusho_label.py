@@ -1199,3 +1199,61 @@ def test_select_se_state_uses_inner_merge_with_timediff_nan_guard() -> None:
     assert re.search(r'timediff["\']?\]\.isna\(\)\.any\(\)', src) or re.search(
         r'timediff["\']?\]\.isna\(\)\.sum\(\)', src
     ), "WR-10: merge 後 timediff NaN guard (RuntimeError) が存在しない"
+
+
+# ===========================================================================
+# regression: race_date 流入（Phase 2 負債 / Phase 5 backtest 前提）
+# ---------------------------------------------------------------------------
+# label.fukusho_label.race_date は label ETL 本体が normalized.n_race から流す。
+# _RACE_META_SELECT_COLUMNS から race_date が欠落すると全行 NULL になり、backtest の
+# _filter_label_by_period が test 窓で0件 → fail（Phase 5 実データ backtest 障害）。
+# backfill（src/etl/label_race_date_backfill.py）は「既に NULL になった過去負債の回復」
+# 専用であり、本丸は label ETL 本体が race_date を流すこと。両者の回帰を構造的に保証する。
+# ===========================================================================
+
+
+def test_race_meta_select_columns_includes_race_date() -> None:
+    """regression: _select_race_meta が normalized.n_race から race_date を SELECT する。
+
+    race_date は label.fukusho_label.race_date の正しいソース（normalized.n_race.race_date
+    = raw の year+monthday から normalized ETL が構築）。_RACE_META_SELECT_COLUMNS から
+    race_date が欠落すると _select_race_meta の race_df に race_date が含まれなくなり、
+    compute_fukusho_labels の出力 race_date が全行 NULL になる（Phase 2 負債の発生元）。
+    """
+    mod = _get_fukusho_label_module()
+    assert "race_date" in mod._RACE_META_SELECT_COLUMNS, (
+        "_RACE_META_SELECT_COLUMNS に race_date が無い（label ETL 本体が race_date を "
+        "流さない → label.fukusho_label.race_date 全行 NULL 再発・Phase 2 負債回帰）"
+    )
+
+
+def test_compute_fukusho_labels_propagates_race_date() -> None:
+    """regression: compute_fukusho_labels が race_df の race_date を出力へ伝播する。
+
+    race_df（normalized.n_race 由来）に race_date が含まれる場合、1行/馬の出力にも
+    race_date が non-NULL で伝播することを検証。伝播しないと backtest の
+    _filter_label_by_period が test 窓で0件になり fail（Phase 5 実データ backtest 障害）。
+    """
+    import datetime as dt  # noqa: PLC0415
+
+    mod = _get_fukusho_label_module()
+    spec = _load_label_spec()
+    hr_df, se_df, race_df = _build_label_input_df(8)
+    # race_df に race_date を付与（normalized.n_race 相当・1レース全馬で同一値）
+    race_df = race_df.copy()
+    expected_date = dt.date(2023, 1, 1)
+    race_df["race_date"] = expected_date
+
+    out = mod.compute_fukusho_labels(hr_df, se_df, race_df, spec=spec)
+
+    # race_date 列が存在し、全行 non-NULL で race_df の値と一致（1レース8馬）
+    assert "race_date" in out.columns, "出力に race_date 列が無い（伝播漏れ）"
+    assert len(out) == 8
+    assert out["race_date"].notna().all(), (
+        f"race_date に NULL が {int(out['race_date'].isna().sum())} 件ある（伝播漏れ）"
+    )
+    unique_dates = pd.Series(out["race_date"].unique()).dropna()
+    assert len(unique_dates) == 1, "race_date が複数値（1レース内で不整合）"
+    assert pd.Timestamp(unique_dates.iloc[0]) == pd.Timestamp(expected_date), (
+        "race_date が race_df の値と一致しない（伝播不正）"
+    )
