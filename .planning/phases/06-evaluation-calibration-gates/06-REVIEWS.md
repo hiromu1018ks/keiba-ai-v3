@@ -296,3 +296,105 @@ Phase 6 plans extend Phase 4 `src/model/evaluator.py`. Verified cited existing s
 - `src/db/schema.py` のテーブル/カラム実体（`is_primary`, `model_version`, prediction 行）— 06-04 produced-artifact / migration 範囲で宣言、load 時正規化はテスト経由で担保、grep 非対象
 
 **hardBlock: なし**（grep authority は hard-block 不可・LSP/SCIP 専用）。サンプル参照範囲で hallucinated な既存シンボルは検出されず。完全 LSP 検証は `intel.enabled`（SCIP/LSP authority）有効時に推奨。
+
+---
+
+# Cycle 2 — Re-review (post-replan)
+
+> Cycle 1 で指摘された 8 HIGH + 14 actionable を受け commit 6896c4f で PLAN.md を改訂（Wave 構成 4→5 波・06-03 を 06-02 の直列後に繰下げ）。本サイクルは改訂後の 5 PLAN.md（06-01〜06-05）を再レビューし、(a) 各 cycle-1 懸念が PLAN に組込まれたか、(b) 改訂が新規懸念を導入していないかを判定する。審査は Claude Code（本セッション）が行い、各判定の根拠行を PLAN 内で明示する。
+
+## Cycle-1 Concern Disposition（8 HIGH）
+
+| Cycle-1 ID | 懸念 | 組込先 | 判定 | 根拠 |
+|-----------|------|--------|------|------|
+| **HIGH#1** | 06-03 が 06-02 に依存するのに Wave 1 並列宣言 | 06-03 frontmatter / ROADMAP | **FULLY RESOLVED** | 06-03 frontmatter `depends_on: [06-01, 06-02]` + `wave: 2`（06-03-PLAN.md L6-8）。ROADMAP Wave 2「06-03 は 06-02 の産出シンボルに依存のため直列化・REVIEW HIGH#1」（ROADMAP L237-239）。06-03 imports `from src.model.evaluator import _compute_calibration_curve_bins, _compute_ece, _compute_mce`（06-03-PLAN.md L96）。3者整合・import 破綻なし |
+| **HIGH#2** | D-02 BLOCK が AND でなく OR 実装の疑い | 06-02 Task 2 | **FULLY RESOLVED** | must_haves「構造的 BLOCK は D-02 の AND 条件…片方だけでは warn_reasons 記録で BLOCK しない」（06-02-PLAN.md L21-22）。Test 1/2/3/12 が AND 条件を検証（baselines_all_lose 単独＝WARN・sum_p 単独＝WARN・両立＝BLOCK）。`block_triggered = baselines_all_lose AND sum_p_violation` と明記（L167） |
+| **HIGH#3** | segment 軸確認テストが fail-loud でない | 06-01 Task 2 | **FULLY RESOLVED** | must_haves「欠損時は WARN-skip でなく fail-loud（pytest.fail）」（06-01-PLAN.md L34）。Test 2 `test_label_table_has_segment_axesOrFailLoud` で `pytest.fail`（L150-155）・Test 4 `test_market_data_segment_axes_if_label_missing` で label/market 二段階フォールバック（C3 対応）。「WARN 付き PASS は廃止」と明記 |
+| **HIGH#4** | 人気帯/オッズ帯 banding 関数が存在しない | 06-03 Task 1 | **FULLY RESOLVED** | `_ninki_band`/`_odds_band` + `NINKI_BAND_EDGES/LABELS` + `ODDS_BAND_EDGES/LABELS` を定数化（06-03-PLAN.md L99-100, L114-116）。Test 2/3 が banding 出力を固定化（1-3/4-6/7-9/10+ ・ 1.0-2.9/3.0-4.9/5.0-9.9/10+）。SEGMENT_AXES の値が banding 済み列（T-06-08b） |
+| **HIGH#5** | SUM_P_BLOCK_THRESHOLD=0.30 の経験的根拠欠如 | 06-05 Step 2/3 | **FULLY RESOLVED** | must_haves「sum_p_measurement（…threshold_appropriate）が記録される」（06-05-PLAN.md L28）。Step 2 で sum_p_measurement dict 構築・Test 8 で検証（L118）。reports/06-evaluation.json の `sum_p_measurement` + notes に「0.30 の経験的根拠」を記録（L161, L170）。閾値未確定を注記（06-02-PLAN.md L101） |
+| **HIGH#6** | BLOCK 発火時の report 残存フロー未規定 | 06-05 Step 順序 | **FULLY RESOLVED** | must_haves「reports を atomic write した *後* に RuntimeError」（06-05-PLAN.md L26）。Step 3(segments)→4(gate)→5(reports・BLOCK 含む)→6(RuntimeError) の順序に変更（L153）。Test 2 `test_run_evaluation_gate_block_writes_report_then_raises`（L112） |
+| **HIGH#7** | set_primary_model の silent no-op / rowcount 検証欠如 | 06-04 Task 2 | **FULLY RESOLVED** | must_haves「0 行 UPDATE で RuntimeError（REVIEW HIGH#7 post-condition）」（06-04-PLAN.md L25）。post-condition assert（0 行→RuntimeError・SELECT で true が1 model_type のみ・>=1行）実装（L189-191）。Test 6/7 で検証。C11 as_of_datetime canonical parse（pd.Timestamp）も組込 |
+| **HIGH#8** | is_primary の NULL 許容/CHECK が vacuous | 06-04 Task 1 | **FULLY RESOLVED** | `boolean NOT NULL DEFAULT false` 明示（06-04-PLAN.md L112）。Test 5 `test_is_primary_not_null_constraint` で NULL INSERT 拒否を検証（L136）。C16「CHECK は NOT NULL 二重防御」と注記（L103, L299） |
+
+**Cycle-1 HIGH 残存数: 0**
+
+## Cycle-1 Actionable Disposition（14 MEDIUM/LOW）
+
+| Cycle-1 ID | 懸念 | 判定 | 根拠 |
+|-----------|------|------|------|
+| **C5**（quantile_max_dev≡MCE 冗長） | **RESOLVED** | 06-02 で `_compute_quantile_max_dev`（ガードなし）と `_compute_mce`（MIN_BIN_COUNT ガード）を別実装化（06-02-PLAN.md L110）。Test 9 で別値を検証。METRIC_COLUMNS_EXTENDED も別列 |
+| **C6**（reports/04-eval.json stale） | **RESOLVED** | 06-01 Task 1 Step 2 で Wave 0 再生成タスク追加（06-01-PLAN.md L97） |
+| **C7**（--primary-model 省略時の挙動矛盾） | **RESOLVED** | 06-05 parse_args/help/Step 5 で「省略時は reports のみ・is_primary 更新スキップ・タイブレーク自動適用廃止」に統一（06-05-PLAN.md L138, L167）。Test 5 で検証 |
+| **C8**（SC#1 model-level 集計規則未定義） | **RESOLVED** | 06-05 で「優位 policy の代表窓 or 重み付き平均」を固定集計規則とし `backtest_aggregation_method` フィールドで明記（06-05-PLAN.md L169, L291） |
+| **C10**（test_is_primary_default_false が global DB 前提） | **RESOLVED** | 06-04 Test 4 を「テスト挿入行スコープ（model_version='test_is_primary_scope_<uuid4>'）+ try/finally teardown」に変更（06-04-PLAN.md L101, L135） |
+| **C11**（set_primary_model silent no-op） | **RESOLVED** | 06-04 で `pd.Timestamp(as_of_datetime).to_pydatetime()` canonical parse（06-04-PLAN.md L185）。HIGH#7 post-condition と二重防御 |
+| **C12**（segment_eval race_date dtype 未正規化） | **RESOLVED** | 06-03 で `pd.to_datetime(df["race_date"], errors="coerce")` 正規化を evaluate_all_segments に組込（06-03-PLAN.md L131）。Test 9 で検証・T-06-08c |
+| **C13**（Plotly HTML Git 格納方針） | **PARTIALLY RESOLVED → 新規 MEDIUM（N1 参照）** | 方針決定自体は行った（`.gitignore` に `reports/06-segments/*.html` 追加・JSON のみ tracked）。**ただし既存 `.gitignore` の確立ポリシー「reports/ は除外しない」と矛盾** → N1 に昇格 |
+| **C14**（guarded 値の回帰 pin なし） | **RESOLVED** | 06-02 Test 8 `test_guarded_value_pinned_to_report` 追加（06-02-PLAN.md L91） |
+| **C15**（SC#2「beat baselines」と BLOCK「全敗」の文面 gap 注記なし） | **UNRESOLVED（actionable）** | 06-02/06-05 に SC#2 原文と D-01 BLOCK 条件の gap に対する注記なし。現データで LightGBM 優位のため実害は無いが、Phase 8 監査で「SC#2 達成」の解釈が曖昧。reports/06-evaluation.md の注記セクションに1行追加で解決 |
+| **C16**（is_primary CHECK が vacuous） | **RESOLVED** | HIGH#8 対応で NOT NULL 明示 + CHECK を「NOT NULL 二重防御」と位置付け注記（06-04-PLAN.md L103, L299） |
+| **C17**（06-04/06-05 checkpoint 重複） | **RESOLVED** | 06-04 Task 3 を「機構承認のみ」に縮小（06-04-PLAN.md L228-229）。主モデル選定は 06-05 Task 2 で実施 |
+| **C18**（06-04 Wave 配置が保守的） | **RESOLVED（意図的判断）** | 改訂で 5 波完全直列化（Wave 0→1→2→3→4）。06-04 は wave:3（06-02/06-03 完了後）。C18 は「Wave 1 で 06-02 と並列可能」だが、安全側の直列化を意図的に選択（依存グラフの単純化）。明示的判断とみなし EXCLUDE |
+| **C19**（tdd="true" flag misuse） | **RESOLVED** | 06-01 Task 1 action に「tdd="true" だが・これは Phase 6 拡張前の現状契約を固定化」注記追加（06-01-PLAN.md L113） |
+| **Codex MEDIUM**（calibration_max_dev_report_value_match が自己参照） | **RESOLVED** | reports/04-eval.json の実データ値（0.23076…等）を直接 assert 対象として明記（06-01-PLAN.md L87, L106） |
+| **Codex MEDIUM**（METRIC_COLUMNS/build_comparison_table 整合） | **RESOLVED** | 06-02 で METRIC_COLUMNS_EXTENDED 別名定義・build_comparison_table は不変・06-05 comparison_table が METRIC_COLUMNS_EXTENDED を消費と整理（06-02-PLAN.md L100, 06-05-PLAN.md L166） |
+| **Codex MEDIUM**（タイブレーク規則の揺れ） | **RESOLVED** | C7 と統合（タイブレーク自動適用廃止・reports の優先順位表のみ） |
+| **Codex MEDIUM**（segment 欠損 WARN skip で SC#3 達成曖昧） | **RESOLVED** | HIGH#3 で fail-loud 化 + 06-05 Step 3 で evaluate_all_segments の6軸キー存在を必須化 |
+| **Codex MEDIUM**（Plotly サイズテスト脆さ） | **RESOLVED** | 06-03 Test 1 で byte 数 assert を廃止し `"Plotly.newPlot"` 文字列存在検証に変更（06-03-PLAN.md L172） |
+| **Codex MEDIUM**（test_is_primary global DB） | **RESOLVED** | C10 と同一対応 |
+| **Codex MEDIUM**（JOIN race_id またぎ再検証薄い） | **RESOLVED** | 06-05 で `reproducibility_checks.race_id_split_disjoint` を gate_result に記録（06-05-PLAN.md L171, L149）。Test 9 で検証 |
+| **Codex LOW**（scipy 推移依存） | **RESOLVED** | 06-01 Task 1 で `uv add scipy` 明示依存化（06-01-PLAN.md L95） |
+| **Codex LOW**（__init__.py 不要論） | **UNRESOLVED（actionable・低影響）** | 06-01/06-04 で「既存の場合は確認して作成」と記載するが、採用/拒絶の明示的判断なし。実体 tests/model/・tests/db/ の package marker 要否を実行時に残す。害は極小 |
+| **Codex LOW**（reports/ Git tracked 判定） | **UNRESOLVED → N1 に統合** | C13 と同一問題（.gitignore ポリシー矛盾）。N1 で扱う |
+
+**Cycle-1 actionable 残存（PLAN に未組込）: C15, Codex LOW __init__.py（2件・いずれも低影響）**
+
+## Cycle-2 New Concerns（改訂が導入した懸念）
+
+### N1【MEDIUM・ポリシー矛盾】reports/06-segments/*.html の .gitignore 追記が既存「reports/ は除外しない」ポリシーと衝突
+
+**発生:** 06-03 Task 2 Step 3（REVIEW C13 対応）が `reports/06-segments/*.html` を `.gitignore` に追記する計画。一方で既存 `.gitignore` 末尾に「品質レポートは成果物なので reports/ は除外しない（01-RESEARCH.md 明示）」とプロジェクト確立ポリシーが明記され、reports/04-eval.{md,json}・reports/05-backtest.{md,json} は tracked（`git ls-files reports/` で7ファイル確認）。06-05 も `reports/06-evaluation.{md,json}` を files_modified（tracked 想定）に含む。
+
+**影響:** executor が 06-03 の指示通り `.gitignore` に `reports/06-segments/*.html` を追記すると、`reports/` 配下で tracked と untracked が混在し・ポリシーが分裂する。C13 の本来意図（「格納方針を決定して明記せよ」）は果たしたが、決定内容が既存ポリシーと整合しない。Phase 7 Streamlit は JSON を消費（HTML は Git 外でも運用上問題ない）ため実害は限定的だが、ポリシーの一貫性が損なわれる。
+
+**修正案（いずれか1つ）:**
+1. **ポリシー整合型:** `fig.write_html(include_plotlyjs=False)`（plotly.js を CDN 参照）または `include_plotlyjs="directory"`（plotly.js を1ファイル共有）でサイズ削減し、HTML も tracked 成果物として維持（reports/ 全体の tracked ポリシーを遵守）。D-10「offline 自己完結」要件との調整が必要（CDN は offline で不可）。
+2. **ポリシー更新型:** `reports/06-segments/*.html` を「成果物でなく生成物」と再分類する旨を `.gitignore` コメント・01-RESEARCH.md・ROADMAP 注記に明示し、ポリシー文を「reports/ の md/json は tracked・HTML 生成物は除外」に更新してから 06-03 を実行。
+
+### N2【INFO・非ブロック】reports/04-eval.json 再生成の escape hatch が executor 判断に委ねられている
+
+**発生:** 06-01 Task 1 Step 2（REVIEW C6 対応）は「run_train_predict.py が評価再生成をサポートしない場合は Plan 06-05 が guarded 列欠損を WARN で検知し代替値で補完する経路に切り替え（本 PLAN の read_first/action で executor が判断）」と記載。再生成成功可否が実行時に判明する点は妥当だが、escape-hatch への切り替え時に test_calibration_max_dev_report_value_match が reports/04-eval.json の guarded 列欠損で skip するか fail するかが未規定。
+
+**影響:** 実害は小さい（escape-hatch はレアケース）。ただし 06-05 の WARN 補完経路が 06-01 のテスト期待と整合するか、executor が判断材料を持つよう read_first に現 evaluator.py の評価再生成エントリ有無を確認するステップを明記するとより堅い。
+
+**判定:** INFO（実行時判断に委ねる設計自体は妥当）。本サイクルでは action に入れず、06-01 SUMMARY で escape-hatch 発火有無を記録することを推奨。
+
+## Verification Coverage (cycle 2 — source-grounding)
+
+本レビューは改訂後の以下のソースを根拠とする:
+
+- `.gitignore`（末尾「reports/ は除外しない」ポリシー確認・N1 根拠）
+- `git ls-files reports/`（reports/04-eval.{md,json}・05-backtest.{md,json} tracked 確認・7ファイル）
+- 06-01-PLAN.md 〜 06-05-PLAN.md（各 must_haves / tasks / threat_model / artifacts の行番号で上表に明示）
+- `.planning/ROADMAP.md` Phase 6 セクション（Wave 0→4 構成・各 plan の依存明記・HIGH#1-8 対応注記）
+
+**Symbol re-verification（cycle 2）:** 改訂で既存シンボル参照に変更なし。cycle 1 の verification 結果を引き継承。新規産出シンボル（`_ninki_band`/`_odds_band`/`compute_yearly_inversion_warn`/`set_primary_model` post-condition 等）は全て produced-artifact 範囲（grep 対象外）。
+
+## Cycle 2 Conclusion
+
+- **Cycle-1 HIGH 残存: 0**（8 HIGH 全て FULLY RESOLVED・PLAN に concrete task + acceptance criteria + test として組込済）
+- **Cycle-1 actionable 残存: 2件**（C15: SC#2 文面 gap 注記 / Codex LOW: __init__.py 採否判断・いずれも低影響）
+- **新規懸念: N1（MEDIUM・.gitignore ポリシー矛盾）/ N2（INFO・非ブロック）**
+
+**収束判定:** HIGH は全て解決。残る MEDIUM（N1）は PLAN 修正で解決可能（再設計不要）。実行前に N1 を修正すれば Phase 6 は高品質で完了可能。Cycle 1 の「MEDIUM-HIGH/MEDIUM」リスク評価は **LOW-MEDIUM に改善**。本フェーズは実行フェーズ（/gsd-execute-phase）に進める状態。N1 と残り actionable 2件は実行ラウンドトリップまたは軽微な PLAN 追記で解決可能。
+
+---
+
+## CYCLE_SUMMARY (cycle 2)
+
+```
+CYCLE_SUMMARY: current_high=0 current_actionable=3
+```
+
+- current_high=0: cycle-1 の 8 HIGH は全て FULLY RESOLVED。改訂が新規 HIGH を導入していない（N1 は MEDIUM）。
+- current_actionable=3: N1（.gitignore ポリシー矛盾・MEDIUM）+ C15（SC#2 文面 gap 注記なし・LOW）+ Codex LOW __init__.py 採否判断なし。いずれも /gsd-execute-phase に見えないため PLAN への組込または明示的拒絶が必要。
