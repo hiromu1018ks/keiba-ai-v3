@@ -398,3 +398,98 @@ CYCLE_SUMMARY: current_high=0 current_actionable=3
 
 - current_high=0: cycle-1 の 8 HIGH は全て FULLY RESOLVED。改訂が新規 HIGH を導入していない（N1 は MEDIUM）。
 - current_actionable=3: N1（.gitignore ポリシー矛盾・MEDIUM）+ C15（SC#2 文面 gap 注記なし・LOW）+ Codex LOW __init__.py 採否判断なし。いずれも /gsd-execute-phase に見えないため PLAN への組込または明示的拒絶が必要。
+
+---
+
+# Cycle 3 — Final Convergence Check (post-replan)
+
+> Cycle 2 で指摘された 3 actionable（N1/C15/Codex-LOW）を commit 356a7ed で PLAN.md 改訂。本サイクル（MAX_CYCLES 到達・最終収束判定）は (a) 3 actionable が concrete task + acceptance criteria + test 付きで PLAN に組込まれたか、(b) cycle-2 改訂が新規 HIGH/regression を導入していないか、を Claude Code（本セッション）と Codex（OpenAI・独立セッション）の2システムで検証。本サイクルで収束判定を出し、escalation の要否を決定する。
+
+## Cycle-2 Actionable Disposition（3件）
+
+| Cycle-2 ID | 懸念 | 判定 | 根拠 |
+|-----------|------|------|------|
+| **N1**（.gitignore ポリシー矛盾） | **FULLY RESOLVED** | 06-03 が `.gitignore` 追記計画を撤回（06-03-PLAN.md L47, L169, L198, L283「.gitignore は変更しない」明記・files_modified から .gitignore 削除）。代替策として `fig.write_html(include_plotlyjs='directory')` で plotly.min.js を reports/06-segments/plotly.min.js に1ファイル共有出力・6 HTML が `<script src="plotly.min.js">` で参照（L38, L183, L187）。reports/ 全体 tracked ポリシー維持（01-RESEARCH.md 明示・.gitignore 末尾）。検証: Test 6 `test_plotly_min_js_shared_single_file`（L177, L206）+ verify 箇所 `grep -v '^#' .gitignore | grep -c 'reports/06-segments' == 0`（L251）。D-10「Plotly 静的 HTML」要件は directory 単位で offline 完結する形で維持（L188 注記） |
+| **C15**（SC#2/BLOCK 文面 gap 注記なし） | **FULLY RESOLVED** | 06-02 Task 2 で `check_acceptance_gate` docstring に SC#2「beat all baselines」と BLOCK 条件1「baselines 全敗」の対称性注記を追加（06-02-PLAN.md L179）。06-05 reports 注記セクションに `sc2_block_symmetry_note` 追加（06-05-PLAN.md L161, L173, L296）。検証: Test 4 `test_run_evaluation_report_sections` で reports/06-evaluation.md 注記セクションの対称性注記存在を確認（06-05-PLAN.md L114, L197） |
+| **Codex-LOW**（tests/__init__.py 採否判断なし） | **FULLY RESOLVED** | 06-01 と 06-04 で「既存のため保持・新規作成不要・files_modified から除外」の明示判断を記載（06-01-PLAN.md L25, L52, L99, L216 / 06-04-PLAN.md L127, L308）。`find tests -name __init__.py` で tests/__init__.py・tests/model/__init__.py・tests/db/__init__.py・tests/ev/__init__.py・tests/features/__init__.py が既存（本プロジェクト package marker 規約）と確認済み・採用判断が明示された |
+
+**Cycle-2 actionable 残存: 0件**（3件全て FULLY RESOLVED）
+
+## Regression Check（cycle-2 改訂が導入した懸念）
+
+cycle-2 改訂（commit 356a7ed）の主要変更は N1 対応の `include_plotlyjs='directory'` 切替。これが新規 HIGH を導入していないかを検証:
+
+- **D-10 自己完結性:** directory モードは「HTML 単体のみで開くと plotly.min.js が見つからない」点で厳密な single-file self-contained ではない。しかし 06-03-PLAN.md L188 が「reports/06-segments/ ディレクトリ全体（plotly.min.js + 6 HTML + 6 JSON）が Git tracked 成果物・クローン後はディレクトリ単位で開けば Plotly 表示が機能」を明記。Phase 7 Streamlit は JSON を消費し HTML は単体確認用。D-10「Plotly 静的 HTML・offline・CDN 非依存」は reports/06-segments/ ディレクトリ内で完結する形で維持。**新規 HIGH なし。** Codex も regression なしと判定（test_render_segment_curves_html_self_contained の命名が厳密には misnomer だが HIGH でないと評価）。
+- **reports/ tracked ポリシー一貫性:** N1 解消により .gitignore 変更なし・reports/04-eval.{md,json}・05-backtest.{md,json}・06-evaluation.{md,json}・06-segments/* が全て tracked で統一。**ポリシー分裂解消。**
+- **新規 HIGH regression:** なし。
+
+## Codex Independent Review（cycle 3）
+
+Codex（OpenAI・独立セッション）に cycle-3 レビュープロンプト（PROJECT.md / 06-CONTEXT.md / 5 PLAN.md・cycle 収束文脈明記）を提示。判定:
+
+- **Cycle-2 actionable 検証:** N1/C15/Codex-LOW 全て **RESOLVED**（各 PLAN 行証拠付き）。
+- **Regression Check:** 「No NEW HIGH regression found」（include_plotlyjs='directory' は D-10/offline 要件を保ちつつ tracked ポリシー維持）。test 名の misnomer は HIGH でない。
+- **Newly Discovered HIGH:** **None.**
+- **Risk Assessment:** **LOW**。
+
+Codex は追加で1点 MEDIUM 実装リスクを指摘（HIGH blocker でない）: **race_id_split_disjoint check が vacuous になる可能性**。下記 N3 で詳述。
+
+## Cycle-3 New Concerns
+
+### N3【MEDIUM・検証品質】race_id_split_disjoint check が test-only 読込の上で vacuous になる可能性
+
+**発生:** 06-05 は cycle-2 の「Codex MEDIUM 対応」として reports/06-evaluation.json に `reproducibility_checks.race_id_split_disjoint: bool` を記録する設計。しかし:
+- **Step 1（06-05-PLAN.md L146）:** prediction_df を `SELECT FROM prediction.fukusho_prediction WHERE feature_snapshot_id=? AND split='test'` で **test split のみ** 読込む。
+- **Step 4（L149）:** 「prediction_df を split で分け train/test の race_id 集合が disjoint か確認」と書くが・prediction_df には既に test 行しか無く `set(train_races)` は空集合となるため `set(train) ∩ set(test) == ∅` は **常に True（vacuous）**。
+- **Test 9（L119）:** 「prediction_df を split='train'/'val'/'test' で分割し」と書くが・Step 1 の test-only 読込と整合せず・テスト期待も vacuous になる。
+
+**影響:** §8.4 聖域（race_id train/test またぎ禁止）の「再検証」という本来目的を果たさない。Test 9 が `race_id_split_disjoint==True` を assert しても実態を検証していない。Phase 8 対抗的監査で「再検証済み」と誤認されるリスク。
+
+**HIGH でない理由:** Phase 6 は評価専用フェーズで race_id split は Phase 4 学習時の `GroupTimeSeriesSplit` で既に保証されており・Phase 6 が新規にリークを導入しない。本 check が vacuous でも Core Value 違反を新規作成しない（既存の問題の見逃しであって新規リーク導入ではない）。Codex も「verification quality issue, not evidence of leakage introduced by Phase 6」「MEDIUM 実装リスク・HIGH blocker でない」と評価。
+
+**修正案（PLAN 追記で解決・実行前または実行ラウンドトリップで対応可）:**
+1. Step 1 の prediction 読込を `WHERE feature_snapshot_id=? AND split IN ('train','val','test')` に拡張（全 split 読込）し・Step 4 で実際に train/test の race_id 集合を比較。ただし評価計算（Step 2 以降）は test 行のみで行うため・読込後に split で分けて「評価用 df」と「検証用 df」を分離。
+2. または Step 4 で別途 `SELECT DISTINCT race_id FROM prediction.fukusho_prediction WHERE split='train'` と `... split='test'` を独立クエリで読み・disjoint を確認（評価用 prediction_df は test-only のまま）。
+3. Test 9 の期待を「全 split 読込後の train/test race_id 集合の disjoint」に修正。
+
+**判定:** MEDIUM（actionable）。/gsd-execute-phase に見えないため PLAN 06-05 の Step 1/Step 4/Test 9 に修正を組込むか・明示的 deferral（「Phase 6 は評価専用のため split integrity は Phase 4 に委ねる・reports の同欄は参考記録と注記」）が必要。
+
+### N4【INFO・非ブロック】test_render_segment_curves_html_self_contained の命名が厳密には misnomer
+
+**発生:** 06-03 Test 1（L172）のテスト名 `test_render_segment_curves_html_self_contained` は cycle-1 時点の `include_plotlyjs=True`（single-file 自己完結）前提の命名。cycle-2 で `include_plotlyjs='directory'`（plotly.min.js 別ファイル共有参照）に切替えたため・厳密には「self-contained」でない。Codex 指摘。
+
+**影響:** 機能・検証内容は正しい（`"Plotly.newPlot"` と `<script src="plotly.min.js">` 共有参照の存在検証）。テスト名だけが旧設計を引きずるのみで実害なし。
+
+**判定:** INFO（非ブロック）。実行時にテスト名を `test_render_segment_curves_html_plotly_shared` 等にリネームする程度で対応可。本サイクルでは action に入れず。
+
+## Verification Coverage（cycle 3 — source-grounding）
+
+本レビューは改訂後の以下のソースを根拠とする:
+
+- 06-01-PLAN.md（L25/L52/L99/L216: Codex-LOW __init__.py 明示判断）
+- 06-02-PLAN.md（L179: C15 SC#2/BLOCK 対称性注記 docstring）
+- 06-03-PLAN.md（L38/L47/L169/L177/L183/L187/L198/L206/L251/L283: N1 include_plotlyjs='directory'・.gitignore 変更なし・plotly.min.js 共有1ファイル・Test 6/verify）
+- 06-04-PLAN.md（L127/L308: Codex-LOW __init__.py 明示判断）
+- 06-05-PLAN.md（L114/L119/L146/L149/L161/L173/L197/L296: C15 注記・race_id split integrity check 設計）
+- Codex 独立レビュー出力 `/tmp/gsd-review-codex-6-cycle3.md`（N1/C15/Codex-LOW 全て RESOLVED・regression なし・Risk LOW・N3 MEDIUM 指摘）
+
+**Symbol re-verification（cycle 3）:** cycle-2 改訂は既存シンボル参照に変更なし（N1 は plotly write_html パラメータのみ・C15 は docstring/notes 追記のみ・Codex-LOW は files_modified/注記のみ）。cycle 1/2 の verification 結果を引き継承。
+
+## Cycle 3 Conclusion
+
+- **Cycle-2 actionable 残存: 0件**（N1/C15/Codex-LOW 全て FULLY RESOLVED・concrete task + acceptance criteria + test 付き）
+- **新規 HIGH regression: 0件**（include_plotlyjs='directory' 切替は D-10/offline 要件を保ちつつ tracked ポリシー維持・Codex 独立レビューでも regression なし・Risk LOW）
+- **新規 actionable: N3（MEDIUM・race_id_split_disjoint が vacuous になる可能性・検証品質）/ N4（INFO・非ブロック・テスト名 misnomer）**
+
+**収束判定: CONVERGED.** cycle-1 の 8 HIGH は全て解決済み（cycle 2 で FULLY RESOLVED 確認済み）。cycle-2 の 3 actionable も全て解決。cycle-3 で新規 HIGH はゼロ。残る N3（MEDIUM）は Phase 6 が Core Value を新規違反しない検証品質の問題で HIGH blocker でなく・実行ラウンドトリップまたは軽微な PLAN 06-05 追記（Step 1 全 split 読込 or 明示的 deferral 注記）で解決可能。Cycle 1「MEDIUM-HIGH/MEDIUM」→ Cycle 2「LOW-MEDIUM」→ **Cycle 3「LOW」** に改善。本フェーズは /gsd-execute-phase に進める状態。N3 は実行時発見でも対応可能（vacuous check が出荷を止めることはない）。
+
+---
+
+## CYCLE_SUMMARY (cycle 3)
+
+```
+CYCLE_SUMMARY: current_high=0 current_actionable=1
+```
+
+- current_high=0: cycle-1 の 8 HIGH（cycle 2 で FULLY RESOLVED）および cycle-2 の改訂が導入した新規 HIGH ともにゼロ。Codex 独立レビューでも Risk LOW・regression なし。
+- current_actionable=1: N3（race_id_split_disjoint check が test-only 読込の上で vacuous になる可能性・MEDIUM・検証品質）。N4（test 名 misnomer）は INFO のため actionable に含めず。N3 は HIGH blocker でなく Phase 6 は新規リークを導入しないため実行ラウンドトリップまたは軽微な PLAN 06-05 追記で解決可能。
