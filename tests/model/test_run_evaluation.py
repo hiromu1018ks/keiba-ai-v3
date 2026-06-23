@@ -37,6 +37,17 @@ from scripts.run_evaluation import (  # noqa: E402
     generate_evaluation_reports,
 )
 
+# Rule1: src.model.predict.MODEL_TYPE_TO_SHORT と同一の短縮形（DB実値と一致させる）。
+# 旧 fixture は model_name[:3] で "lightgbm"→"lig" / "catboost"→"cat" となり DB実値
+# (-lgb-v1 / -cb-v1) と不整合 → set_primary_model の WHERE が 0 行になる bug をテストが
+# 検知できていなかった。blN baseline は [:3] のまま blN になるので fallthrough。
+_MODEL_SHORT = {"lightgbm": "lgb", "catboost": "cb"}
+
+
+def _short_model(name: str) -> str:
+    return _MODEL_SHORT.get(name, name[:3])
+
+
 # ---------------------------------------------------------------------------
 # 合成 fixture builder
 # ---------------------------------------------------------------------------
@@ -70,7 +81,7 @@ def _make_synthetic_eval_inputs(tmp_path: Path) -> dict:
                 p = float(np.clip(base_p + delta, 0.02, 0.95))
                 rows.append({
                     "model_type": model_name,
-                    "model_version": f"20260620-1a-postreview-v2-{model_name[:3]}-v1",
+                    "model_version": f"20260620-1a-postreview-v2-{_short_model(model_name)}-v1",
                     "feature_snapshot_id": "20260620-1a-postreview-v2",
                     "as_of_datetime": pd.Timestamp("2026-06-20T00:00:00Z"),
                     "p_fukusho_hit": p,

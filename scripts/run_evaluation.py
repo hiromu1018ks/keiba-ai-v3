@@ -72,6 +72,7 @@ from src.config.settings import Settings  # noqa: E402
 from src.db.connection import make_pool, readonly_cursor  # noqa: E402
 from src.db.prediction_load import set_primary_model  # noqa: E402
 from src.model.artifact import _atomic_write_text  # noqa: E402
+from src.model.predict import make_model_version  # noqa: E402  Rule1: DB実値と一致する正規の model_version 採番（[:3] 手動推測は "lig" 偏差 bug）
 from src.model.evaluator import (  # noqa: E402
     BL3_MARKET_REFERENCE_NOTE,
     BL_UNCALIBRATED_NOTE,
@@ -1011,7 +1012,10 @@ def generate_evaluation_reports(
     if primary_model is not None:
         # model_version は metrics_dict から推測できないため prediction_df から取得する想定だが・
         # ここでは provenance と feature_snapshot_id から推定
-        model_version = f"{provenance['feature_snapshot_id']}-{primary_model[:3]}-v1"
+        # Rule1: DB実値と一致する正規の model_version 採番 (旧: primary_model[:3] → "lig" 偏差 bug)
+        model_version = make_model_version(
+            provenance["feature_snapshot_id"], primary_model, version_n=1
+        )
         primary_model_record = {
             "model_type": primary_model,
             "model_version": model_version,
@@ -1303,8 +1307,8 @@ def main(argv: list[str] | None = None) -> int:
 
         # Step 7: --primary-model 指定時（is_primary UPDATE・REVIEW C7: 省略時はスキップ）
         if args.primary_model is not None and etl_pool is not None:
-            model_version = (
-                f"{args.feature_snapshot_id}-{args.primary_model[:3]}-v1"
+            model_version = make_model_version(
+                args.feature_snapshot_id, args.primary_model, version_n=1
             )
             with etl_pool.connection() as conn, conn.cursor() as cur:
                 set_primary_model(
