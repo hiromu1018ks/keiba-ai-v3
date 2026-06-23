@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 06
-current_phase_name: Evaluation & Calibration Gates
+current_phase: 7
+current_phase_name: Presentation
 status: verifying
-stopped_at: Phase 6 plan 04 complete
-last_updated: "2026-06-23T13:53:29.875Z"
+stopped_at: "Phase 6 plan 04 complete (is_primary migration 機構完了: 3ファイル連鎖 + set_primary_model・REVIEW HIGH#7/HIGH#8/C10/C11/C17 解消・checkpoint approved・主モデル選定は Plan 06-05 Task 2 で実施・Plan 06-05 ready)"
+last_updated: "2026-06-23T14:25:05.666Z"
 last_activity: 2026-06-23
-last_activity_desc: "Phase 06 plan 04 complete (is_primary migration 機構: 3ファイル連鎖 + set_primary_model・REVIEW HIGH#7/HIGH#8/C10/C11/C17 解消・checkpoint approved)"
+last_activity_desc: Phase 06 complete, transitioned to Phase 7
 progress:
   total_phases: 9
   completed_phases: 7
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 
 ## Current Position
 
-Phase: 06 (Evaluation & Calibration Gates) — COMPLETE
-Plan: 5 of 5 (all complete)
+Phase: 7 — Presentation
+Plan: Not started
 Status: Phase complete — ready for verification (SC#1/2/3 達成・D-07 primary=lightgbm 確定)
-Last activity: 2026-06-23 — Phase 06 plan 05 complete (run_evaluation.py 統合 CLI + D-07 primary=lightgbm 確定・is_primary UPDATE live DB・SC#2 達成・model_version 推断偏差を Rule 1 で修正)
+Last activity: 2026-06-23 — Phase 06 complete, transitioned to Phase 7
 
 Progress: [██████████] 100%
 
@@ -39,7 +39,7 @@ Progress: [██████████] 100%
 
 **Velocity:**
 
-- Total plans completed: 29
+- Total plans completed: 34
 - Average duration: — min
 - Total execution time: 0.0 hours
 
@@ -53,6 +53,7 @@ Progress: [██████████] 100%
 | 03.1 | 4 | - | - |
 | 04 | 6 | - | - |
 | 05 | 6 | - | - |
+| 06 | 5 | - | - |
 
 **Recent Trend:**
 

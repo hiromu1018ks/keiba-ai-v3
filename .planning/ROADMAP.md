@@ -286,6 +286,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 3.1 Timediff/Babacd Rolling Restoration (INSERTED) | 4/4 | Complete    | 2026-06-19 |
 | 4. Model & Prediction | 6/6 | Complete    | 2026-06-20 |
 | 5. EV & Backtest | 6/6 | Complete    | 2026-06-21 |
-| 6. Evaluation & Calibration Gates | 5/5 | Complete   | 2026-06-23 |
+| 6. Evaluation & Calibration Gates | 5/5 | Complete    | 2026-06-23 |
 | 7. Presentation | 0/TBD | Not started | - |
 | 8. Adversarial Audit Suite | 0/TBD | Not started | - |
