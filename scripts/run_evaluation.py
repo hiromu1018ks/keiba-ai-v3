@@ -204,57 +204,167 @@ def _load_json_file(path: str | Path) -> dict[str, Any]:
 
 
 def _fetch_prediction_test_df(cur, feature_snapshot_id: str):  # type: ignore[no-untyped-def]
-    """prediction.fukusho_prediction から test split を SELECT する（readonly ロール）。"""
-    import pandas as pd  # 遅延 import
+    """prediction.fukusho_prediction から test split を SELECT する（readonly ロール）。
 
+    prediction テーブルは PREDICTION_COLUMNS 16列のみ（entry_count / race_key /
+    fukusho_hit / ninki / fukuoddslower は含まれない）のため・呼出側が label/market
+    データと JOIN してこれらの列を補完する。
+    """
     query = """
         SELECT model_type, model_version, feature_snapshot_id, as_of_datetime,
                year, jyocd, kaiji, nichiji, racenum, umaban, kettonum,
-               race_date, p_fukusho_hit, calib_method, split, is_primary,
-               entry_count, race_key, fukusho_hit, ninki, fukuoddslower
+               race_date, p_fukusho_hit, calib_method, split, is_primary
         FROM prediction.fukusho_prediction
         WHERE feature_snapshot_id = %s AND split = 'test'
     """
     cur.execute(query, (feature_snapshot_id,))
     cols = [d.name for d in cur.description]
     rows = cur.fetchall()
-    return pd.DataFrame(rows, columns=cols)
+    df = pd.DataFrame(rows, columns=cols)
+    # race_key を正準形式で構築（prediction テーブルは race_key 列を持たない）
+    if len(df) > 0 and "race_key" not in df.columns:
+        from src.model.data import make_race_key
+
+        df["race_key"] = make_race_key(df).to_numpy()
+    return df
 
 
 def _fetch_label_df(cur):  # type: ignore[no-untyped-def]
-    """label.fukusho_label から segment 軸 + fukusho_hit_validated を SELECT する（readonly）。"""
-    import pandas as pd  # 遅延 import
+    """label.fukusho_label から segment 軸 + fukusho_hit_validated を SELECT する（readonly）。
 
+    label テーブルは race_key / ninki / fukuoddslower / entry_count を持たないため・
+    PK 6カラム + sales_start_entry_count + fukusho_hit_validated のみ取得。race_key は
+    呼出側で make_race_key で構築する（CONTEXT.md: label 欠損時は market JOIN で補完）。
+    """
     query = """
-        SELECT race_key, umaban, race_date, jyocd, entry_count,
-               ninki, fukuoddslower, fukusho_hit_validated
+        SELECT year, jyocd, kaiji, nichiji, racenum, umaban, kettonum,
+               race_date, sales_start_entry_count, fukusho_hit_validated
         FROM label.fukusho_label
     """
     cur.execute(query)
     cols = [d.name for d in cur.description]
     rows = cur.fetchall()
-    return pd.DataFrame(rows, columns=cols)
+    df = pd.DataFrame(rows, columns=cols)
+    if len(df) > 0:
+        from src.model.data import make_race_key
+
+        df["race_key"] = make_race_key(df).to_numpy()
+        # entry_count / fukusho_hit の alias（segment 評価が期待する列名に統一）
+        df["entry_count"] = df["sales_start_entry_count"]
+        df["fukusho_hit"] = df["fukusho_hit_validated"]
+    return df
+
+
+def _fetch_market_data(cur, race_keys: list[str] | None = None):  # type: ignore[no-untyped-def]
+    """market データ (ninki/fukuoddslow) を取得する（CONTEXT.md: label 欠損時の segment 軸補完）。
+
+    src/model/baseline.py::fetch_market_data の薄い wrapper。market データは
+    raw_everydb2.n_odds_tanpuku + normalized.n_uma_race から取得し・prediction/label
+    と (race_key, umaban) で JOIN する。
+
+    **列名正規化:** baseline.fetch_market_data は ``fukuoddslow`` (w付き) を返すが・
+    segment_eval.py は ``fukuoddslower`` (rあり) を期待するため alias を付与。
+    race_keys フィルタは baseline 側で未実装のため無視（全件取得→呼出側で JOIN 時に絞り込まれる）。
+    """
+    from src.model.baseline import fetch_market_data
+
+    df = fetch_market_data(cur, race_keys=None)  # race_keys 未実装のため無視
+    if len(df) > 0:
+        from src.model.data import make_race_key
+
+        df["race_key"] = make_race_key(df).to_numpy()
+        # fukuoddslow (baseline 戻り値) → fukuoddslower (segment_eval 期待名) の alias
+        if "fukuoddslow" in df.columns and "fukuoddslower" not in df.columns:
+            df["fukuoddslower"] = pd.to_numeric(df["fukuoddslow"], errors="coerce")
+    return df
 
 
 def _fetch_split_integrity_df(cur, feature_snapshot_id: str):  # type: ignore[no-untyped-def]
     """REVIEW N3 cycle-3: prediction.fukusho_prediction から全 split の DISTINCT (race_key, split)
-    を SELECT する（§8.4 race_id disjoint 真再検証用・test-only では vacuous True になるのを回避）。"""
-    import pandas as pd  # 遅延 import
+    を SELECT する（§8.4 race_id disjoint 真再検証用・test-only では vacuous True になるのを回避）。
 
+    prediction テーブルは race_key 列を持たないため・PK 6カラムから make_race_key で構築する。
+    """
     query = """
-        SELECT DISTINCT race_key, split
+        SELECT DISTINCT year, jyocd, kaiji, nichiji, racenum, split
         FROM prediction.fukusho_prediction
         WHERE feature_snapshot_id = %s AND split IN ('train', 'val', 'test')
     """
     cur.execute(query, (feature_snapshot_id,))
     cols = [d.name for d in cur.description]
     rows = cur.fetchall()
-    return pd.DataFrame(rows, columns=cols)
+    df = pd.DataFrame(rows, columns=cols)
+    if len(df) > 0:
+        from src.model.data import make_race_key
+
+        df["race_key"] = make_race_key(df).to_numpy()
+    return df
 
 
 # ---------------------------------------------------------------------------
 # Step 1b: 合成テスト用の成果物読込ヘルパ（DB 不要・tmp_path 由来 DataFrame を直接消費）
 # ---------------------------------------------------------------------------
+
+
+def _enrich_prediction_with_segments(prediction_df, label_df, market_df):  # type: ignore[no-untyped-def]
+    """prediction_df に label と market の segment 軸（entry_count / fukusho_hit /
+    ninki / fukuoddslower）を (race_key, umaban) で JOIN する（HIGH-1/HIGH-2: 行数不変 assert）。
+
+    CONTEXT.md D-12: segment 軸（year/month/jyocd/entry_count/ninki/odds_band）のうち
+    ninki/fukuoddslower は prediction/label テーブルに存在せず・market データ
+    (raw_everydb2.n_odds_tanpuku + normalized.n_uma_race) から補完する必要がある。
+    本関数は Step 1 の後・Step 2 の前に呼ばれ・prediction_df を segment 評価可能な形にする。
+    """
+    if len(prediction_df) == 0:
+        return prediction_df
+
+    out = prediction_df.copy()
+    # umaban 型統一（prediction=object / label/market=int 等の混在対策）
+    for _df_name, df in (("label", label_df), ("market", market_df)):
+        if df is not None and len(df) > 0 and "umaban" in df.columns:
+            df["umaban"] = pd.to_numeric(df["umaban"], errors="coerce").astype("Int64")
+    if "umaban" in out.columns:
+        out["umaban"] = pd.to_numeric(out["umaban"], errors="coerce").astype("Int64")
+
+    # label から entry_count + fukusho_hit_validated を JOIN
+    if label_df is not None and len(label_df) > 0:
+        label_cols = [c for c in ("race_key", "umaban", "entry_count",
+                                  "sales_start_entry_count", "fukusho_hit_validated",
+                                  "race_date", "jyocd")
+                      if c in label_df.columns]
+        if {"race_key", "umaban"}.issubset(label_cols):
+            out = out.merge(
+                label_df[label_cols], on=["race_key", "umaban"], how="left",
+                suffixes=("", "_label"),
+            )
+            if len(out) != len(prediction_df):
+                raise RuntimeError(
+                    f"_enrich_prediction_with_segments: label merge 行数不変違反 "
+                    f"len(before)={len(prediction_df)} != len(after)={len(out)}"
+                )
+            # entry_count alias が無ければ sales_start_entry_count から補完
+            if "entry_count" not in out.columns and "sales_start_entry_count" in out.columns:
+                out["entry_count"] = out["sales_start_entry_count"]
+            # fukusho_hit を fukusho_hit_validated から設定（evaluator が期待する列名）
+            if "fukusho_hit" not in out.columns and "fukusho_hit_validated" in out.columns:
+                out["fukusho_hit"] = out["fukusho_hit_validated"]
+
+    # market から ninki + fukuoddslower を JOIN
+    if market_df is not None and len(market_df) > 0:
+        market_cols = [c for c in ("race_key", "umaban", "ninki", "fukuoddslower")
+                       if c in market_df.columns]
+        if {"race_key", "umaban"}.issubset(market_cols):
+            out = out.merge(
+                market_df[market_cols], on=["race_key", "umaban"], how="left",
+                suffixes=("", "_market"),
+            )
+            if len(out) != len(prediction_df):
+                raise RuntimeError(
+                    f"_enrich_prediction_with_segments: market merge 行数不変違反 "
+                    f"len(before)={len(prediction_df)} != len(after)={len(out)}"
+                )
+
+    return out
 
 
 def _merge_prediction_with_label(prediction_df, label_df):  # type: ignore[no-untyped-def]
@@ -658,11 +768,20 @@ def evaluate_integrated(
     comparison_df = build_comparison_table(metrics_dict)
 
     # sum(p) 分布検査（§15.2）
-    # test split の主モデル（lightgbm を代表）で計算
-    main_pred = merged[merged["model_type"].isin(PRIMARY_MODEL_CANDIDATES)]
-    main_pred_test = main_pred[main_pred["split"] == "test"] if "split" in main_pred.columns else main_pred
+    # REVIEW HIGH#5 bug fix: 主モデル候補 *両方* の行を含めると race_key 毎の sum(p) が
+    # 2倍（≈6）になり §15.2 理論値 [2.7,3.3] を著しく逸脱する false alarm になる。
+    # → lightgbm のみ（Phase 4 evaluator.evaluate_all_models と同様・片モデル毎）で計算。
+    main_pred_lightgbm = merged[merged["model_type"] == "lightgbm"]
+    if len(main_pred_lightgbm) == 0:
+        # lightgbm が無い場合は catboost を代替
+        main_pred_lightgbm = merged[merged["model_type"] == "catboost"]
+    main_pred_test = (
+        main_pred_lightgbm[main_pred_lightgbm["split"] == "test"]
+        if "split" in main_pred_lightgbm.columns
+        else main_pred_lightgbm
+    )
     if len(main_pred_test) == 0:
-        main_pred_test = main_pred
+        main_pred_test = main_pred_lightgbm
     sum_p_check = check_sum_p_distribution(
         main_pred_test, p_col="p_fukusho_hit", entry_count_col="entry_count"
     )
@@ -1126,10 +1245,24 @@ def main(argv: list[str] | None = None) -> int:
             prediction_df = _fetch_prediction_test_df(cur, args.feature_snapshot_id)
             label_df = _fetch_label_df(cur)
             split_integrity_df = _fetch_split_integrity_df(cur, args.feature_snapshot_id)
+            # CONTEXT.md: label 欠損時は market データ JOIN で segment 軸（ninki/fukuoddslower）を補完
+            # race_keys で絞らない（fetch_market_data 全件は重いが market_df を prediction と JOIN するため）
+            race_keys_for_market = (
+                prediction_df["race_key"].dropna().unique().tolist()
+                if "race_key" in prediction_df.columns and len(prediction_df) > 0
+                else None
+            )
+            market_df = _fetch_market_data(cur, race_keys=race_keys_for_market)
         logger.info(
-            "Step 1 読込: prediction=%d rows / label=%d rows / split_integrity=%d rows",
-            len(prediction_df), len(label_df), len(split_integrity_df),
+            "Step 1 読込: prediction=%d rows / label=%d rows / market=%d rows / split_integrity=%d rows",
+            len(prediction_df), len(label_df), len(market_df), len(split_integrity_df),
         )
+
+        # Step 1b: prediction に label/market の segment 軸を JOIN（HIGH-1/HIGH-2: 行数不変）
+        prediction_df = _enrich_prediction_with_segments(prediction_df, label_df, market_df)
+        # label_df 側の entry_count 列名を alias で統一（segment_eval が期待）
+        if "entry_count" not in label_df.columns and "sales_start_entry_count" in label_df.columns:
+            label_df["entry_count"] = label_df["sales_start_entry_count"]
 
         # Step 2-4: 統合評価（純粋関数）
         result = evaluate_integrated(
