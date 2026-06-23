@@ -19,7 +19,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3.1: Timediff/Babacd Rolling Restoration (INSERTED)** - normalized ETL 拡張 (timediff/baba3) + rolling 8系統化 + advisory 4件 hardening + live snapshot rebuild (snapshot-id=20260619-1a-v3・feature_count=63・SHA256 byte-repro・216 passed) (completed 2026-06-19)
 - [x] **Phase 4: Model & Prediction** - Baselines BL-1..BL-5 + Phase 1-A LightGBM/CatBoost + calibrated p_fukusho_hit (completed 2026-06-20)
 - [x] **Phase 5: EV & Backtest** - EV/rank module + race_id-grouped virtual-purchase simulator with fixed odds policy (自動化部分 completed 2026-06-21・実データ backtest BT期間 2019-2025 は JODDS 取得完了後の manual-only 検証として分離)
-- [ ] **Phase 6: Evaluation & Calibration Gates** - Acceptance criteria (Brier/LogLoss/calibration/sum(p)/stability)
+- [x] **Phase 6: Evaluation & Calibration Gates** - Acceptance criteria (Brier/LogLoss/calibration/sum(p)/stability) (completed 2026-06-23)
 - [ ] **Phase 7: Presentation** - Streamlit minimal UI + prediction/backtest CSV export
 - [ ] **Phase 8: Adversarial Audit Suite** - Cross-cutting leakage-prevention test set spanning all critical surfaces
 
@@ -223,7 +223,7 @@ Plans:
   2. The acceptance gate passes: yearly calibration curves have NO extreme inversions, per-bin observed rates are monotonically-increasing-ish, LogLoss/Brier beat the baselines, `sum(p)` mean matches the theoretical payout-places per field-size bucket (~3.0 for ≥8-horse, ~2.0 for 5–7), with median/SD/p10/p90 reported
   3. Stability-by-segment evaluation produces per-year, per-month, per-競馬場, per-頭数, per-人気帯, per-オッズ帯 Calibration Curves so segment collapse (hidden by aggregate recovery rate) is visible
 
-**Plans**: 3/5 plans executed
+**Plans**: 5/5 plans complete
 
 Plans:
 **Wave 0**（基盤・前提確認）
@@ -244,7 +244,7 @@ Plans:
 
 **Wave 4**（Plan 04 完了後）
 
-- [ ] 06-05-PLAN.md — Wave 4 run_evaluation.py 統合 CLI（EVAL-01/02/03 統合・reports/06-evaluation.{md,json} + reports/06-segments/・REVIEW HIGH#5 sum_p violation_rate 計測・REVIEW HIGH#6 BLOCK 時 report 残存・REVIEW C7 --primary-model 省略時・REVIEW C8 SC#1 集計規則・SC#1/2/3 達成・主モデル確定 checkpoint:human-verify）— EVAL-01/02/03 — Plan 02/03/04 に依存
+- [x] 06-05-PLAN.md — Wave 4 run_evaluation.py 統合 CLI（EVAL-01/02/03 統合・reports/06-evaluation.{md,json} + reports/06-segments/・REVIEW HIGH#5 sum_p violation_rate 計測・REVIEW HIGH#6 BLOCK 時 report 残存・REVIEW C7 --primary-model 省略時・REVIEW C8 SC#1 集計規則・SC#1/2/3 達成・主モデル確定 checkpoint:human-verify）— EVAL-01/02/03 — Plan 02/03/04 に依存
 
 ### Phase 7: Presentation
 
@@ -286,6 +286,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 3.1 Timediff/Babacd Rolling Restoration (INSERTED) | 4/4 | Complete    | 2026-06-19 |
 | 4. Model & Prediction | 6/6 | Complete    | 2026-06-20 |
 | 5. EV & Backtest | 6/6 | Complete    | 2026-06-21 |
-| 6. Evaluation & Calibration Gates | 4/5 | In Progress|  |
+| 6. Evaluation & Calibration Gates | 5/5 | Complete   | 2026-06-23 |
 | 7. Presentation | 0/TBD | Not started | - |
 | 8. Adversarial Audit Suite | 0/TBD | Not started | - |

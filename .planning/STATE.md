@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 06
 current_phase_name: Evaluation & Calibration Gates
-status: executing
+status: verifying
 stopped_at: Phase 6 plan 04 complete
-last_updated: "2026-06-23T13:30:00.000Z"
+last_updated: "2026-06-23T13:53:29.875Z"
 last_activity: 2026-06-23
-last_activity_desc: "Phase 06 plan 04 complete (is_primary migration 機構: schema/predict/prediction_load 3ファイル連鎖 + set_primary_model・REVIEW HIGH#7/HIGH#8/C10/C11/C17 解消・checkpoint:human-verify approved)"
+last_activity_desc: "Phase 06 plan 04 complete (is_primary migration 機構: 3ファイル連鎖 + set_primary_model・REVIEW HIGH#7/HIGH#8/C10/C11/C17 解消・checkpoint approved)"
 progress:
   total_phases: 9
-  completed_phases: 6
+  completed_phases: 7
   total_plans: 34
-  completed_plans: 32
-  percent: 67
+  completed_plans: 34
+  percent: 78
 ---
 
 # Project State
@@ -24,16 +24,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-16)
 
 **Core value:** オッズ非依存の確率 `p_fukusho_hit` と固定オッズ時点のEVで、過小評価されている馬の複勝払戻対象入り可能性をリークなく検出し、race_id単位・時系列順の再現可能なバックテストで定量評価できること。リーク防止と再現性だけは必ず守る。
-**Current focus:** Phase 06 — Evaluation & Calibration Gates
+**Current focus:** Phase 06 — Evaluation & Calibration Gates (complete・ready for verification)
 
 ## Current Position
 
-Phase: 06 (Evaluation & Calibration Gates) — EXECUTING
-Plan: 5 of 5
-Status: Ready to execute
-Last activity: 2026-06-23 — Phase 06 plan 04 complete (is_primary migration 機構: 3ファイル連鎖 + set_primary_model・REVIEW HIGH#7/HIGH#8/C10/C11/C17 解消・checkpoint approved)
+Phase: 06 (Evaluation & Calibration Gates) — COMPLETE
+Plan: 5 of 5 (all complete)
+Status: Phase complete — ready for verification (SC#1/2/3 達成・D-07 primary=lightgbm 確定)
+Last activity: 2026-06-23 — Phase 06 plan 05 complete (run_evaluation.py 統合 CLI + D-07 primary=lightgbm 確定・is_primary UPDATE live DB・SC#2 達成・model_version 推断偏差を Rule 1 で修正)
 
-Progress: [█████████░] 94%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -94,6 +94,7 @@ Progress: [█████████░] 94%
 | Phase 06 P02 | 約25分 | 2 tasks | 3 files |
 | Phase 06 P03 | 約30分 | 2 tasks | 2 files |
 | Phase 06 P04 | 約30分 | 3 tasks | 6 files |
+| Phase 06 P05 | 41min | 2 tasks | 4 files |
 
 ### Decisions
 
@@ -192,6 +193,10 @@ Recent decisions affecting current work:
 - [Phase 06]: plan 06-04: set_primary_model は model_type+model_version+feature_snapshot_id+as_of_datetime スコープで UPDATE（staging-swap idiom と同方針・全行 UPDATE でない・silent 履歴破壊防止）・idempotent・両モデル行保持
 - [Phase 06]: plan 06-04: REVIEW HIGH#7 対応 — set_primary_model は 0 行 UPDATE で RuntimeError（post-condition assert）+ SELECT で is_primary=true が1 model_type のみ・>=1 行を検証（silent no-op を fail-loud に）・_canonicalize_as_of_datetime（pd.Timestamp 正規化）で timezone/microsecond ズレ対策（REVIEW C11）
 - [Phase 06]: plan 06-04: REVIEW C17 重複解消 — 本 plan checkpoint は「機構承認」のみに縮小・主モデル選定自体（D-07）は Plan 06-05 Task 2 checkpoint:human-verify で実施
+- [Phase ?]: D-07 主モデル確定: lightgbm（D-04 事前登録基準・全指標で CatBoost を上回る・is_primary=true 設定済み）
+- [Phase ?]: D-08 tiebreak: backtest_recovery_rate（06-05・LightGBM 0.7022 vs CatBoost 0.6808）
+- [Phase ?]: 06-05 sum(p) threshold 0.30 維持（threshold_appropriate=False・SC#2 達成で WARN のまま・後続再検討）
+- [Phase ?]: 06-05 model_version 推測は make_model_version に一本化（[:3] 手動推測は lig/cat 偏差 bug・Rule 1）
 
 ### Pending Todos
 
@@ -215,6 +220,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-23T13:30:00.000Z
+Last session: 2026-06-23T13:53:06.635Z
 Stopped at: Phase 6 plan 04 complete (is_primary migration 機構完了: 3ファイル連鎖 + set_primary_model・REVIEW HIGH#7/HIGH#8/C10/C11/C17 解消・checkpoint approved・主モデル選定は Plan 06-05 Task 2 で実施・Plan 06-05 ready)
 Resume: /gsd-execute-phase 6
