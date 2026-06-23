@@ -186,19 +186,22 @@ def make_race_key(df: pd.DataFrame) -> pd.Series:
     disjoint 検査を実施する。``race_nkey`` が SNAPSHOT に存在しても参考専用（本関数は
     それを使わない）。
 
-    全カラムを ``astype(str)`` で文字列化してから結合する（int/varchar 混在の PK で
-    merge key 型不一致を防ぐ・fukusho_label.py:641-644 パターン）。
+    全カラムを ``astype(str)`` で文字列化し・jyocd/kaiji/nichiji/racenum は ``zfill(2)``
+    で正規化してから結合する。kaiji/racenum はソースにより int(1) / varchar('01') で
+    揺れるため・zfill で統一しないと snapshot (kaiji/racenum=int) と JODDS (varchar) で
+    race_key が一致せず merge key 不一致になる（int/varchar 混在の PK・
+    fukusho_label.py:641-644 パターンを踏襲しつつゼロパディングも正規化）。
     """
     return (
         df["year"].astype(str)
         + "-"
-        + df["jyocd"].astype(str)
+        + df["jyocd"].astype(str).str.zfill(2)
         + "-"
-        + df["kaiji"].astype(str)
+        + df["kaiji"].astype(str).str.zfill(2)
         + "-"
-        + df["nichiji"].astype(str)
+        + df["nichiji"].astype(str).str.zfill(2)
         + "-"
-        + df["racenum"].astype(str)
+        + df["racenum"].astype(str).str.zfill(2)
     )
 
 

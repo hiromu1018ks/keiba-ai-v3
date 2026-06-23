@@ -573,6 +573,14 @@ def _run_main_model_backtest(
 
     backtest_id = f"{bt.name}-{policy}-{model_type}"
 
+    # umaban 型統一: pred_df (predict_p_fusho で PK 列を .values 詰めし object に揺れる) /
+    # label_df (DB int) で merge key 型不一致 ("str and Int64") になるため・pd.to_numeric
+    # で Int64 に正規化する。snapshot (select_odds_snapshot 戣り) は既に Int64 正規化済み。
+    pred_df = pred_df.copy()
+    label_df = label_df.copy()
+    pred_df["umaban"] = pd.to_numeric(pred_df["umaban"], errors="coerce").astype("Int64")
+    label_df["umaban"] = pd.to_numeric(label_df["umaban"], errors="coerce").astype("Int64")
+
     # --- HIGH-1: 馬単位 race_times 構築 ---
     race_times = _build_race_times_per_horse(pred_df)
 
@@ -738,6 +746,14 @@ def _run_bl3_backtest(
 
     backtest_id = f"{bt.name}-{BL3_ODDS_SNAPSHOT_POLICY}-{BL3_MODEL_TYPE}"
 
+    # umaban 型統一: market_df (fetch_market_data・raw varchar) と label_df (DB int) で
+    # merge key 型不一致 ("str and int64") になるため・pd.to_numeric で Int64 に正規化する
+    # （主モデル _run_main_model_backtest と対称・HIGH-2 merge on=['race_key','umaban']）。
+    market_df = market_df.copy()
+    label_df = label_df.copy()
+    market_df["umaban"] = pd.to_numeric(market_df["umaban"], errors="coerce").astype("Int64")
+    label_df["umaban"] = pd.to_numeric(label_df["umaban"], errors="coerce").astype("Int64")
+
     selected = select_bl3_bets(market_df)
     if len(selected) == 0:
         # BL-3 候補無し (market データ無し等) → 空メトリクス
@@ -760,6 +776,11 @@ def _run_bl3_backtest(
 
     # full_candidate (BL-3 は主モデルと異なり EV 列を持たない)
     full_candidate = market_df.copy()
+    # market_df は全期間取得（fetch_market_data が year filter 無し・554217 馬）のため・
+    # label_df (BT窓 test 期間で _filter_label_by_period 済み・47672 馬) の race_key に絞る。
+    # 絞らないと label merge (left join) で test 窓外の行が label 系列 NaN になり year 等 PK が
+    # null になって backtest DB NOT NULL 違反になる。主モデルは pred_df が test 窓抽出済み。
+    full_candidate = full_candidate[full_candidate["race_key"].isin(set(label_df["race_key"]))].copy()
     # CR-04: fetch_market_data は race_date を返さないが・compute_backtest_metrics が
     # sort_values(['race_date','race_key','umaban']) を呼ぶため・label_df から race_key 単位で
     # race_date を補完 (race_date は race 単位・全馬同値のため race_key 単位 map で安全)。

@@ -195,6 +195,42 @@ def test_train_and_predict_row_alignment():
         "(review HIGH#2)"
     )
 
+    # backtest HIGH-1 regression: pred_df に race_start_datetime が付与されている
+    # (_build_race_times_per_horse / select_odds_snapshot が race_start_datetime を必要とする)。
+    # orchestrator が race_df_test (= test_df.loc[X_test.index]) から index 整列で付与する。
+    # 付与されないと実データ backtest が _build_race_times_per_horse で RuntimeError 停止する
+    # (実データパスだけの不整合・synthetic パスは _build_synthetic_pred_df で含む)。
+    assert "race_start_datetime" in pred_df.columns, (
+        "pred_df に race_start_datetime 列がない（backtest HIGH-1 違反・"
+        "_build_race_times_per_horse が RuntimeError で停止）"
+    )
+    assert pred_df["race_start_datetime"].notna().all(), (
+        "pred_df の race_start_datetime に欠損がある（backtest HIGH-1 違反）"
+    )
+    # splits["test"] は feature_df の test 窓部分集合（race_start_datetime 含む）。
+    # pred_df.index == splits["test"].index (review HIGH#2) のため reindex で整列して比較。
+    test_rsdt = splits["test"]["race_start_datetime"].reindex(pred_df.index).to_numpy()
+    pred_rsdt = pred_df["race_start_datetime"].to_numpy()
+    assert (pred_rsdt == test_rsdt).all(), (
+        "pred_df の race_start_datetime が test 窓の値と一致しない（付与ミス）"
+    )
+    # race_key も付与（_build_race_times_per_horse が [race_key, umaban, race_start_datetime] を
+    # 必要とする）。snapshot に race_key 列は無く race_nkey のみのため・make_race_key で PK から
+    # 正準形式を構築する。
+    from src.model.data import make_race_key
+
+    assert "race_key" in pred_df.columns, (
+        "pred_df に race_key 列がない（backtest HIGH-1 違反・"
+        "_build_race_times_per_horse が KeyError で停止）"
+    )
+    assert pred_df["race_key"].notna().all(), (
+        "pred_df の race_key に欠損がある（backtest HIGH-1 違反）"
+    )
+    expected_rk = make_race_key(splits["test"]).reindex(pred_df.index).to_numpy()
+    assert (pred_df["race_key"].to_numpy() == expected_rk).all(), (
+        "pred_df の race_key が make_race_key の正準形式と一致しない（付与ミス）"
+    )
+
     # LightGBM でも同様に行整列が保証される
     result_lgb = train_and_predict(
         feature_df,

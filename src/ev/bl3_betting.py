@@ -74,13 +74,18 @@ def select_bl3_bets(
     - BL-3 の ``odds_snapshot_policy='confirmed'`` は JODDS 時点（30min/10min）に非依存の
       sentinel・20 backtest 行列（主モデル2×policy2×窓5=20）とは別枠（窓5×1=5 backtest）。
     """
+    # fukuoddslow は fetch_market_data で raw varchar（'0039' 等）のまま取得されるため・
+    # 数値比較（> 0）と数値順 sort のために pd.to_numeric で正規化する（str > int の
+    # TypeError を防ぐ・解析不能値は NaN で事前除外）。
+    odds = pd.to_numeric(market_df["fukuoddslow"], errors="coerce")
     # 事前 filter: 複勝発売あり AND fukuoddslow 有効（notna AND > 0）
     eligible_mask = (
         market_df["is_fukusho_sale_available"].fillna(False).astype(bool)
-        & market_df["fukuoddslow"].notna()
-        & (market_df["fukuoddslow"] > 0)
+        & odds.notna()
+        & (odds > 0)
     )
     eligible = market_df.loc[eligible_mask].copy()
+    eligible["fukuoddslow"] = odds.loc[eligible_mask].to_numpy()
 
     # 確定複勝オッズ昇順（低い=人気が高い）で top-2（決定論的タイブレーク・共有パターン7）
     eligible = eligible.sort_values(

@@ -264,15 +264,16 @@ def select_odds_snapshot(
             })
         return pd.DataFrame(result_rows)
 
-    # merge_asof 前提: 両フレーム sort_values（by=['race_key','umaban'] + 結合キーで sort）
-    # MEDIUM-C cycle-2: race_key 優先 sort で happyo_datetime の大域ソートが崩れても
-    # merge_asof は by= グループ内で sort 済みであれば正常動作（pandas by= セマンティクス）
-    jodds_sorted = jodds.sort_values(
-        ["race_key", "umaban", "happyo_datetime"]
-    ).reset_index(drop=True)
-    cutoff_sorted = cutoff_base.sort_values(
-        ["race_key", "umaban", "cutoff_datetime"]
-    ).reset_index(drop=True)
+    # merge_asof 前提: pandas 3.x の merge_asof は by= ありでも left_on/right_on の on 列が
+    # 大域 sorted であることを要求する（_convert_values_for_libjoin が "left/right keys must
+    # be sorted" を raise）。合成データ（race_start_datetime 順に構築）では on 列が偶然 大域
+    # sorted で成立していたが・実データパス（pred_df = X_test.index 順・race_start_datetime
+    # 順でない）では on 列が大域 sorted でないため ValueError。on 列（happyo_datetime /
+    # cutoff_datetime）で全体 sort する。by=['race_key','umaban'] グループ内は馬単位で
+    # cutoff 側は1行・jodds 側は時系列複数行なので・全体 sort でも within-group の as-of
+    # セマンティクス（直近の過去 snapshot・未来リーク構造的不可）は不変（HIGH-1 per-horse 保証維持）。
+    jodds_sorted = jodds.sort_values("happyo_datetime").reset_index(drop=True)
+    cutoff_sorted = cutoff_base.sort_values("cutoff_datetime").reset_index(drop=True)
 
     # HIGH-1: by=['race_key','umaban'] で per-horse as-of join（未来リーク構造的不可）
     merged = pd.merge_asof(
@@ -330,6 +331,10 @@ def select_odds_snapshot(
         })
 
     result_df = pd.DataFrame(result_rows)
+    # umaban 型正規化: result_rows から DataFrame 化すると umaban が object 列になる
+    # （Int64 scalar を dict 経由で詰めるため）・pred_df (Int64) との merge key 型不一致
+    # ("str and int64") を防ぐよう Int64 に正規化する (HIGH-2 merge on=['race_key','umaban'])。
+    result_df["umaban"] = pd.to_numeric(result_df["umaban"], errors="coerce").astype("Int64")
     # 行数不変（HIGH-1・race_times と同行数）
     # WR-11: assert でなく raise RuntimeError にし・python -O で削除されないよう
     # 構造的ブロック化 (CLAUDE.md / HIGH #3 / group_split.py 規約)。merge_asof が稀に

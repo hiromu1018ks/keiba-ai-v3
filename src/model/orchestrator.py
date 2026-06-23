@@ -561,6 +561,26 @@ def train_and_predict(
         pred_proba=pred_proba,
     )
 
+    # pred_df に backtest 用 meta 列（race_start_datetime / race_key）を付与
+    # （backtest HIGH-1: _build_race_times_per_horse が [race_key, umaban, race_start_datetime] を
+    # 使用し・select_odds_snapshot が race_start_datetime 基準で cutoff を計算するため）。
+    # predict_p_fukusho の戻り値は PREDICTION_COLUMNS（prediction テーブル用・これら meta 列を
+    # 含まない）だが・backtest の実データパスは pred_df から取得する。synthetic パス
+    # （_build_synthetic_pred_df）は既に含むため・実データパスとの不整合を是正する。
+    # race_start_datetime は race_df_test から直接・race_key は make_race_key で PK から構築
+    # （snapshot に race_key 列は無く race_nkey のみ・make_race_key は race_nkey を使わない）。
+    # race_df_test.index == pred_df.index (review HIGH#2) で values が安全に整列する。
+    # prediction_load（DB 書込）は PREDICTION_COLUMNS のみ使用し・これら meta 列を無視
+    # （列過多エラーなし）・_assert_valid_prediction_df は本付与前（PREDICTION_COLUMNS のみ）に
+    # 実行済みで通過済み。
+    from src.model.data import make_race_key
+
+    pred_df = pred_df.copy()
+    if "race_start_datetime" in race_df_test.columns:
+        pred_df["race_start_datetime"] = race_df_test["race_start_datetime"].values
+    if "race_key" not in pred_df.columns:
+        pred_df["race_key"] = make_race_key(race_df_test).to_numpy()
+
     return {
         "estimator": estimator,
         "calibrated": calib_result.calibrated,

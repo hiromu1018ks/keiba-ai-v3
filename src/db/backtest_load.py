@@ -162,15 +162,20 @@ _DATETIME_COLS = {"odds_snapshot_at"}
 
 
 def _is_na(v: Any) -> bool:
-    """pandas / numpy の NaN 判定 (fukusho_label.py:856 / prediction_load.py:96 パターン)。"""
+    """pandas / numpy の NaN / NaT 判定 (fukusho_label.py:856 / prediction_load.py:96 パターン)。
+
+    pd.isna は NaN / NaT / None を全て True にする。配列入力で配列を返すため try/except
+    で保護する。旧実装の ``isinstance(v, float) and pd.isna(v)`` は pd.NaT (NaT 型・float
+    でない) を捕捉できず・BL-3 の ``odds_snapshot_at = pd.NaT`` が None でなく tuple に残り・
+    INSERT で psycopg が NaT を異常値 (datetime64 int64-min → 48113 年オーバーフロー) に
+    変換して year/race_date も巻き込み NOT NULL 違反になった silent corruption を是正。
+    """
     if v is None:
         return True
     try:
-        if isinstance(v, float) and pd.isna(v):
-            return True
+        return bool(pd.isna(v))
     except (TypeError, ValueError):
-        pass
-    return False
+        return False
 
 
 def _df_to_backtest_tuples(df: pd.DataFrame) -> list[tuple]:
