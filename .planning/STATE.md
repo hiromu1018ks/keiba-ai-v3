@@ -5,8 +5,8 @@ milestone_name: milestone
 current_phase: 8
 current_phase_name: Adversarial Audit Suite
 status: verifying
-stopped_at: Phase 7 UI-SPEC approved
-last_updated: "2026-06-24T12:10:06.812Z"
+stopped_at: Phase 8 context gathered
+last_updated: "2026-06-24T13:30:50.924Z"
 last_activity: 2026-06-24
 last_activity_desc: Phase 07 complete, transitioned to Phase 8
 progress:
@@ -237,8 +237,8 @@ None yet.
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/07-presentation/07-UI-SPEC.md
+**Resume file:** .planning/phases/08-adversarial-audit-suite/08-CONTEXT.md
 
-Last session: 2026-06-24T10:08:20.213Z
-Stopped at: Phase 7 UI-SPEC approved
+Last session: 2026-06-24T13:30:50.918Z
+Stopped at: Phase 8 context gathered
 Resume: /gsd-execute-phase 6
