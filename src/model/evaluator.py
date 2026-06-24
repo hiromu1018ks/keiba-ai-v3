@@ -440,7 +440,21 @@ def _compute_calibration_curve_bins(
 
     n_bins_actual = len(bin_edges) - 1
     if n_bins_actual < 1:
-        # bin が構築不能（全予測値が同一等）・空配列を返す
+        # 全予測値が同一（定数予測器・BL-1 的離散や微小 segment で発生）→ 単一 bin（全サンプル）
+        # として扱う（CR-04）。以前は空配列を返し _compute_ece / _compute_quantile_max_dev が
+        # NaN になって silent に情報欠損していたが・定数予測器の較正誤差 |const_pred - empirical_rate|
+        # は意味のある値なので単一 bin で返す（curve も1点になる・より情報的）。
+        # ※ single-class（y_true が1値のみ）は呼出側で NaN 判定済みのためここでは到達しない想定。
+        n_total = float(len(y_pred))
+        if n_total > 0:
+            pos_sum = float(np.sum(y_true.astype(float)))
+            pred_sum = float(np.sum(y_pred))
+            return {
+                "mean_pred": np.array([pred_sum / n_total], dtype=float),
+                "frac_pos": np.array([pos_sum / n_total], dtype=float),
+                "counts": np.array([n_total], dtype=float),
+                "bin_edges": bin_edges,
+            }
         return {
             "mean_pred": np.array([], dtype=float),
             "frac_pos": np.array([], dtype=float),

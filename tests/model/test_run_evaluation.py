@@ -480,6 +480,38 @@ def test_run_evaluation_backtest_integration(tmp_path):
         )
 
 
+def test_aggregate_backtest_hit_rate_weighted_by_effective_bet() -> None:
+    """CR-03: hit_rate は代表窓の単純平均でなく effective_bet 重み付き平均（SC#1/EVAL-01 正確な的中率）。
+
+    窓毎の購買馬数（effective_bet）にバラツキがある場合・単純平均は真の的中率と不一致する。
+    正解 = Σ(hit_rate_i × effective_bet_i) / Σ effective_bet_i = Σhits/Σbets。
+    """
+    # 2 窓・代表窓の effective_bet が大きく異る（BT-1=1000 / BT-2=100）
+    bt_rows = [
+        {"model_type": "lightgbm", "bt_name": "BT-1", "odds_policy": "10min_before",
+         "recovery_rate": 0.70, "P/L": -100, "max_DD": 1000, "selected": 1000,
+         "effective_bet": 1000, "hit_rate": 0.10},
+        {"model_type": "lightgbm", "bt_name": "BT-1", "odds_policy": "30min_before",
+         "recovery_rate": 0.65, "P/L": -110, "max_DD": 1100, "selected": 900,
+         "effective_bet": 900, "hit_rate": 0.09},
+        {"model_type": "lightgbm", "bt_name": "BT-2", "odds_policy": "10min_before",
+         "recovery_rate": 0.75, "P/L": -50, "max_DD": 500, "selected": 100,
+         "effective_bet": 100, "hit_rate": 0.20},
+        {"model_type": "lightgbm", "bt_name": "BT-2", "odds_policy": "30min_before",
+         "recovery_rate": 0.70, "P/L": -60, "max_DD": 600, "selected": 90,
+         "effective_bet": 90, "hit_rate": 0.19},
+    ]
+    result = aggregate_backtest_for_model(bt_rows, "lightgbm")
+    # 重み付き: (0.10×1000 + 0.20×100) / (1000+100) = 120/1100 ≈ 0.10909
+    expected_weighted = (0.10 * 1000 + 0.20 * 100) / (1000 + 100)
+    assert result["hit_rate"] == pytest.approx(expected_weighted, abs=1e-9), (
+        f"hit_rate が effective_bet 重み付き平均でない: {result['hit_rate']!r} "
+        f"(期待 {expected_weighted:.6f})"
+    )
+    # 単純平均 (0.10+0.20)/2 = 0.15 は誤り（CR-03 修正前の値）→ 一致しないことを確認
+    assert abs(result["hit_rate"] - 0.15) > 0.005, "単純平均 0.15 に一致（重み付け不効・CR-03 未修正）"
+
+
 def test_run_evaluation_json_strict_no_nan(tmp_path):
     """reports/06-evaluation.json が RFC 8259 strict JSON に準拠（NaN/Inf リテラルなし）。
 

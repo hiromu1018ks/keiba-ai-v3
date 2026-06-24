@@ -409,8 +409,17 @@ def _merge_prediction_with_label(prediction_df, label_df):  # type: ignore[no-un
             f"_merge_prediction_with_label: cartesian duplication 検出 "
             f"len(before)={len(prediction_df)} != len(after)={len(merged)}"
         )
-    # fukusho_hit が label 側から来た場合は fukusho_hit_validated を正とする
+    # fukusho_hit が label 側から来た場合は fukusho_hit_validated を正とする（WR-09）。
+    # validated が NaN（未検証）の行のみ推定 fukusho_hit で補完するが・未検証ラベルを真として
+    # §15.1 評価に用いるリスクがあるため・補完件数が 0 でなければ警告で可視化（silent 回避）。
     if "fukusho_hit_validated" in merged.columns and "fukusho_hit" in merged.columns:
+        _unvalidated_n = int(merged["fukusho_hit_validated"].isna().sum())
+        if _unvalidated_n > 0:
+            logger.warning(
+                "fukusho_hit_validated が %d 行 NaN → 推定 fukusho_hit で補完"
+                "（未検証ラベルを真ラベルとして採用・§15.1 評価精度リスクあり）",
+                _unvalidated_n,
+            )
         merged["fukusho_hit"] = merged["fukusho_hit_validated"].fillna(merged["fukusho_hit"])
     return merged
 
@@ -463,13 +472,28 @@ def check_race_id_split_disjoint(split_integrity_df) -> dict[str, Any]:  # type:
     n_test = len(test_races)
 
     if n_train == 0 or n_test == 0:
+        # CR-01: prediction.fukusho_prediction は Phase 4 設計で test split のみ永続化されるため・
+        # 本経路（prediction テーブル読込）からは train/test の race_id disjoint を再検査できない。
+        # fail-loud は却下（test-only は正常系で評価全体を止めるべきでない）・代わりに誠実に
+        # 「本レポートは再検査でなく Phase 4 分割時検証の参照記録」と明記し warning で可視化する。
+        # ※ §8.4 不変量自体は Phase 4 GroupTimeSeriesSplit（strict max(train)<min(test)）で担保済み。
+        logger.warning(
+            "race_id split disjoint の再検査が不能（n_train_races=%d / n_test_races=%d）: "
+            "prediction.fukusho_prediction が test split のみ（Phase 4 設計）。"
+            "§8.4 不変量は Phase 4 分割時検証に依存（本レポートは再検査でなく参照記録）",
+            n_train,
+            n_test,
+        )
         return {
             "race_id_split_disjoint": "N/A",
             "n_train_races": n_train,
             "n_test_races": n_test,
             "diagnostic_note": (
-                "split データ不足（train または test が空）・Phase 4 GroupTimeSeriesSplit 担保・"
-                "REVIEW N3 cycle-3 vacuous check 回避"
+                "再検査不能（NOT re-verified here）: prediction.fukusho_prediction は test split のみ"
+                "永続化（Phase 4 設計）のため本経路からは train/test の race_id disjoint を検証できない。"
+                "§8.4 不変量は Phase 4 GroupTimeSeriesSplit（strict max(train.race_date)<min(test.race_date)）"
+                "で分割時に検証済み。真の再検査が必要な場合は snapshot Parquet 側の split 列から race_key を"
+                "再構築して検証すること（CR-01 follow-up 候補）"
             ),
         }
 
@@ -535,12 +559,22 @@ def aggregate_backtest_for_model(bt_rows: list[dict], model_type: str) -> dict[s
     n = len(representatives)
     # 全窓の平均（単純平均・窓毎の候補数がほぼ同規模のため）
     recovery_rate = sum(float(r.get("recovery_rate", 0.0)) for r in representatives) / n
-    profit_loss = sum(int(r.get("P/L", 0)) for r in representatives) // n
+    # WR-04: 切捨て除算 // でなく浮動小数除算（recovery_rate と一貫・端数累積誤差回避）
+    profit_loss = sum(int(r.get("P/L", 0)) for r in representatives) / n
     max_drawdown = max(int(r.get("max_DD", 0)) for r in representatives)
     selected = sum(int(r.get("selected", 0)) for r in representatives)
     effective_bet = sum(int(r.get("effective_bet", 0)) for r in representatives)
-    # SC#1/EVAL-01 複勝的中率: representatives の hit_rate 単純平均（src/ev/metrics.py で計算済み）
-    hit_rate = sum(float(r.get("hit_rate", 0.0)) for r in representatives) / n
+    # SC#1/EVAL-01 複勝的中率: 重み付き平均（分母 = 全代表窓 effective_bet 総和・CR-03）。
+    # 以前は代表窓の hit_rate 単純平均だったが・窓毎の購買馬数バラツキで正しい的中率と不一致するため
+    # effective_bet で重み付け（Σ(hit_rate_i × effective_bet_i) / Σ effective_bet_i = Σhits/Σbets）。
+    if effective_bet > 0:
+        weighted_hits = sum(
+            float(r.get("hit_rate", 0.0)) * int(r.get("effective_bet", 0))
+            for r in representatives
+        )
+        hit_rate = weighted_hits / effective_bet
+    else:
+        hit_rate = 0.0
 
     # 代表窓 policy（最頻値）
     from collections import Counter
@@ -619,14 +653,18 @@ def build_recommended_primary_model(
     a, b = candidates[0], candidates[1]
     tiebreak_applied: str | None = None
 
-    # 1. backtest 回収率
+    # 1. backtest 回収率（D-08 優先順位の第1基準）
+    # ※ WR-10 対応（誤読防止）: D-08 は「接近・同点時に優先順位（回収率→計算コスト→…）で1つ選ぶ」。
+    # 回収率が異なれば（差の大小に関わらず）回収率が第1基準として勝敗を決める。5%未満の僅差は
+    # 「tiebreak 規則が発火した（接戦だった）」旨の注記（tiebreak_applied）だけで・次基準へは飛ばない。
+    # 次基準（計算コスト）は回収率が*完全に同点*の場合のみ発火（下の #2）。
     if _recovery(a) != _recovery(b):
         winner = a if _recovery(a) > _recovery(b) else b
         reason = (
             f"D-08 tiebreak[1] backtest_recovery_rate: {winner} "
             f"(recovery: {_recovery(a):.4f} vs {_recovery(b):.4f})"
         )
-        # 僅差（5%未満）の場合は tiebreak 発火を明記
+        # 僅差（5%未満）の場合のみ tiebreak 規則発火を明記（決定は常に回収率の大小）
         if abs(_recovery(a) - _recovery(b)) < 0.05:
             tiebreak_applied = "backtest_recovery_rate"
         return {
@@ -1069,6 +1107,26 @@ def generate_evaluation_reports(
     # RFC 8259 strict JSON 化: ネスト dict 内の NaN/Inf を再帰的に null に正規化
     # （segment_summary.odds_band.__MISSING__ / entry_count.6.0 の scalar 等）
     # allow_nan=False と組み合わせ・変換漏れがあれば fail-loud で検出
+
+    # CR-02: sum_p 閾値根拠注記を threshold_appropriate で分岐（矛盾文言解消）。
+    # 以前は固定で「偽陽性 BLOCK を出さないか検証済み」としていたが・threshold_appropriate=False
+    # （violation_rate 高）の実データと矛盾する監査性違反だったため正直に記述する。
+    _sp_appropriate = bool(sum_p_measurement.get("threshold_appropriate", False))
+    _sp_large = float(sum_p_measurement.get("large_violation_rate", 0.0))
+    _sp_small = float(sum_p_measurement.get("small_violation_rate", 0.0))
+    if _sp_appropriate:
+        sum_p_threshold_rationale = (
+            f"SUM_P_BLOCK_THRESHOLD={SUM_P_BLOCK_THRESHOLD} は仮置き・"
+            "現データ violation_rate 実測で偽陽性 BLOCK を出さないことを確認済み"
+            f"（threshold_appropriate=True・large={_sp_large:.1%}/small={_sp_small:.1%}）"
+        )
+    else:
+        sum_p_threshold_rationale = (
+            f"SUM_P_BLOCK_THRESHOLD={SUM_P_BLOCK_THRESHOLD} は現データの violation_rate "
+            f"(large={_sp_large:.1%}/small={_sp_small:.1%}) に対して低すぎ・偽陽性 BLOCK になりうる。"
+            "閾値の引き上げ（0.30→0.80 等）または sum(p) の BLOCK 条件からの除外（WARN 専門化）を"
+            f"検討すること（threshold_appropriate=False・ただし D-02 AND 条件のため baselines_all_lose=False で BLOCK 非発火）"
+        )
     json_obj = {
         "gate_result": _sanitize_nan_to_null(gate_result),
         "comparison_table": _sanitize_nan_to_null(comparison_records),
@@ -1096,11 +1154,7 @@ def generate_evaluation_reports(
             "bl3_caveat": BL3_MARKET_REFERENCE_NOTE,
             "bl_uncalibrated": BL_UNCALIBRATED_NOTE,
             "sum_p_diagnostic": SUM_P_DIAGNOSTIC_NOTE,
-            "sum_p_threshold_rationale": (
-                f"SUM_P_BLOCK_THRESHOLD={SUM_P_BLOCK_THRESHOLD} は仮置き・"
-                "現データ violation_rate 実測で偽陽性 BLOCK を出さないか検証済み"
-                f"（threshold_appropriate={sum_p_measurement['threshold_appropriate']}）"
-            ),
+            "sum_p_threshold_rationale": sum_p_threshold_rationale,
             "sc2_block_symmetry_note": SC2_BLOCK_SYMMETRY_NOTE,
         },
     }
@@ -1236,11 +1290,7 @@ def generate_evaluation_reports(
     )
     md_lines.append(f"- BL-3: {BL3_MARKET_REFERENCE_NOTE}\n")
     md_lines.append(f"- BL-4/5: {BL_UNCALIBRATED_NOTE}\n")
-    md_lines.append(
-        f"- sum(p) threshold 根拠: SUM_P_BLOCK_THRESHOLD={SUM_P_BLOCK_THRESHOLD} は仮置き・"
-        f"現データ violation_rate 実測で偽陽性 BLOCK を出さないか検証済み"
-        f"（threshold_appropriate={sum_p_measurement['threshold_appropriate']}）\n"
-    )
+    md_lines.append(f"- sum(p) threshold 根拠: {sum_p_threshold_rationale}\n")
     md_lines.append(f"- {SC2_BLOCK_SYMMETRY_NOTE}\n")
 
     md_payload = "".join(md_lines)
@@ -1300,6 +1350,19 @@ def main(argv: list[str] | None = None) -> int:
 
         # Step 1b: prediction に label/market の segment 軸を JOIN（HIGH-1/HIGH-2: 行数不変）
         prediction_df = _enrich_prediction_with_segments(prediction_df, label_df, market_df)
+        # WR-02: label 由来の core segment 軸（jyocd / race_date）が enrich 後に全面欠損の場合は
+        # label JOIN が壊れた実エラーのため fail-loud（SC#3 segment 評価が silent に不能化するのを防ぐ）。
+        # ※ market 由来（ninki / fukuoddslower）は部分欠損が正常系のためここでは検査しない。
+        if len(prediction_df) > 0:
+            _missing_core_seg = [
+                c for c in ("jyocd", "race_date")
+                if c not in prediction_df.columns or prediction_df[c].isna().all()
+            ]
+            if _missing_core_seg:
+                raise RuntimeError(
+                    f"segment 軸の label 由来 core カラムが付与されなかった: missing={_missing_core_seg}. "
+                    "label.fukusho_label JOIN 経路の確認が必要（SC#3 segment 評価が不能）"
+                )
         # label_df 側の entry_count 列名を alias で統一（segment_eval が期待）
         if "entry_count" not in label_df.columns and "sales_start_entry_count" in label_df.columns:
             label_df["entry_count"] = label_df["sales_start_entry_count"]

@@ -337,6 +337,27 @@ def test_ece_weighted_average() -> None:
     )
 
 
+def test_ece_single_bin_constant_predictions() -> None:
+    """CR-04: 全予測値が同一（定数予測器）の場合・ECE は単一 bin の |mean_pred - frac_pos|（NaN でない）。
+
+    以前は ``_compute_calibration_curve_bins`` が空配列を返し ECE=NaN になった（silent 情報欠損）が・
+    定数予測器の較正誤差は意味のある値なので単一 bin として計算する。
+    """
+    y_true = np.array([1, 1, 1, 0, 0, 0, 0, 0, 0, 0], dtype=int)  # 3/10 = 0.3 positive
+
+    # 定数予測 p=0.3（frac_pos=0.3 → dev=0.0・完全キャリブ）
+    ece_calibrated = _compute_ece(y_true, np.full(10, 0.3, dtype=float), strategy="quantile")
+    assert not pd.isna(ece_calibrated), "定数予測器で ECE が NaN（CR-04 single-bin ガード未働）"
+    assert ece_calibrated < 0.01, f"完全キャリブ定数予測で ECE が大きすぎる: {ece_calibrated!r}"
+
+    # 定数予測 p=0.8（frac_pos=0.3 → dev=0.5・過信）
+    ece_overconf = _compute_ece(y_true, np.full(10, 0.8, dtype=float), strategy="quantile")
+    assert not pd.isna(ece_overconf), "定数予測器で ECE が NaN"
+    assert abs(ece_overconf - 0.5) < 0.01, (
+        f"過信定数予測の ECE が |0.8-0.3|=0.5 と不一致: {ece_overconf!r}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Test 10 (06-02): _compute_mce が MIN_BIN_COUNT ガードで bin 除外後 max|dev|
 # ---------------------------------------------------------------------------
