@@ -475,9 +475,11 @@ def fetch_market_data(
     Parameters
     ----------
     readonly_cur : readonly ロールの cursor（``raw_everydb2`` / ``normalized`` schema へ SELECT 権限）。
-    race_keys : 指定された場合その race に絞る（正準 race_key = year-jyocd-kaiji-nichiji-racenum）。
-        ``None`` の場合は全件取得（``year`` で絞ることを推奨）。
-    year : 指定された場合その年のレースに絞る。
+    race_keys : **未実装（CR-01）**。以前は仮引数を受け取るが SQL WHERE で無視する silent API 契約違反
+        だった（docstring は「絞る」と嘘をついていた）。race_key は ``year-zfill(2)×4`` の結合形式で・
+        SQL での再構築は varchar/int 混在で silent 誤抽出リスク（リーク隣接）があるため実装しない。
+        ``None`` 以外を渡すと ``NotImplementedError`` で fail-loud。代わりに ``year=`` で絞ること。
+    year : 指定された場合その年のレースに絞る（推奨・run_evaluation は prediction_df の test 年を渡す）。
 
     Returns
     -------
@@ -485,6 +487,14 @@ def fetch_market_data(
         ``year`` / ``jyocd`` / ``kaiji`` / ``nichiji`` / ``racenum`` / ``umaban`` / ``kettonum`` /
         ``fukuoddslow`` / ``fukuoddshigh`` / ``ninki`` 列を持つ DataFrame。
     """
+    if race_keys is not None:
+        # CR-01: 以前は race_keys を暗黙に無視（silent API 契約違反）していたのを fail-loud に。
+        # 実装しない理由: race_key (year-zfill(2)×4) の SQL 再構築は varchar/int 混在で
+        # silent 誤抽出リスク（市場データ = segment 軸の真ラベル由来・リーク隣接）。year= を使用。
+        raise NotImplementedError(
+            "fetch_market_data: race_keys フィルタは未実装（以前は暗黙に無視 = silent API 契約違反・CR-01）。"
+            "代わりに year= で対象年を絞ること（run_evaluation は prediction_df の test 年を渡す）。"
+        )
     where_clauses: list[str] = []
     params: list[Any] = []
     if year is not None:

@@ -229,6 +229,17 @@ def test_bl5_min_lightgbm():
 # ---------------------------------------------------------------------------
 # Test 6: test_market_data_source (D-08・@requires_db)
 # ---------------------------------------------------------------------------
+
+
+def test_fetch_market_data_race_keys_not_implemented():
+    """CR-01: race_keys は未実装（NotImplementedError で fail-loud・以前の silent 無視を排除）。
+
+    DB アクセス前に raise するため requires_db 不要。
+    """
+    with pytest.raises(NotImplementedError, match="race_keys"):
+        fetch_market_data(None, race_keys=["2024-05-01-01-01"])  # type: ignore[arg-type]
+
+
 @pytest.mark.requires_db
 def test_market_data_source(readonly_cur):
     """D-08: n_odds_tanpuku.fukuoddslow (確定複勝オッズ) / n_uma_race.ninki (確定人気) が

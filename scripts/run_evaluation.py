@@ -258,20 +258,28 @@ def _fetch_label_df(cur):  # type: ignore[no-untyped-def]
     return df
 
 
-def _fetch_market_data(cur, race_keys: list[str] | None = None):  # type: ignore[no-untyped-def]
+def _fetch_market_data(cur, years: list[int] | None = None):  # type: ignore[no-untyped-def]
     """market データ (ninki/fukuoddslow) を取得する（CONTEXT.md: label 欠損時の segment 軸補完）。
 
     src/model/baseline.py::fetch_market_data の薄い wrapper。market データは
     raw_everydb2.n_odds_tanpuku + normalized.n_uma_race から取得し・prediction/label
     と (race_key, umaban) で JOIN する。
 
+    **CR-01 対応:** baseline.fetch_market_data の ``race_keys`` は未実装（NotImplementedError）のため・
+    代わりに ``years`` で対象年を絞って全期間 SCAN を回避する（test split の年のみ取得）。
+    ``years=None`` の場合は全件取得（フォールバック・重い）。
+
     **列名正規化:** baseline.fetch_market_data は ``fukuoddslow`` (w付き) を返すが・
     segment_eval.py は ``fukuoddslower`` (rあり) を期待するため alias を付与。
-    race_keys フィルタは baseline 側で未実装のため無視（全件取得→呼出側で JOIN 時に絞り込まれる）。
     """
     from src.model.baseline import fetch_market_data
 
-    df = fetch_market_data(cur, race_keys=None)  # race_keys 未実装のため無視
+    if years:
+        _years = sorted({int(y) for y in years})
+        _dfs = [fetch_market_data(cur, year=y) for y in _years]
+        df = pd.concat(_dfs, ignore_index=True) if _dfs else pd.DataFrame()
+    else:
+        df = fetch_market_data(cur)  # years 情報なし→全件（フォールバック）
     if len(df) > 0:
         from src.model.data import make_race_key
 
@@ -1331,13 +1339,13 @@ def main(argv: list[str] | None = None) -> int:
             label_df = _fetch_label_df(cur)
             split_integrity_df = _fetch_split_integrity_df(cur, args.feature_snapshot_id)
             # CONTEXT.md: label 欠損時は market データ JOIN で segment 軸（ninki/fukuoddslower）を補完
-            # race_keys で絞らない（fetch_market_data 全件は重いが market_df を prediction と JOIN するため）
-            race_keys_for_market = (
-                prediction_df["race_key"].dropna().unique().tolist()
-                if "race_key" in prediction_df.columns and len(prediction_df) > 0
+            # CR-01: race_keys は未実装のため・prediction_df の test 年で絞って全期間 SCAN を回避
+            market_years = (
+                sorted(prediction_df["year"].dropna().unique().tolist())
+                if "year" in prediction_df.columns and len(prediction_df) > 0
                 else None
             )
-            market_df = _fetch_market_data(cur, race_keys=race_keys_for_market)
+            market_df = _fetch_market_data(cur, years=market_years)
         logger.info(
             "Step 1 読込: prediction=%d rows / label=%d rows / market=%d rows / split_integrity=%d rows",
             len(prediction_df), len(label_df), len(market_df), len(split_integrity_df),
