@@ -1299,11 +1299,6 @@ def generate_evaluation_reports(
     return md_path, json_path
 
 
-def _build_comparison_table_with_backmetrictable(*args, **kwargs):  # type: ignore[no-untyped-def]
-    """DEPRECATED alias（互換性のため残すが使用しない）。"""
-    return _build_comparison_table_with_backtest(*args, **kwargs)
-
-
 # ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
