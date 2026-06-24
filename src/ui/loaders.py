@@ -156,27 +156,68 @@ def normalize_date_range(raw: Any) -> tuple[str | None, str | None]:
     - それ以外 → ``(None, None)`` に fallback
 
     戻り値は ``date.isoformat()`` 形式の ISO 文字列 (``"YYYY-MM-DD"``)。
+
+    WR-04 (deep review Warning): ``pd.Timestamp(NaT).date()`` が pandas バージョンによって
+    ``AttributeError`` を投げる (旧版) 場合と ``NaT`` を返して ``.isoformat() == "NaT"`` になる
+    (pandas 3.x) 場合の両方を安全に扱うため・入力の NaT は ``pd.isna`` で明示検出して
+    ``None`` に正規化する (list 要素も同様)。結果的に UI が 500 系例外で落ちず・かつ
+    SQL の ``WHERE race_date >= 'NaT'`` のような無効文字列が流れるのを防ぐ。
     """
     if raw is None:
         return (None, None)
+    # WR-04: 単一 NaT (pd.NaT / np.datetime64('NaT')) を弾く。pd.NaT は pd.Timestamp の
+    # インスタンスでない (NaTType) ため・isinstance でなく pd.isna で判定する。
+    # raw が list/tuple の場合は下の枝で要素ごとに _to_iso_date_or_none で処理。
+    if not isinstance(raw, (list, tuple)):
+        try:
+            is_nat = bool(pd.isna(raw))
+        except (TypeError, ValueError):
+            is_nat = False
+        if is_nat:
+            return (None, None)
     if isinstance(raw, (list, tuple)):
         if len(raw) == 0:
             return (None, None)
         if len(raw) == 1:
-            d = pd.Timestamp(raw[0]).date()
-            return (d.isoformat(), d.isoformat())
+            iso = _to_iso_date_or_none(raw[0])
+            return (iso, iso)
         if len(raw) >= 2:
-            d_from = pd.Timestamp(raw[0]).date()
-            d_to = pd.Timestamp(raw[1]).date()
-            if d_from > d_to:
-                d_from, d_to = d_to, d_from
-            return (d_from.isoformat(), d_to.isoformat())
+            iso_from = _to_iso_date_or_none(raw[0])
+            iso_to = _to_iso_date_or_none(raw[1])
+            if iso_from is None or iso_to is None:
+                return (None, None)
+            if iso_from > iso_to:
+                iso_from, iso_to = iso_to, iso_from
+            return (iso_from, iso_to)
     # 単一 date/datetime/Timestamp の場合
-    try:
-        d = pd.Timestamp(raw).date()
-        return (d.isoformat(), d.isoformat())
-    except (TypeError, ValueError):
+    iso = _to_iso_date_or_none(raw)
+    if iso is None:
         return (None, None)
+    return (iso, iso)
+
+
+def _to_iso_date_or_none(value: Any) -> str | None:
+    """日付相当の値を ISO 文字列 (``"YYYY-MM-DD"``) に変換する。NaT / 不正入力は ``None``。
+
+    WR-04 補助: ``pd.Timestamp(value)`` が ``NaT`` を返す場合 (pandas 3.x では ``.date()`` が
+    ``AttributeError`` でなく ``NaT`` を返し ``.isoformat() == "NaT"`` になる) を含め・
+    安全に ``None`` に fallback する。異常時は UI が 500 系例外で落ちないよう全て握って ``None``。
+    """
+    try:
+        ts = pd.Timestamp(value)
+    except (TypeError, ValueError):
+        return None
+    # NaT チェック (pd.isna は NaT スカラーに True を返す・boolean 配列でない単一値前提)
+    try:
+        if pd.isna(ts):
+            return None
+    except (TypeError, ValueError):
+        # pd.isna が配列を返す型 (list 等) の場合は True 扱いで None に fallback
+        return None
+    try:
+        return ts.date().isoformat()
+    except (TypeError, ValueError, AttributeError):
+        return None
 
 
 # ---------------------------------------------------------------------------
