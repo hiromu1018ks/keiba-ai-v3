@@ -6,15 +6,15 @@ current_phase: 08
 current_phase_name: Adversarial Audit Suite
 status: executing
 stopped_at: Plan 08-01 complete
-last_updated: "2026-06-24T23:38:09.307Z"
+last_updated: "2026-06-24T23:46:32.313Z"
 last_activity: 2026-06-24
-last_activity_desc: Plan 08-01 complete (tests/audit/ adversarial テスト新設)
+last_activity_desc: "Plan 08-01 complete (SC#2 3ケース + D-06 adversarial テスト新設)"
 progress:
   total_phases: 9
   completed_phases: 8
   total_plans: 40
-  completed_plans: 38
-  percent: 95
+  completed_plans: 39
+  percent: 89
 ---
 
 # Project State
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 08 (Adversarial Audit Suite) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Plan 08-01 complete (tests/audit/ 9 adversarial テスト GREEN)
 Last activity: 2026-06-24 — Plan 08-01 complete (SC#2 3ケース + D-06 adversarial テスト新設)
 
@@ -101,6 +101,7 @@ Progress: [██████████] 100%
 | Phase 07 P02 | 12min | 2 tasks | 5 files |
 | Phase 07 P03 | 8 | 2 tasks | 6 files |
 | Phase 08 P01 | 5min | 3 tasks | 6 files |
+| Phase 08 P02 | 3min | 2 tasks | 5 files |
 
 ### Decisions
 
@@ -217,6 +218,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 07-03: SEGMENT_AXES モジュール定数を selectbox に変数渡し・テストは str Constant fallback で検証
 - [Phase 08]: 08-01: tests/audit/ パッケージ新設（SC#2 3ケース lookahead/payout正欠損/fold race_id共有 + D-06 UI/CSV 計9テスト・KEIBA_SKIP_DB_TESTS=1 GREEN・DB 不要・adversarial 5段階鋳型で false-pass 構造的排除・docstring cross-reference で機能テストと棲み分け）
 - [Phase 08]: 08-01: payout recall は cursor ベース end-to-end で検証（DataFrame 受け API 非存在・src/etl/label_reconcile.py L933 署名 cur: Cursor）・backtest_strategy_version は予測テーブル非存在のため PREDICTION_CSV_COLUMNS presence assert 対象から除外（UI 用 REPRODUCIBILITY_STAMPS 側にのみ含む）
+- [Phase ?]: SC#3 合成層 (08-02) は DB 不要 pytest (calibrator bit-identical + tests/audit/) のみで orchestrate・live-DB 必須 CLI は 08-03 に委譲 (D-03/F-02/F-03)
+- [Phase ?]: reports/08-audit の KNOWN_LIMITATIONS 3項目 (回収率天井・Calibration劣位・odds JODDS再検証) を定数で強制し md と json の両方に honest 開示 (D-05)
 
 ### Pending Todos
 
@@ -242,6 +245,6 @@ None yet.
 
 **Resume file:** .planning/phases/08-adversarial-audit-suite/08-CONTEXT.md
 
-Last session: 2026-06-24T13:30:50.918Z
+Last session: 2026-06-24T23:46:25.299Z
 Stopped at: Phase 8 context gathered
 Resume: /gsd-execute-phase 6
