@@ -257,8 +257,21 @@ Plans:
   2. A user can export a prediction CSV with the pinned column list (race_id/race_date/race_start_datetime/競馬場/レース番号/horse_id/horse_name/枠番/馬番/p_fukusho_hit/オッズ下限上限/EV/recommend_rank/スナップショット情報)
   3. A user can export a backtest CSV with the pinned column list (backtest_id/戦略バージョン/学習検証期間/odds_snapshot_policy/race_id/horse_id/selected_flag/stake/refund_flag/payout_amount/profit/fukusho_hit_validated/recommend_rank/EV)
 
-**Plans**: TBD
+**Plans**: 3 plans in 3 waves
 **UI hint**: yes
+
+Plans:
+**Wave 1**（基盤・先行）
+
+- [ ] 07-01-PLAN.md — Wave 1 基盤（streamlit==1.58.0 追加 + wheel packages src/ui + src/ui/{csv_columns.py,jyocd_map.py} + .streamlit/config.toml + Wave 0 テスト4ファイル・OUT-01/OUT-02 列定数 DRY 20/16 列 presence assert・read-only 保証・segment JSON スキーマ契約・Streamlit API 正引数土俵）— UI-01/OUT-01/OUT-02 前提
+
+**Wave 2**（Plan 01 完了後・loaders と CLI・OUT-01/OUT-02 CLI 出力経路）
+
+- [ ] 07-02-PLAN.md — Wave 2 loaders + CLI（src/ui/loaders.py・@st.cache_data hash_funcs・readonly pool・is_primary=true 絞り・Open Question #1/#2 解決経路=backtest JOIN で odds/EV/rank/odds_snapshot_at 取得・scripts/run_export_predictions_csv.py + run_export_backtest_csv.py・UTF-8 BOM + CRLF・dsn_masked）— OUT-01/OUT-02/UI-01 — Plan 01 に依存
+
+**Wave 3**（Plan 01/02 完了後・UI 本体）
+
+- [ ] 07-03-PLAN.md — Wave 3 Streamlit UI 本体（app.py + 3タブ・prediction_tab.py マスター・ディテール・Pitfall 1 正引数 selection_mode='single-row'+on_select='rerun'・backtest_tab.py honest 注記・calibration_tab.py 6軸 Plotly 動的描画・再現性スタンプ inline・§16.1 除外項目排除・checkpoint:human-verify で実ブラウザ確認）— UI-01/OUT-01/OUT-02 — Plan 01/02 に依存
 
 ### Phase 8: Adversarial Audit Suite
 
