@@ -101,6 +101,12 @@ def main(argv: list[str] | None = None) -> int:
     except PsycopgError as exc:
         logger.error("DB エラーで OUT-02 出力失敗: %s", exc)
         return 3
+    except Exception as exc:
+        # WR-07: PsycopgError 以外の例外 (ValueError/FileNotFoundError/ParserError 等) を握り潰さず・
+        # 一意の exit code で返す。CI で exit code を区別する場合に DB エラー (3) とそれ以外 (2) を
+        # 分離できるようにする。sys.exit(main()) で traceback 表示 → exit 1 になる経路も回避。
+        logger.error("OUT-02 出力失敗（DB 以外のエラー）: %s", exc, exc_info=True)
+        return 2
 
 
 if __name__ == "__main__":
