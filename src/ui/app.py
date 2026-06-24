@@ -82,8 +82,15 @@ def main() -> None:
             "推奨ランク", ["S", "A", "B", "C", "D"], default=["S", "A", "B"]
         )
         # REVIEW MEDIUM-2: 手動キャッシュ更新ボタン（TTL 暗黙依存でなく陳腐化を明示的に解消）
-        if st.button("キャッシュ更新", help="DB から最新データを再取得します"):
+        # WR-01: st.cache_data.clear() は load_*_cached のエントリのみ消去し・get_pool() の
+        # @st.cache_resource エントリは消去しない。DSN 切替 / PostgreSQL 再起動後にも
+        # 古い/壊れた pool が再利用され続けるのを防ぐため・st.cache_resource.clear() も呼ぶ。
+        if st.button(
+            "キャッシュ更新",
+            help="DB から最新データを再取得します（pool 含む・DSN 切替/PG 再起動後に再接続）",
+        ):
             st.cache_data.clear()
+            st.cache_resource.clear()  # get_pool() のキャッシュも消去（WR-01・再接続保証）
         st.caption("データソース: PostgreSQL keiba_readonly ロール（read-only・stamped）")
 
     # --- pool lifecycle（REVIEW HIGH-5・@st.cache_resource で単一 pool 保持）---
