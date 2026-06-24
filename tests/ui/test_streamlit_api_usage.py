@@ -99,3 +99,39 @@ def test_dataframe_uses_selection_mode():
             f"{py}: race-list master dataframe の st.dataframe が selection_mode= を持たない"
             f"（第一引数={_first_arg_name(call)}・RESEARCH Pitfall 1・selection_mode='single-row' が必要）"
         )
+
+
+def test_app_has_syspath_guard_for_streamlit_run():
+    """app.py は ``streamlit run`` で ``src`` パッケージ解決のための sys.path ガードを持つ（起動時 ModuleNotFoundError 回帰防止）。
+
+    Streamlit のスクリプト実行は app.py のある ``src/ui/`` を ``sys.path[0]`` にするため・プロジェクト
+    ルートを明示的に挿入しないと ``from src.*`` が ``ModuleNotFoundError: No module named 'src'`` になる。
+    hatch wheel ``packages`` への ``src/ui`` 追加だけでは不十分（07-RESEARCH.md L639 の誤結論を訂正）。
+    ``scripts/run_backtest.py`` / ``run_export_*.py`` と同一の ``_REPO_ROOT`` + ``sys.path.insert`` パターン
+    を持つことを AST 走査で検証する（checkpoint:human-verify で発覚した起動時 import エラーの構造的防止）。
+    """
+    app_py = UI_DIR / "app.py"
+    assert app_py.exists(), f"{app_py} が存在しない（Phase 7 UI 本体未実装）"
+    tree = ast.parse(app_py.read_text(encoding="utf-8"), filename=str(app_py))
+    found_repo_root_assign = False
+    found_sys_path_insert = False
+    for node in ast.walk(tree):
+        # _REPO_ROOT = ... の代入
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "_REPO_ROOT":
+                    found_repo_root_assign = True
+        # sys.path.insert(...)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if node.func.attr == "insert" and isinstance(node.func.value, ast.Attribute):
+                if node.func.value.attr == "path" and isinstance(node.func.value.value, ast.Name):
+                    if node.func.value.value.id == "sys":
+                        found_sys_path_insert = True
+    assert found_repo_root_assign, (
+        f"{app_py}: ``_REPO_ROOT`` 代入が存在しない（streamlit run で ``src.*`` 解決のための "
+        "sys.path ガードが欠落・07-PATTERNS.md §Imports pattern）"
+    )
+    assert found_sys_path_insert, (
+        f"{app_py}: ``sys.path.insert`` 呼出が存在しない（streamlit run でプロジェクトルートを "
+        "sys.path に挿入しないと ``from src.*`` が ModuleNotFoundError になる）"
+    )

@@ -26,15 +26,27 @@ rerun ごとに close しない。これにより ``@st.cache_data(hash_funcs={C
 
 from __future__ import annotations
 
-import streamlit as st
-from psycopg_pool import ConnectionPool
+import sys
+from pathlib import Path
 
-from src.config.settings import Settings
-from src.ui.backtest_tab import render_backtest_tab
-from src.ui.calibration_tab import render_calibration_tab
-from src.ui.jyocd_map import load_jyocd_map
-from src.ui.loaders import make_readonly_pool, normalize_date_range
-from src.ui.prediction_tab import render_prediction_tab
+# Streamlit のスクリプト実行は app.py のある ``src/ui/`` を ``sys.path[0]`` に設定するため、
+# プロジェクトルートを含めないと ``from src.*`` が解決できない。hatch wheel ``packages`` への
+# ``src/ui`` 追加だけでは ``streamlit run`` は動かない（07-RESEARCH.md L639 の誤結論を訂正）。
+# ``scripts/run_backtest.py`` / ``run_export_*.py`` と同一の ``sys.path.insert`` パターン
+# （07-PATTERNS.md §Imports pattern・起動時 ModuleNotFoundError 回帰防止）。
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+import streamlit as st  # noqa: E402
+from psycopg_pool import ConnectionPool  # noqa: E402
+
+from src.config.settings import Settings  # noqa: E402
+from src.ui.backtest_tab import render_backtest_tab  # noqa: E402
+from src.ui.calibration_tab import render_calibration_tab  # noqa: E402
+from src.ui.jyocd_map import load_jyocd_map  # noqa: E402
+from src.ui.loaders import make_readonly_pool, normalize_date_range  # noqa: E402
+from src.ui.prediction_tab import render_prediction_tab  # noqa: E402
 
 
 @st.cache_resource
