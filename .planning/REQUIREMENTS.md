@@ -53,12 +53,12 @@
 
 ### 画面 (UI)
 
-- [ ] **UI-01**: Streamlit画面でレース一覧・各馬 `p_fukusho_hit`・複勝オッズ下限/上限・`EV_lower`/`EV_upper`・推奨ランク・`odds_snapshot_policy`/`odds_snapshot_at`・`model_version`・`feature_snapshot_id`・`backtest_strategy_version` を表示できる（ワイド/荒れ指数/コメント生成は表示しない）
+- [x] **UI-01**: Streamlit画面でレース一覧・各馬 `p_fukusho_hit`・複勝オッズ下限/上限・`EV_lower`/`EV_upper`・推奨ランク・`odds_snapshot_policy`/`odds_snapshot_at`・`model_version`・`feature_snapshot_id`・`backtest_strategy_version` を表示できる（ワイド/荒れ指数/コメント生成は表示しない）
 
 ### CSV出力 (OUT)
 
-- [ ] **OUT-01**: 予測CSV（race_id/race_date/race_start_datetime/競馬場/レース番号/horse_id/horse_name/枠番/馬番/p_fukusho_hit/オッズ下限上限/EV/推奨ランク/スナップショット情報）を出力できる
-- [ ] **OUT-02**: バックテストCSV（backtest_id/戦略バージョン/学習検証期間/odds_snapshot_policy/race_id/horse_id/selected_flag/stake/refund_flag/payout_amount/profit/fukusho_hit_validated/推奨ランク/EV）を出力できる
+- [x] **OUT-01**: 予測CSV（race_id/race_date/race_start_datetime/競馬場/レース番号/horse_id/horse_name/枠番/馬番/p_fukusho_hit/オッズ下限上限/EV/推奨ランク/スナップショット情報）を出力できる
+- [x] **OUT-02**: バックテストCSV（backtest_id/戦略バージョン/学習検証期間/odds_snapshot_policy/race_id/horse_id/selected_flag/stake/refund_flag/payout_amount/profit/fukusho_hit_validated/推奨ランク/EV）を出力できる
 
 ### テスト (TEST)
 
@@ -132,9 +132,9 @@
 | EVAL-01 | Phase 6: Evaluation & Calibration Gates | Complete |
 | EVAL-02 | Phase 6: Evaluation & Calibration Gates | Complete |
 | EVAL-03 | Phase 6: Evaluation & Calibration Gates | Complete |
-| UI-01 | Phase 7: Presentation | Pending |
-| OUT-01 | Phase 7: Presentation | Pending |
-| OUT-02 | Phase 7: Presentation | Pending |
+| UI-01 | Phase 7: Presentation | Complete |
+| OUT-01 | Phase 7: Presentation | Complete |
+| OUT-02 | Phase 7: Presentation | Complete |
 | TEST-01 | Phase 8: Adversarial Audit Suite | Pending |
 
 **Coverage:**

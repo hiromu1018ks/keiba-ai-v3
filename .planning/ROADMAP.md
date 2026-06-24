@@ -257,13 +257,13 @@ Plans:
   2. A user can export a prediction CSV with the pinned column list (race_id/race_date/race_start_datetime/競馬場/レース番号/horse_id/horse_name/枠番/馬番/p_fukusho_hit/オッズ下限上限/EV/recommend_rank/スナップショット情報)
   3. A user can export a backtest CSV with the pinned column list (backtest_id/戦略バージョン/学習検証期間/odds_snapshot_policy/race_id/horse_id/selected_flag/stake/refund_flag/payout_amount/profit/fukusho_hit_validated/recommend_rank/EV)
 
-**Plans**: 3 plans in 3 waves
+**Plans**: 1/3 plans executed
 **UI hint**: yes
 
 Plans:
 **Wave 1**（基盤・先行）
 
-- [ ] 07-01-PLAN.md — Wave 1 基盤（streamlit==1.58.0 追加 + wheel packages src/ui + src/ui/{csv_columns.py,jyocd_map.py} + .streamlit/config.toml + Wave 0 テスト4ファイル・OUT-01/OUT-02 列定数 DRY 20/16 列 presence assert・read-only 保証・segment JSON スキーマ契約・Streamlit API 正引数土俵）— UI-01/OUT-01/OUT-02 前提
+- [x] 07-01-PLAN.md — Wave 1 基盤（streamlit==1.58.0 追加 + wheel packages src/ui + src/ui/{csv_columns.py,jyocd_map.py} + .streamlit/config.toml + Wave 0 テスト4ファイル・OUT-01/OUT-02 列定数 DRY 20/16 列 presence assert・read-only 保証・segment JSON スキーマ契約・Streamlit API 正引数土俵）— UI-01/OUT-01/OUT-02 前提
 
 **Wave 2**（Plan 01 完了後・loaders と CLI・OUT-01/OUT-02 CLI 出力経路）
 
@@ -300,5 +300,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 4. Model & Prediction | 6/6 | Complete    | 2026-06-20 |
 | 5. EV & Backtest | 6/6 | Complete    | 2026-06-21 |
 | 6. Evaluation & Calibration Gates | 5/5 | Complete    | 2026-06-23 |
-| 7. Presentation | 0/TBD | Not started | - |
+| 7. Presentation | 1/3 | In Progress|  |
 | 8. Adversarial Audit Suite | 0/TBD | Not started | - |

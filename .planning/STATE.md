@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 7
-current_phase_name: Presentation
+current_phase: 07
+current_phase_name: presentation
 status: executing
 stopped_at: Phase 7 UI-SPEC approved
-last_updated: "2026-06-24T05:39:11.109Z"
-last_activity: 2026-06-23
-last_activity_desc: Phase 06 complete, transitioned to Phase 7
+last_updated: "2026-06-24T09:32:33.686Z"
+last_activity: 2026-06-24
+last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 9
   completed_phases: 7
-  total_plans: 34
-  completed_plans: 34
+  total_plans: 37
+  completed_plans: 35
   percent: 78
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-16)
 
 **Core value:** オッズ非依存の確率 `p_fukusho_hit` と固定オッズ時点のEVで、過小評価されている馬の複勝払戻対象入り可能性をリークなく検出し、race_id単位・時系列順の再現可能なバックテストで定量評価できること。リーク防止と再現性だけは必ず守る。
-**Current focus:** Phase 06 — Evaluation & Calibration Gates (complete・ready for verification)
+**Current focus:** Phase 07 — presentation
 
 ## Current Position
 
-Phase: 7 — Presentation
-Plan: Not started
+Phase: 07 (presentation) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-06-23 — Phase 06 complete, transitioned to Phase 7
+Last activity: 2026-06-24 — Phase 07 execution started
 
 Progress: [██████████] 100%
 
@@ -96,6 +96,7 @@ Progress: [██████████] 100%
 | Phase 06 P03 | 約30分 | 2 tasks | 2 files |
 | Phase 06 P04 | 約30分 | 3 tasks | 6 files |
 | Phase 06 P05 | 41min | 2 tasks | 4 files |
+| Phase 07 P01 | 7min | 3 tasks tasks | 11 files files |
 
 ### Decisions
 
@@ -198,6 +199,11 @@ Recent decisions affecting current work:
 - [Phase ?]: D-08 tiebreak: backtest_recovery_rate（06-05・LightGBM 0.7022 vs CatBoost 0.6808）
 - [Phase ?]: 06-05 sum(p) threshold 0.30 維持（threshold_appropriate=False・SC#2 達成で WARN のまま・後続再検討）
 - [Phase ?]: 06-05 model_version 推測は make_model_version に一本化（[:3] 手動推測は lig/cat 偏差 bug・Rule 1）
+- [Phase ?]: 07-01: PREDICTION_CSV_COLUMNS (20) / BACKTEST_CSV_COLUMNS (16) を DRY 単一定数化 (§16.2 pin・D-04 LOCKED・LOW-05 presence assert 再利用)
+- [Phase ?]: 07-01: odds 列名 canonical は fukusho_odds_* (外部公開)・loaders 内部 fuku_odds_* は normalize_prediction_export_columns で rename (REVIEW HIGH-1)
+- [Phase ?]: 07-01: odds_snapshot_at は JODDS snapshot happyo_datetime から取得 (backtest JOIN でなく・backtest テーブルに odds 値カラム不存在のため構造的不可能・REVIEW MEDIUM-2)
+- [Phase ?]: 07-01: BACKTEST_CSV_COLUMNS は16列 (§16.2 原典優先・CONTEXT D-04「14列」は errata・RESEARCH Pitfall 3)
+- [Phase ?]: 07-01: read-only 保証テストは AST で execute() Call 第一引数 str 定数のみ検査 (comment/docstring false positive 回避・planner-discipline-allow マーカーで例外許容・REVIEW LOW-2)
 
 ### Pending Todos
 
@@ -223,6 +229,6 @@ None yet.
 
 **Resume file:** .planning/phases/07-presentation/07-UI-SPEC.md
 
-Last session: 2026-06-24T04:20:47.967Z
+Last session: 2026-06-24T09:32:01.359Z
 Stopped at: Phase 7 UI-SPEC approved
 Resume: /gsd-execute-phase 6
