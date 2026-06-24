@@ -309,7 +309,15 @@ def _select_uma_race_meta(cur: Cursor, pred_df: pd.DataFrame) -> pd.DataFrame:
     )
     cols = [d.name for d in cur.description]
     rows = cur.fetchall()
-    return pd.DataFrame(rows, columns=cols)
+    df = pd.DataFrame(rows, columns=cols)
+    # CR-03 (deep review Critical): uma_meta 側も kettonum/umaban を Int64 正規化し・
+    # pred_df 側 (load_predictions L373-378 で Int64 化済) と dtype 一致させる。
+    # pandas.merge は merge key の dtype が異なると (object vs int64 / Int64 vs int64)
+    # silent に空振りして bamei/wakuban が NaN になるため・両辺を Int64 に揃える。
+    if len(df) > 0:
+        df["umaban"] = pd.to_numeric(df["umaban"], errors="coerce").astype("Int64")
+        df["kettonum"] = pd.to_numeric(df["kettonum"], errors="coerce").astype("Int64")
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -371,6 +379,13 @@ def load_predictions(
     pred_df = pred_df.copy()
     pred_df["race_key"] = make_race_key(pred_df)
     pred_df["umaban"] = pd.to_numeric(pred_df["umaban"], errors="coerce").astype("Int64")
+    # CR-03 (deep review Critical): kettonum も Int64 正規化。
+    # _select_uma_race_meta が (year,jyocd,kaiji,nichiji,racenum,umaban,kettonum) 7部 PK で
+    # uma_meta (n_uma_race) と merge する際・pred_df 側 kettonum が object/str dtype だと
+    # uma_meta 側 (Int64/int64) と dtype 不一致で silent に空振りし bamei/wakuban が NaN になる。
+    # umaban には既に同正規化があるが kettonum にはなかった (src/db/prediction_load.py の
+    # _INT_COLS 規約とも不整合)。両辺を Int64 に揃えることで merge の空振りを防止。
+    pred_df["kettonum"] = pd.to_numeric(pred_df["kettonum"], errors="coerce").astype("Int64")
 
     # --- Step 2: JODDS snapshot 取得 (src/ev/odds_snapshot.py・HIGH-2 race_start_datetime ピン留め) ---
     with readonly_cursor(pool) as cur:
