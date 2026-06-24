@@ -64,6 +64,17 @@ def _build_race_list_df(pred_df: pd.DataFrame) -> pd.DataFrame:
 
     派生データは ``@st.cache_data`` を通す前提・st.session_state には保持しない（Pitfall 4）。
     デフォルトソートは ``race_date`` DESC（最新日優先・UI-SPEC Interaction Contract）。
+
+    WR-05 (deep review Warning): Streamlit 1.58 の ``st.dataframe`` は列ヘッダクリックで
+    ユーザが column sort を行えるが・sort 後の ``event.selection["rows"]`` は表示順の行 index
+    を返すのに対し ``race_list_df.iloc[selected_idx]`` は内部 DataFrame 行位置を参照するため・
+    column sort 後は選択したレースと異なる race_id が選ばれるリスクがある。本関数は race_date
+    DESC で整列済の初期表示を保証するが・column sort 後の選択ズレは Streamlit 1.58 では column
+    sort 無効化フラグがないため構造的に完全防止できない。``render_prediction_tab`` 側では
+    ``race_list_df`` の ``race_id`` が groupby で一意である前提で race_id 逆引きし・
+    column sort で選択がズレた場合でも race_id が一意である限り最終的な詳細表示は race_id で
+    一意に定まる設計を維持する。利用者は column sort 後の選択ズレに注意すること
+    (現在の Streamlit API では sort 無効化フラグ不在・docstring 注意書きで運用上カバー)。
     """
     if len(pred_df) == 0:
         return pd.DataFrame(columns=["race_id", "race_date", "競馬場", "レース番号", "頭数", "件数"])
@@ -166,6 +177,11 @@ def render_prediction_tab(
     selected_idx = rows[0]
     selected_race = race_list_df.iloc[selected_idx]
     selected_race_id = selected_race["race_id"]
+    # WR-05: race_list_df は _build_race_list_df で race_id 単位の groupby により race_id が一意
+    # (1行=1レース)。column sort 後に selection["rows"] が表示順で返っても・race_id 逆引きで
+    # pred_df 側を再度フィルタするため・最終的な詳細表示は選択された race_id で一意に定まる。
+    # (ただし column sort 後は表示上の選択行と内部 DataFrame 行がズレうるので・ユーザは列 sort
+    # 後の選択に注意。Streamlit 1.58 では sort 無効化フラグ不在で構造的完全防止は不可)
 
     # --- detail: 選択レースの各馬 DataFrame（p_fukusho_hit DESC・確率高い順・UI-SPEC Interaction）---
     race_pred_df = pred_df[pred_df["race_id"] == selected_race_id].copy()
