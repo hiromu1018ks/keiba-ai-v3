@@ -27,28 +27,46 @@ def _build_backtest_summary(bt_df: pd.DataFrame) -> pd.DataFrame:
     """backtest DataFrame を backtest_id 単位で groupby してメトリクス一覧を構築する。
 
     列: ``backtest_id`` / ``backtest_strategy_version`` / ``train_period`` /
-    ``odds_snapshot_policy`` / ``recovery_rate`` / ``selected_count``。
+    ``odds_snapshot_policy`` / ``recovery_rate`` / ``selected_count`` /
+    ``latest_race_date``。
 
     ``recovery_rate`` は §11.6 に従い ``effective_stake`` を分母とする（返還馬=
     ``effective_stake=0`` は分母から控除・``src/ev/metrics.py::compute_backtest_metrics``
-    と同口径・CR-01 修正）。``stake`` 分母では返還馬が分母に含まれ回収率が過小評価される。
+    と同口径・前回 CR-01 修正）。``stake`` 分母では返還馬が分母に含まれ回収率が過小評価される。
+
+    **CR-01 (deep review): 代表値の「最新」確定のため ``race_date`` DESC で事前整列する。**
+    ``_select_backtests`` の SQL は ``ORDER BY`` を持たないため・groupby ``.iloc[0]`` の
+    取得行が時系列最新とは限らない（``backtest_id`` 辞書順 ≠ 作成順・``BT-10`` が ``BT-2``
+    より前に来る等）。本関数は groupby 前に ``race_date`` DESC で整列することで・
+    (1) 各 group の ``first`` が race_date 最大行になること・
+    (2) 表示順（``latest_race_date`` DESC）が最新 backtest 先頭になること・
+    を保証する。呼出元の ``summary.iloc[0]`` は race_date 最大の backtest を示す。
     """
+    empty_cols = [
+        "backtest_id",
+        "backtest_strategy_version",
+        "train_period",
+        "odds_snapshot_policy",
+        "recovery_rate",
+        "selected_count",
+        "latest_race_date",
+    ]
     if len(bt_df) == 0:
-        return pd.DataFrame(
-            columns=[
-                "backtest_id",
-                "backtest_strategy_version",
-                "train_period",
-                "odds_snapshot_policy",
-                "recovery_rate",
-                "selected_count",
-            ]
+        return pd.DataFrame(columns=empty_cols)
+    # CR-01: race_date DESC で事前整列（groupby .iloc[0] が最新 race_date 行になるよう保証）。
+    # _select_backtests の SQL は ORDER BY を持たないため・ここで明示整列しないと
+    # groupby(sort=True 既定) は backtest_id 辞書順を返し「最新」と乖離する。
+    # mergesort で stable sort（同 race_date 内の既存順序を保持）。
+    if "race_date" in bt_df.columns:
+        bt_df = bt_df.sort_values("race_date", ascending=False, kind="mergesort").reset_index(
+            drop=True
         )
     rows = []
-    for bt_id, group in bt_df.groupby("backtest_id", dropna=False):
-        first = group.iloc[0]
+    # sort=False: 事前整列済の bt_df の出現順を維持（辞書順でなく時系列順）。
+    for bt_id, group in bt_df.groupby("backtest_id", dropna=False, sort=False):
+        first = group.iloc[0]  # race_date DESC 整列済なので group 内の最新 race_date 行
         # §11.6 回収率は effective_stake 分母（返還馬=effective_stake=0 を分母から控除・
-        # src/ev/metrics.py::compute_backtest_metrics と同口径・CR-01 修正）。
+        # src/ev/metrics.py::compute_backtest_metrics と同口径・前回 CR-01 修正）。
         total_effective_stake = float(group.get("effective_stake", pd.Series([0])).fillna(0).sum())
         total_payout = float(group.get("payout_amount", pd.Series([0])).fillna(0).sum())
         recovery = (
@@ -57,6 +75,7 @@ def _build_backtest_summary(bt_df: pd.DataFrame) -> pd.DataFrame:
         selected_count = int(
             group.get("selected_flag", pd.Series(dtype=object)).fillna(False).astype(bool).sum()
         )
+        latest_race = group["race_date"].max() if "race_date" in group.columns else None
         rows.append(
             {
                 "backtest_id": bt_id,
@@ -65,9 +84,17 @@ def _build_backtest_summary(bt_df: pd.DataFrame) -> pd.DataFrame:
                 "odds_snapshot_policy": first.get("odds_snapshot_policy", ""),
                 "recovery_rate": recovery,
                 "selected_count": selected_count,
+                "latest_race_date": latest_race,
             }
         )
-    return pd.DataFrame(rows)
+    summary = pd.DataFrame(rows, columns=empty_cols)
+    # 表示順も最新（latest_race_date 最大）の backtest が先頭になるよう整列。
+    # これで render_backtest_tab の summary.iloc[0] が最新 backtest の暫定値を指す。
+    if len(summary) > 0 and "latest_race_date" in summary.columns:
+        summary = summary.sort_values(
+            "latest_race_date", ascending=False, kind="mergesort"
+        ).reset_index(drop=True)
+    return summary
 
 
 def render_backtest_tab(pool: ConnectionPool) -> None:
@@ -95,17 +122,25 @@ def render_backtest_tab(pool: ConnectionPool) -> None:
     summary = _build_backtest_summary(bt_df)
 
     # --- メトリクス表示（UI-SPEC Component Inventory・任意・honest 注記と併記）---
+    # CR-01: summary は latest_race_date DESC で整列済・iloc[0] は最新 backtest を指す。
     if len(summary) > 0:
         latest = summary.iloc[0]
+        latest_date = latest.get("latest_race_date")
+        latest_date_label = (
+            f"（最新 backtest: {latest_date}）" if latest_date is not None else "（最新 backtest）"
+        )
         col1, col2 = st.columns(2)
         with col1:
             rec = latest.get("recovery_rate")
             st.metric(
-                "recovery_rate（暫定）",
+                f"recovery_rate（暫定）{latest_date_label}",
                 value=f"{rec:.3f}" if rec == rec else "N/A",  # NaN チェック (rec != rec)
             )
         with col2:
-            st.metric("selected_count", value=int(latest.get("selected_count", 0)))
+            st.metric(
+                f"selected_count{latest_date_label}",
+                value=int(latest.get("selected_count", 0)),
+            )
 
     st.subheader("backtest 一覧")
     st.dataframe(summary, hide_index=True)
