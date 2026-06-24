@@ -34,6 +34,18 @@ SEGMENT_AXES: tuple[str, ...] = (
     "odds_band",
 )
 
+# WR-06 (deep review Warning): scalar 表の表示キーを明示的に5キーに固定。
+# segment JSON の scalar セクションに想定外の余剰キー (float/list/nested dict) が含まれていても
+# pd.DataFrame 構築時に混入させないため・明示的にキーを抽出する (REVIEW.md WR-08 修正案を踏襲)。
+# 異種スキーマの row による object dtype 化・"mixing dicts with non-Series" 例外を防止。
+SCALAR_DISPLAY_KEYS: tuple[str, ...] = (
+    "ece_quantile",
+    "ece_uniform",
+    "max_dev_guarded",
+    "mce_guarded",
+    "n_samples",
+)
+
 
 def build_calibration_figure(seg_data: dict[str, Any]) -> go.Figure:
     """segment データから calibration curve 重ね描き Figure を構築する（D-05・RESEARCH Code Examples L458-485）。
@@ -107,10 +119,15 @@ def render_calibration_tab() -> None:
     st.plotly_chart(fig, width="stretch")
 
     # --- scalar 指標表（D-11・ECE/MCE/max_dev_guarded/n_samples）---
+    # WR-06: scalar の全キーを dict.update で展開するのでなく・SCALAR_DISPLAY_KEYS の5キーのみ
+    # 明示抽出する。余剰キー (float/list/nested dict) が JSON に混入しても pd.DataFrame 構築時の
+    # 表示崩れ / "mixing dicts with non-Series" 例外を防止。
     scalar_rows = []
     for seg in seg_data.get("segments", []):
+        sc = seg.get("scalar", {})
         row: dict[str, Any] = {"segment_value": seg.get("segment_value", "")}
-        row.update(seg.get("scalar", {}))
+        for key in SCALAR_DISPLAY_KEYS:
+            row[key] = sc.get(key)
         scalar_rows.append(row)
     if scalar_rows:
         st.subheader("scalar 指標")
