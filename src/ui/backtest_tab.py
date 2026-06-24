@@ -53,6 +53,19 @@ def _build_backtest_summary(bt_df: pd.DataFrame) -> pd.DataFrame:
     ]
     if len(bt_df) == 0:
         return pd.DataFrame(columns=empty_cols)
+    # WR-08 (deep review Warning): 必須列の存在を fail-loud 検証。
+    # 従来 group.get("effective_stake", pd.Series([0])) の fallback は列欠損を silent に握り潰し
+    # total_effective_stake=0 → recovery=NaN → UI に N/A 表示 になる経路を残していた。loaders 契約
+    # (load_backtests が BACKTEST_COLUMNS 全列 SELECT) 上は実害はないが・将来 BACKTEST_COLUMNS から
+    # effective_stake が外れた場合に silent に回収率が N/A になるのを防ぐため・compute_backtest_metrics
+    # (df["effective_stake"].sum() で列不在時は KeyError) と同様に fail-loud で落とす。
+    REQUIRED_COLS = ("effective_stake", "payout_amount", "selected_flag")
+    missing = [c for c in REQUIRED_COLS if c not in bt_df.columns]
+    if missing:
+        raise ValueError(
+            f"backtest DataFrame に必須列がない: {missing} (loaders 契約違反・"
+            f"BACKTEST_COLUMNS の全列 SELECT が期待される)"
+        )
     # CR-01: race_date DESC で事前整列（groupby .iloc[0] が最新 race_date 行になるよう保証）。
     # _select_backtests の SQL は ORDER BY を持たないため・ここで明示整列しないと
     # groupby(sort=True 既定) は backtest_id 辞書順を返し「最新」と乖離する。
