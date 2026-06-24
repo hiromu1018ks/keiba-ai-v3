@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 07
 current_phase_name: presentation
-status: executing
+status: verifying
 stopped_at: Phase 7 UI-SPEC approved
-last_updated: "2026-06-24T09:53:45.369Z"
+last_updated: "2026-06-24T10:08:36.623Z"
 last_activity: 2026-06-24
 last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 9
-  completed_phases: 7
+  completed_phases: 8
   total_plans: 37
-  completed_plans: 36
-  percent: 78
+  completed_plans: 37
+  percent: 89
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 
 Phase: 07 (presentation) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-24 — Phase 07 execution started
 
 Progress: [██████████] 100%
@@ -98,6 +98,7 @@ Progress: [██████████] 100%
 | Phase 06 P05 | 41min | 2 tasks | 4 files |
 | Phase 07 P01 | 7min | 3 tasks tasks | 11 files files |
 | Phase 07 P02 | 12min | 2 tasks | 5 files |
+| Phase 07 P03 | 8 | 2 tasks | 6 files |
 
 ### Decisions
 
@@ -208,6 +209,10 @@ Recent decisions affecting current work:
 - [Phase 07]: 07-02: Open Question #1/#2 RESOLVED — odds/EV/rank/odds_snapshot_at は backtest JOIN でなく prediction SELECT(is_primary=true)→JODDS snapshot→compute_ev_and_rank 再計算経路で取得 (backtest テーブルに odds 値カラム不存在のため構造的不可能・BLOCKER-1)
 - [Phase 07]: 07-02: REVIEW HIGH-1 順序 — compute_ev_and_rank (内部名 fuku_odds_* 期待) の後に normalize_prediction_export_columns で fukusho_* rename (順序逆だと KeyError)
 - [Phase 07]: 07-02: REVIEW MEDIUM-4 完全化 — load_* は純粋関数 (@st.cache_data なし・CLI 直接 import)・load_*_cached が @st.cache_data(hash_funcs={ConnectionPool: id}) 付き UI 用 wrapper (CLI は Streamlit runtime 非依存)
+- [Phase ?]: 07-03: pool lifecycle は @st.cache_resource で単一 readonly pool を保持・try-finally close 廃止（REVIEW HIGH-5）
+- [Phase ?]: 07-03: download_button scope=選択レースのみ（MEDIUM-6）・フィルタ全体は OUT-01 CLI で使い分け
+- [Phase ?]: 07-03: 推奨ランク S 強調色は column_config と競合するため caption 代替（LOW-4 non-blocking polish）
+- [Phase ?]: 07-03: SEGMENT_AXES モジュール定数を selectbox に変数渡し・テストは str Constant fallback で検証
 
 ### Pending Todos
 
@@ -233,6 +238,6 @@ None yet.
 
 **Resume file:** .planning/phases/07-presentation/07-UI-SPEC.md
 
-Last session: 2026-06-24T09:51:56.824Z
+Last session: 2026-06-24T10:08:20.213Z
 Stopped at: Phase 7 UI-SPEC approved
 Resume: /gsd-execute-phase 6

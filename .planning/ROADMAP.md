@@ -20,7 +20,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 4: Model & Prediction** - Baselines BL-1..BL-5 + Phase 1-A LightGBM/CatBoost + calibrated p_fukusho_hit (completed 2026-06-20)
 - [x] **Phase 5: EV & Backtest** - EV/rank module + race_id-grouped virtual-purchase simulator with fixed odds policy (自動化部分 completed 2026-06-21・実データ backtest BT期間 2019-2025 は JODDS 取得完了後の manual-only 検証として分離)
 - [x] **Phase 6: Evaluation & Calibration Gates** - Acceptance criteria (Brier/LogLoss/calibration/sum(p)/stability) (completed 2026-06-23)
-- [ ] **Phase 7: Presentation** - Streamlit minimal UI + prediction/backtest CSV export
+- [x] **Phase 7: Presentation** - Streamlit minimal UI + prediction/backtest CSV export (completed 2026-06-24)
 - [ ] **Phase 8: Adversarial Audit Suite** - Cross-cutting leakage-prevention test set spanning all critical surfaces
 
 ## Phase Details
@@ -257,7 +257,7 @@ Plans:
   2. A user can export a prediction CSV with the pinned column list (race_id/race_date/race_start_datetime/競馬場/レース番号/horse_id/horse_name/枠番/馬番/p_fukusho_hit/オッズ下限上限/EV/recommend_rank/スナップショット情報)
   3. A user can export a backtest CSV with the pinned column list (backtest_id/戦略バージョン/学習検証期間/odds_snapshot_policy/race_id/horse_id/selected_flag/stake/refund_flag/payout_amount/profit/fukusho_hit_validated/recommend_rank/EV)
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans complete
 **UI hint**: yes
 
 Plans:
@@ -271,7 +271,7 @@ Plans:
 
 **Wave 3**（Plan 01/02 完了後・UI 本体）
 
-- [ ] 07-03-PLAN.md — Wave 3 Streamlit UI 本体（app.py + 3タブ・prediction_tab.py マスター・ディテール・Pitfall 1 正引数 selection_mode='single-row'+on_select='rerun'・backtest_tab.py honest 注記・calibration_tab.py 6軸 Plotly 動的描画・再現性スタンプ inline・§16.1 除外項目排除・checkpoint:human-verify で実ブラウザ確認）— UI-01/OUT-01/OUT-02 — Plan 01/02 に依存
+- [x] 07-03-PLAN.md — Wave 3 Streamlit UI 本体（app.py + 3タブ・prediction_tab.py マスター・ディテール・Pitfall 1 正引数 selection_mode='single-row'+on_select='rerun'・backtest_tab.py honest 注記・calibration_tab.py 6軸 Plotly 動的描画・再現性スタンプ inline・§16.1 除外項目排除・checkpoint:human-verify で実ブラウザ確認）— UI-01/OUT-01/OUT-02 — Plan 01/02 に依存
 
 ### Phase 8: Adversarial Audit Suite
 
@@ -300,5 +300,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 4. Model & Prediction | 6/6 | Complete    | 2026-06-20 |
 | 5. EV & Backtest | 6/6 | Complete    | 2026-06-21 |
 | 6. Evaluation & Calibration Gates | 5/5 | Complete    | 2026-06-23 |
-| 7. Presentation | 2/3 | In Progress|  |
+| 7. Presentation | 3/3 | Complete   | 2026-06-24 |
 | 8. Adversarial Audit Suite | 0/TBD | Not started | - |
