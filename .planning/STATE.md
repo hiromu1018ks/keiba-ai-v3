@@ -6,14 +6,14 @@ current_phase: 07
 current_phase_name: presentation
 status: executing
 stopped_at: Phase 7 UI-SPEC approved
-last_updated: "2026-06-24T09:32:33.686Z"
+last_updated: "2026-06-24T09:53:45.369Z"
 last_activity: 2026-06-24
 last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 9
   completed_phases: 7
   total_plans: 37
-  completed_plans: 35
+  completed_plans: 36
   percent: 78
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 07 (presentation) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-06-24 — Phase 07 execution started
 
@@ -97,6 +97,7 @@ Progress: [██████████] 100%
 | Phase 06 P04 | 約30分 | 3 tasks | 6 files |
 | Phase 06 P05 | 41min | 2 tasks | 4 files |
 | Phase 07 P01 | 7min | 3 tasks tasks | 11 files files |
+| Phase 07 P02 | 12min | 2 tasks | 5 files |
 
 ### Decisions
 
@@ -204,6 +205,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 07-01: odds_snapshot_at は JODDS snapshot happyo_datetime から取得 (backtest JOIN でなく・backtest テーブルに odds 値カラム不存在のため構造的不可能・REVIEW MEDIUM-2)
 - [Phase ?]: 07-01: BACKTEST_CSV_COLUMNS は16列 (§16.2 原典優先・CONTEXT D-04「14列」は errata・RESEARCH Pitfall 3)
 - [Phase ?]: 07-01: read-only 保証テストは AST で execute() Call 第一引数 str 定数のみ検査 (comment/docstring false positive 回避・planner-discipline-allow マーカーで例外許容・REVIEW LOW-2)
+- [Phase 07]: 07-02: Open Question #1/#2 RESOLVED — odds/EV/rank/odds_snapshot_at は backtest JOIN でなく prediction SELECT(is_primary=true)→JODDS snapshot→compute_ev_and_rank 再計算経路で取得 (backtest テーブルに odds 値カラム不存在のため構造的不可能・BLOCKER-1)
+- [Phase 07]: 07-02: REVIEW HIGH-1 順序 — compute_ev_and_rank (内部名 fuku_odds_* 期待) の後に normalize_prediction_export_columns で fukusho_* rename (順序逆だと KeyError)
+- [Phase 07]: 07-02: REVIEW MEDIUM-4 完全化 — load_* は純粋関数 (@st.cache_data なし・CLI 直接 import)・load_*_cached が @st.cache_data(hash_funcs={ConnectionPool: id}) 付き UI 用 wrapper (CLI は Streamlit runtime 非依存)
 
 ### Pending Todos
 
@@ -229,6 +233,6 @@ None yet.
 
 **Resume file:** .planning/phases/07-presentation/07-UI-SPEC.md
 
-Last session: 2026-06-24T09:32:01.359Z
+Last session: 2026-06-24T09:51:56.824Z
 Stopped at: Phase 7 UI-SPEC approved
 Resume: /gsd-execute-phase 6
