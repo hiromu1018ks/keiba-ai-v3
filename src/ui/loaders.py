@@ -227,56 +227,6 @@ def _select_predictions(
     return pd.DataFrame(rows, columns=cols)
 
 
-def _select_race_times(cur: Cursor, pred_df: pd.DataFrame) -> pd.DataFrame:
-    """``normalized.n_race`` から予測対象レースの ``race_start_datetime`` を取得する (REVIEW HIGH-2)。
-
-    ``race_times`` DataFrame (``race_key``/``umaban``/``race_start_datetime``) を構築する。
-    ``race_start_datetime`` が NULL の行 (出馬表未確定 等) は ``dropna(subset=["race_start_datetime"])``
-    で**明示的に除外**する (NULL が select_odds_snapshot の cutoff 計算に混入すると snapshot
-    選択が誤るため・fail-loud でなく除外ポリシー・REVIEW HIGH-2 付帯)。
-    """
-    if len(pred_df) == 0:
-        return pd.DataFrame(columns=["race_key", "umaban", "race_start_datetime"])
-
-    # 予測対象の race_key 一意集合を取得 (5部 RACE_KEY・make_race_key 正準形式)
-    race_keys_df = pred_df[["year", "jyocd", "kaiji", "nichiji", "racenum"]].drop_duplicates()
-    # n_race は race-level (umaban 無し) なので umaban を 1 に固定して race_key を構築し候補とする
-    race_keys_df = race_keys_df.copy()
-    race_keys_df["race_key"] = make_race_key(race_keys_df)
-
-    years = sorted({int(y) for y in pred_df["year"].unique()})
-    cur.execute(
-        """
-        SELECT year, jyocd, kaiji, nichiji, racenum, race_start_datetime
-        FROM normalized.n_race
-        WHERE year = ANY(%s)
-          AND jyocd BETWEEN '01' AND '10'
-        """,
-        ([str(y) for y in years],),
-    )
-    cols = [d.name for d in cur.description]
-    race_rows = cur.fetchall()
-    race_df = pd.DataFrame(race_rows, columns=cols)
-    if len(race_df) == 0:
-        return pd.DataFrame(columns=["race_key", "umaban", "race_start_datetime"])
-
-    race_df["race_key"] = make_race_key(race_df)
-
-    # pred_df 側の (race_key, umaban) 組を作り・n_race の race_start_datetime を race_key で結合
-    pred_keys = pred_df[["year", "jyocd", "kaiji", "nichiji", "racenum", "umaban"]].copy()
-    pred_keys["race_key"] = make_race_key(pred_keys)
-    pred_keys["umaban"] = pd.to_numeric(pred_keys["umaban"], errors="coerce").astype("Int64")
-
-    race_times = pred_keys.merge(
-        race_df[["race_key", "race_start_datetime"]],
-        on="race_key",
-        how="left",
-    )
-    # REVIEW HIGH-2: race_start_datetime が NULL の行を明示的に除外
-    race_times = race_times.dropna(subset=["race_start_datetime"])
-    return race_times[["race_key", "umaban", "race_start_datetime"]].reset_index(drop=True)
-
-
 def _select_uma_race_meta(cur: Cursor, pred_df: pd.DataFrame) -> pd.DataFrame:
     """``normalized.n_uma_race`` から馬名 (bamei)・枠番 (wakuban) を取得する (PATTERNS Data Provenance)。
 
@@ -388,10 +338,20 @@ def load_predictions(
     pred_df["kettonum"] = pd.to_numeric(pred_df["kettonum"], errors="coerce").astype("Int64")
 
     # --- Step 2: JODDS snapshot 取得 (src/ev/odds_snapshot.py・HIGH-2 race_start_datetime ピン留め) ---
+    # WR-02: race_start_datetime を NULL 含む全件で1回だけ取得し・select_odds_snapshot 用は
+    # dropna copy を渡す。Step 5 の最終 DataFrame 用 race_start_datetime 列付与にも同じ
+    # race_times_full を再利用する (従来は _select_race_times と _select_race_times_for_merged
+    # が同一 n_race 行集合を2回 PostgreSQL から読込む DRY 違反・二重クエリだった)。
     with readonly_cursor(pool) as cur:
         years = sorted({int(y) for y in pred_df["year"].unique()})
         jodds_df = fetch_jodds(cur, years=[str(y) for y in years])
-        race_times = _select_race_times(cur, pred_df)
+    race_times_full = _select_race_times_for_merged(pool, pred_df)
+    # select_odds_snapshot 用は NULL 除外 copy (HIGH-2: race_start_datetime NULL が cutoff 計算に
+    # 混入すると snapshot 選択が誤るため・fail-loud でなく除外ポリシー)。
+    if len(race_times_full) > 0:
+        race_times = race_times_full.dropna(subset=["race_start_datetime"]).reset_index(drop=True)
+    else:
+        race_times = race_times_full
 
     if len(race_times) == 0:
         # snapshot 候補なし → odds/EV/rank 全て欠損 (silent fallback 禁止・§11.3)
@@ -496,12 +456,14 @@ def load_predictions(
     # backtest_strategy_version: EV_STRATEGY_VERSION 定数付与 (REVIEW HIGH-4・"latest backtest" 推論廃止)
     # これは「EV 計算に用いた strategy バージョン」を示し・予測行の再現性来歴そのものではない。
     merged["backtest_strategy_version"] = EV_STRATEGY_VERSION
-    # race_start_datetime は race_times 経由で取得済みの snapshot_df には無い・n_race から再結合
-    # (HIGH-2: race_times から除外された馬は race_start_datetime も NaN・CSV では空欄)
-    race_start = _select_race_times_for_merged(pool, pred_df)
-    if len(race_start) > 0:
+    # race_start_datetime は Step 2 で取得済みの race_times_full (NULL 含む全件) を再利用
+    # (WR-02: 従来は _select_race_times_for_merged を再度呼び出して同一 n_race 行集合を
+    # 2回 PostgreSQL から読込んでいた DRY 違反・二重クエリを解消)。
+    # HIGH-2: race_times (NULL 除外 copy) から除外された馬は race_times_full 上は
+    # race_start_datetime が NaN (n_race 側で NULL) のまま残り・CSV では空欄になる。
+    if len(race_times_full) > 0:
         merged = merged.merge(
-            race_start[["race_key", "umaban", "race_start_datetime"]],
+            race_times_full[["race_key", "umaban", "race_start_datetime"]],
             on=["race_key", "umaban"],
             how="left",
         )
@@ -512,11 +474,17 @@ def load_predictions(
 
 
 def _select_race_times_for_merged(pool: ConnectionPool, pred_df: pd.DataFrame) -> pd.DataFrame:
-    """load_predictions の後段で race_start_datetime 列を付与するための helper (HIGH-2)。
+    """``normalized.n_race`` から予測対象レースの ``race_start_datetime`` を取得する (HIGH-2・WR-02 統合)。
 
-    ``_select_race_times`` は select_odds_snapshot 用に NULL 除外済みの race_times を返すが・
-    最終 DataFrame の race_start_datetime 列は予測対象馬全件に付与する必要があるため・
-    改めて NULL 含む全件を取得する (除外された馬は NaN・CSV では空欄)。
+    NULL 含む全件の ``race_times_full`` (``race_key``/``umaban``/``race_start_datetime``) を
+    返す。WR-02 により select_odds_snapshot 用 (NULL 除外) と最終 DataFrame 用 (NULL 含む全件)
+    の両方で本関数の戻り値を使い回すため・NULL 除外は呼出元 (load_predictions Step 2) で
+    ``dropna(subset=["race_start_datetime"])`` copy を作る方針 (二重クエリ解消)。
+
+    - race_start_datetime NULL 行 (出馬表未確定 等) は NULL のまま残り・最終 DataFrame では
+      NaN・CSV では空欄 (HIGH-2: race_times から除外された馬は race_start_datetime も NaN)。
+    - select_odds_snapshot 用の NULL 除外は cutoff 計算に NULL が混入すると snapshot 選択が
+      誤るため・fail-loud でなく除外ポリシー (呼出元で dropna copy を作成)。
     """
     if len(pred_df) == 0:
         return pd.DataFrame(columns=["race_key", "umaban", "race_start_datetime"])
