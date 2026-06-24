@@ -82,6 +82,13 @@ from src.ui.jyocd_map import load_jyocd_map
 # とは別物。build_race_id は人間可読な CSV/UI 表示のための派生列生成のみを担う。
 _RACE_ID_DELIM = "-"
 
+# CR-02 (deep review Critical): リポジトルートを __file__ ベースで絶対解決。
+# src/ui/loaders.py → parents[2] = repo root。load_segment_json が cwd 相対パス
+# (Path("reports/06-segments")) に依存すると・pytest の実行 cwd が非 root の時に
+# test_all_axes_present が FileNotFoundError で fail するため・モジュール位置から絶対解決する。
+# app.py / scripts/run_*.py と同一の Path(__file__).resolve() パターン (07-PATTERNS.md §Imports)。
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
 # EV 計算に用いた strategy バージョン（REVIEW HIGH-4・"latest backtest" 推論廃止）。
 # 予測 CSV/UI の backtest_strategy_version 列に定数として付与する。これは「EV 計算に用いた
 # strategy バージョン」を示し・予測行の再現性来歴そのものではない（docstring 明記）。
@@ -633,8 +640,12 @@ def load_segment_json(axis: str) -> dict[str, Any]:
     """``reports/06-segments/<axis>.json`` を読込む (純粋関数・CLI 直接 import・PATTERNS L164-171)。
 
     存在しない場合は ``{}`` を返す (empty state・UI-SPEC Copywriting で案内)。
+
+    CR-02 (deep review Critical): cwd 相対でなく ``_REPO_ROOT`` (= ``Path(__file__).resolve()
+    .parents[2]``) ベースで絶対解決する。pytest の実行 cwd がリポジトリルート以外でも
+    ``reports/06-segments/*.json`` を発見できる。
     """
-    path = Path("reports/06-segments") / f"{axis}.json"
+    path = _REPO_ROOT / "reports" / "06-segments" / f"{axis}.json"
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))

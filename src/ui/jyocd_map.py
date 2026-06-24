@@ -14,8 +14,12 @@ from pathlib import Path
 
 import yaml
 
-# repo root 相対・Streamlit は repo root から ``streamlit run`` する前提（UI-SPEC・D-01）
-_CODE_TABLES_PATH = Path("src/config/code_tables.yaml")
+# CR-02 (deep review Critical): cwd 相対でなく __file__ ベースの絶対パスで解決。
+# scripts/run_export_predictions_csv.py が load_predictions → load_jyocd_map を呼ぶため・
+# repo root 以外の cwd (cron / CI / 別 worktree / --output 指定) から CLI を実行すると
+# FileNotFoundError で OUT-01 出力が落ちないよう・モジュール位置から絶対解決する。
+# src/ui/jyocd_map.py → parents[2] = repo root。
+_CODE_TABLES_PATH = Path(__file__).resolve().parents[2] / "src" / "config" / "code_tables.yaml"
 
 
 def load_jyocd_map() -> dict[str, str]:

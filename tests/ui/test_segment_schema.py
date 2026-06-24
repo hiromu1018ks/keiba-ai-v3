@@ -17,7 +17,10 @@ from pathlib import Path
 
 import pytest
 
-SEGMENTS_DIR = Path("reports/06-segments")
+# CR-02 (deep review Critical): cwd 相対でなく __file__ ベースで絶対解決。
+# tests/ui/test_segment_schema.py → parents[2] = repo root。
+# pytest の実行 cwd がリポジトリルート以外でも reports/06-segments/*.json を発見できる。
+SEGMENTS_DIR = Path(__file__).resolve().parents[2] / "reports" / "06-segments"
 AXES: tuple[str, ...] = ("year", "month", "jyocd", "entry_count", "ninki", "odds_band")
 REQUIRED_CURVE_KEYS: set[str] = {"count", "frac_pos", "mean_pred"}
 REQUIRED_SCALAR_KEYS: set[str] = {
