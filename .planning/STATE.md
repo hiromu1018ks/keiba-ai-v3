@@ -5,8 +5,8 @@ milestone_name: milestone
 current_phase: 7
 current_phase_name: Presentation
 status: verifying
-stopped_at: "Phase 6 plan 04 complete (is_primary migration 機構完了: 3ファイル連鎖 + set_primary_model・REVIEW HIGH#7/HIGH#8/C10/C11/C17 解消・checkpoint approved・主モデル選定は Plan 06-05 Task 2 で実施・Plan 06-05 ready)"
-last_updated: "2026-06-23T14:25:05.666Z"
+stopped_at: "Phase 7 context gathered (Presentation: Streamlit UI + CSV export・D-01..D-05 マスター/ハイブリッド/両方/動的calib)"
+last_updated: "2026-06-24T03:54:42.629Z"
 last_activity: 2026-06-23
 last_activity_desc: Phase 06 complete, transitioned to Phase 7
 progress:
@@ -221,6 +221,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-23T13:53:06.635Z
-Stopped at: Phase 6 plan 04 complete (is_primary migration 機構完了: 3ファイル連鎖 + set_primary_model・REVIEW HIGH#7/HIGH#8/C10/C11/C17 解消・checkpoint approved・主モデル選定は Plan 06-05 Task 2 で実施・Plan 06-05 ready)
+**Resume file:** .planning/phases/07-presentation/07-CONTEXT.md
+
+Last session: 2026-06-24T03:54:42.623Z
+Stopped at: Phase 7 context gathered (Presentation: Streamlit UI + CSV export・D-01..D-05 マスター/ハイブリッド/両方/動的calib)
 Resume: /gsd-execute-phase 6
