@@ -135,3 +135,27 @@ def test_app_has_syspath_guard_for_streamlit_run():
         f"{app_py}: ``sys.path.insert`` 呼出が存在しない（streamlit run でプロジェクトルートを "
         "sys.path に挿入しないと ``from src.*`` が ModuleNotFoundError になる）"
     )
+
+
+def test_no_deprecated_use_container_width():
+    """src/ui/ の Streamlit 呼出は非推奨 ``use_container_width`` を使わない（Streamlit 1.58・2025-12-31 以降削除）。
+
+    Streamlit 1.58 で ``use_container_width`` は非推奨（2025-12-31 以降削除・現在2026年で既に削除予定日経過）。
+    ``width='stretch'`` (旧 use_container_width=True) または ``width='content'`` (旧 False) を使用する。
+    AST 走査で src/ui/ 全ファイルの ``use_container_width`` キーワード引数を検出する
+    （checkpoint:human-verify で発覚した deprecation warning の構造的防止）。
+    """
+    if not UI_DIR.exists():
+        pytest.skip("src/ui/ が存在しない（Phase 7 UI 未実装）")
+    violations: list[str] = []
+    for py in sorted(UI_DIR.rglob("*.py")):
+        tree = ast.parse(py.read_text(encoding="utf-8"), filename=str(py))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                for kw in node.keywords:
+                    if kw.arg == "use_container_width":
+                        violations.append(str(py))
+    assert not violations, (
+        "src/ui/ に非推奨 use_container_width が残存（Streamlit 1.58・2025-12-31 以降削除・"
+        f"width='stretch'/'content' に置換）: {violations}"
+    )

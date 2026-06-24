@@ -10,7 +10,7 @@ Plan 03 Task 3 checkpoint:human-verify で実施する（本テストは AST/文
 - app.py: ``st.title`` 1回・文字列「Keiba AI v3 — 複勝予測分析」/ ``st.tabs`` 3ラベル / sidebar フィルタ（D-02）
 - prediction_tab.py: ``selection_mode`` 正引数 / ``NumberColumn(format='%.3f')`` / SC#1 の6数値列（BLOCKER-4・HIGH-1 fukusho_*）/ download label
 - backtest_tab.py: ``st.warning`` honest 注記（JODDS 再検証 subject・暫定値）/ download label
-- calibration_tab.py: ``st.plotly_chart`` + ``use_container_width=True`` / 6軸（D-12）
+- calibration_tab.py: ``st.plotly_chart`` + ``width="stretch"`` / 6軸（D-12）
 - 全 src/ui/: ``unsafe_allow_html=True`` 不存在（V13）/ §16.1 除外項目（ワイド/荒れ指数/コメント生成）不存在
 - W2: ``build_calibration_figure`` trace 数検証（segment curve + 完全予測線 = len+1）
 - REVIEW MEDIUM-7: ``render_prediction_tab`` モック DataFrame 統合テスト
@@ -21,7 +21,6 @@ Plan 03 Task 3 checkpoint:human-verify で実施する（本テストは AST/文
 from __future__ import annotations
 
 import ast
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -302,11 +301,12 @@ def test_backtest_tab_download_label():
 
 
 def test_calibration_tab_plotly():
-    """calibration_tab.py に ``st.plotly_chart`` と ``use_container_width=True`` が含まれる（D-05）。"""
+    """calibration_tab.py に ``st.plotly_chart`` と ``width="stretch"`` が含まれる（D-05・Streamlit 1.58 deprecation 対応）。"""
     source = _read(CALIBRATION_TAB_PY)
     assert "st.plotly_chart" in source, "st.plotly_chart が存在しない（D-05 LOCKED）"
-    assert "use_container_width=True" in source, (
-        "use_container_width=True が存在しない（UI-SPEC Performance Contract・D-05）"
+    assert 'width="stretch"' in source, (
+        'width="stretch" が存在しない（UI-SPEC Performance Contract・D-05・'
+        "use_container_width は Streamlit 1.58 で非推奨・2025-12-31 以降削除）"
     )
 
 
@@ -378,7 +378,9 @@ def test_no_excluded_section16_1_terms():
             for term in excluded:
                 if term in text:
                     offenders.append(f"{py}: {term!r} in {text!r}")
-    assert not offenders, f"§16.1 除外項目が UI 文字列リテラルに含まれる: {offenders}（Phase 2 以降）"
+    assert not offenders, (
+        f"§16.1 除外項目が UI 文字列リテラルに含まれる: {offenders}（Phase 2 以降）"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -458,7 +460,7 @@ def test_build_calibration_figure_trace_count():
 # ---------------------------------------------------------------------------
 
 
-def _build_mock_pred_df() -> "Any":
+def _build_mock_pred_df() -> Any:
     """SC#1 表示に必要な列を含むモック予測 DataFrame（3レース×各5馬）を構築する。
 
     PREDICTION_CSV_COLUMNS 全20列を含む。DB に依存しない（REVIEW MEDIUM-7・軽量統合テスト）。
@@ -503,7 +505,6 @@ def test_render_prediction_tab_with_mocked_df(monkeypatch):
     差し替え・``streamlit.dataframe`` と ``streamlit.download_button`` を patch して描画を捕まえる。
     DB pool は mock・実際の SQL/DB に依存しない。missing column による KeyError を統合的に捕捉する。
     """
-    import pandas as pd
     import streamlit as st
 
     from src.ui import prediction_tab
@@ -560,7 +561,9 @@ def test_render_prediction_tab_with_mocked_df(monkeypatch):
             selected_ranks=["S", "A", "B"],
         )
     except Exception as e:
-        pytest.fail(f"render_prediction_tab が例外で失敗（missing column 等の KeyError の可能性）: {e}")
+        pytest.fail(
+            f"render_prediction_tab が例外で失敗（missing column 等の KeyError の可能性）: {e}"
+        )
 
     # master dataframe が少なくとも1回呼ばれた（レース一覧）
     assert len(captured["dataframes"]) >= 1, "st.dataframe が呼ばれなかった（レース一覧 master）"

@@ -2,7 +2,7 @@
 """Phase 7 Segment Calibration タブ（UI-SPEC Layout・D-05 Plotly 動的描画・D-12 の6軸）。
 
 ``reports/06-segments/<axis>.json`` を読込み・Plotly で calibration curve を重ね描きする
-（D-05 LOCKED・UI-SPEC Performance Contract・``use_container_width=True``）。scalar 指標表
+（D-05 LOCKED・UI-SPEC Performance Contract・``width="stretch"``）。scalar 指標表
 （ECE/MCE/max_dev_guarded/n_samples・D-11）を ``st.dataframe`` で併記する。
 
 DB pool 不要・reports/06-segments/*.json のみ消費する（stamped 成果物・再集計しない・§19.1）。
@@ -102,9 +102,9 @@ def render_calibration_tab() -> None:
         )
         return
 
-    # --- Plotly 動的描画（D-05・use_container_width=True・fig.show() でない）---
+    # --- Plotly 動的描画（D-05・width="stretch"・fig.show() でない）---
     fig = build_calibration_figure(seg_data)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     # --- scalar 指標表（D-11・ECE/MCE/max_dev_guarded/n_samples）---
     scalar_rows = []
@@ -117,7 +117,7 @@ def render_calibration_tab() -> None:
         st.dataframe(pd_safe(scalar_rows), hide_index=True)
 
 
-def pd_safe(rows: list[dict[str, Any]]) -> "object":
+def pd_safe(rows: list[dict[str, Any]]) -> object:
     """``pd.DataFrame`` への変換を遅延 import で包む helper（module top-level の pandas import を避ける）。"""
     import pandas as pd
 
