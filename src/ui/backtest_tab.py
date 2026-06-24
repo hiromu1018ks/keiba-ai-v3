@@ -28,6 +28,10 @@ def _build_backtest_summary(bt_df: pd.DataFrame) -> pd.DataFrame:
 
     列: ``backtest_id`` / ``backtest_strategy_version`` / ``train_period`` /
     ``odds_snapshot_policy`` / ``recovery_rate`` / ``selected_count``。
+
+    ``recovery_rate`` は §11.6 に従い ``effective_stake`` を分母とする（返還馬=
+    ``effective_stake=0`` は分母から控除・``src/ev/metrics.py::compute_backtest_metrics``
+    と同口径・CR-01 修正）。``stake`` 分母では返還馬が分母に含まれ回収率が過小評価される。
     """
     if len(bt_df) == 0:
         return pd.DataFrame(
@@ -43,9 +47,13 @@ def _build_backtest_summary(bt_df: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for bt_id, group in bt_df.groupby("backtest_id", dropna=False):
         first = group.iloc[0]
-        total_stake = float(group.get("stake", pd.Series([0])).fillna(0).sum())
+        # §11.6 回収率は effective_stake 分母（返還馬=effective_stake=0 を分母から控除・
+        # src/ev/metrics.py::compute_backtest_metrics と同口径・CR-01 修正）。
+        total_effective_stake = float(group.get("effective_stake", pd.Series([0])).fillna(0).sum())
         total_payout = float(group.get("payout_amount", pd.Series([0])).fillna(0).sum())
-        recovery = (total_payout / total_stake) if total_stake > 0 else float("nan")
+        recovery = (
+            (total_payout / total_effective_stake) if total_effective_stake > 0 else float("nan")
+        )
         selected_count = int(
             group.get("selected_flag", pd.Series(dtype=object)).fillna(False).astype(bool).sum()
         )
@@ -75,7 +83,9 @@ def render_backtest_tab(pool: ConnectionPool) -> None:
         "注意: この backtest の odds 正確性は JODDS オッズ取得完了後に再検証する subject です。"
         "現状の回収率は暫定値であり、確定後に入れ替わる可能性があります。"
     )
-    st.caption("推奨ランクは参考情報であり、購入判断を強制するものではありません（§19.3・実馬券購入はスコープ外）。")
+    st.caption(
+        "推奨ランクは参考情報であり、購入判断を強制するものではありません（§19.3・実馬券購入はスコープ外）。"
+    )
 
     bt_df = load_backtests_cached(pool)
     if len(bt_df) == 0:
