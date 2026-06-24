@@ -544,7 +544,7 @@ def _select_backtests(
                    model_type, model_version, feature_snapshot_id,
                    year, jyocd, kaiji, nichiji, racenum, umaban, kettonum,
                    selected_flag, stake, refund_flag, refund_amount, payout_amount, profit,
-                   effective_stake, fukusho_hit_validated, recommend_rank, EV_lower, EV_upper,
+                   effective_stake, fukusho_hit_validated, recommend_rank, "EV_lower", "EV_upper",
                    odds_snapshot_at, odds_source_type, odds_missing_reason, race_date
             FROM backtest.fukusho_backtest
             WHERE backtest_id = %s
@@ -559,7 +559,7 @@ def _select_backtests(
                    model_type, model_version, feature_snapshot_id,
                    year, jyocd, kaiji, nichiji, racenum, umaban, kettonum,
                    selected_flag, stake, refund_flag, refund_amount, payout_amount, profit,
-                   effective_stake, fukusho_hit_validated, recommend_rank, EV_lower, EV_upper,
+                   effective_stake, fukusho_hit_validated, recommend_rank, "EV_lower", "EV_upper",
                    odds_snapshot_at, odds_source_type, odds_missing_reason, race_date
             FROM backtest.fukusho_backtest
             """
