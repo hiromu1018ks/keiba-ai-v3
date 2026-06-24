@@ -26,8 +26,12 @@ import pytest
 
 UI_DIR = Path("src/ui")
 
-# レース一覧（master dataframe）を指す変数名の候補（NEW-M5・スコープ限定）。
+# レース一覧（master dataframe）を指す変数名の候補（NEW-M5・スコープ限定・参考用途）。
 # prediction_tab.py の _build_race_list_df 戻りを st.dataframe に渡す変数名を想定。
+# WR-09 (deep review Warning): 変数名がリファクタで変わるとテストが pytest.skip で実質検査
+# しなくなる (silent test bypass) 問題があるため・test_dataframe_uses_selection_mode は
+# 変数名でなく「selection_mode を持つ st.dataframe が1つ以上存在すること」を主軸に検証する。
+# 本定数は race-list 候補が見つかった場合の追加アサート (より厳密な検査) 用に残す。
 _RACE_LIST_VAR_CANDIDATES = {"race_list_df", "race_df", "master_df"}
 
 
@@ -73,26 +77,44 @@ def test_no_legacy_selection_arg():
 
 
 def test_dataframe_uses_selection_mode():
-    """**NEW-M5**: race-list master dataframe の ``st.dataframe`` が ``selection_mode=`` を持つ（REVIEW LOW-1 解決）。
+    """**NEW-M5 / WR-09**: ``selection_mode=`` を持つ ``st.dataframe`` が src/ui/ に1つ以上存在する。
 
-    レース一覧（``race_list_df`` 等の変数を第一引数に取る ``st.dataframe`` のみ）を対象とし・
-    ``selection_mode=`` キーワード引数を持つことを検証する。詳細表/スカラー表/backtest 一覧表の
-    ``st.dataframe`` は ``selection_mode`` 不要・対象外（Plan 01 が解決した LOW-1 を再導入しない）。
+    レース一覧（master dataframe）の ``st.dataframe`` は ``selection_mode='single-row'`` +
+    ``on_select='rerun'`` を持つ必要がある (RESEARCH Pitfall 1・Plan 01 解決)。
+
+    WR-09 (deep review Warning): 従来版は第一引数の変数名が ``_RACE_LIST_VAR_CANDIDATES``
+    (race_list_df/race_df/master_df) のいずれかである st.dataframe のみを対象にしていたが・
+    変数名がリファクタ (例: races 等に rename) されると pytest.skip で実質検査しなくなる
+    silent test bypass の問題があった。本テストは変数名でなく「src/ui/ 全体で selection_mode
+    を持つ st.dataframe が1つ以上存在すること」を主軸に検証し・race-list 候補変数が見つかった
+    場合は追加で厳密に selection_mode 有無を assert する (二段構え)。
+
+    詳細表/スカラー表/backtest 一覧表の st.dataframe は selection_mode 不要だが・Phase 7 の
+    master dataframe は prediction_tab.py に1つのみ存在するため・src/ui/ 全体で1つ以上の
+    selection_mode が存在することを検証すれば実質的に master dataframe を捕捉できる。
     """
     calls = _collect_dataframe_calls()
     if not calls:
         pytest.skip(
             "src/ui/ に st.dataframe 呼出がない（Plan 03 実装後に有効化・REVIEW LOW-1 緩和基準）"
         )
-    # race-list master dataframe 呼出を抽出（第一引数が _RACE_LIST_VAR_CANDIDATES のいずれか）
+
+    # 主軸検証 (WR-09): src/ui/ 全体で selection_mode を持つ st.dataframe が1つ以上存在すること。
+    # 変数名依存を排除し・リファクタで変数名が変わっても selection_mode が消えたら検出できる。
+    has_any_selection_mode = any(
+        any(kw.arg == "selection_mode" for kw in call.keywords) for _, call in calls
+    )
+    assert has_any_selection_mode, (
+        "src/ui/ に selection_mode を持つ st.dataframe が存在しない"
+        "（RESEARCH Pitfall 1・master dataframe の st.dataframe は selection_mode='single-row' が必要）"
+    )
+
+    # 補完検証: race-list 候補変数名 (_RACE_LIST_VAR_CANDIDATES) に合致する st.dataframe が
+    # 見つかった場合・それが selection_mode を持つことを追加 assert する (より厳密)。
+    # 変数名候補に合致しない場合は主軸検証 (selection_mode 存在) でカバーするため skip しない。
     race_list_calls = [
         (py, call) for py, call in calls if _first_arg_name(call) in _RACE_LIST_VAR_CANDIDATES
     ]
-    if not race_list_calls:
-        pytest.skip(
-            "race-list master dataframe の st.dataframe 呼出が見つからない"
-            f"（第一引数が {_RACE_LIST_VAR_CANDIDATES} のいずれかでない）"
-        )
     for py, call in race_list_calls:
         has_selection_mode = any(kw.arg == "selection_mode" for kw in call.keywords)
         assert has_selection_mode, (
