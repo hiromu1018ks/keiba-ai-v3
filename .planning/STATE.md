@@ -4,9 +4,9 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 7
 current_phase_name: Presentation
-status: verifying
-stopped_at: "Phase 7 context gathered (Presentation: Streamlit UI + CSV export・D-01..D-05 マスター/ハイブリッド/両方/動的calib)"
-last_updated: "2026-06-24T03:54:42.629Z"
+status: executing
+stopped_at: Phase 7 UI-SPEC approved
+last_updated: "2026-06-24T05:39:11.109Z"
 last_activity: 2026-06-23
 last_activity_desc: Phase 06 complete, transitioned to Phase 7
 progress:
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 
 Phase: 7 — Presentation
 Plan: Not started
-Status: Phase complete — ready for verification (SC#1/2/3 達成・D-07 primary=lightgbm 確定)
+Status: Ready to execute
 Last activity: 2026-06-23 — Phase 06 complete, transitioned to Phase 7
 
 Progress: [██████████] 100%
@@ -221,8 +221,8 @@ None yet.
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/07-presentation/07-CONTEXT.md
+**Resume file:** .planning/phases/07-presentation/07-UI-SPEC.md
 
-Last session: 2026-06-24T03:54:42.623Z
-Stopped at: Phase 7 context gathered (Presentation: Streamlit UI + CSV export・D-01..D-05 マスター/ハイブリッド/両方/動的calib)
+Last session: 2026-06-24T04:20:47.967Z
+Stopped at: Phase 7 UI-SPEC approved
 Resume: /gsd-execute-phase 6

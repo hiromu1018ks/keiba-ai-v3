@@ -615,22 +615,28 @@ fukusho_hit_validated / recommend_rank / EV_lower / EV_upper
 | A7 | `reports/06-segments/*.json` が6軸すべて生成済み | Data Provenance / Code Examples | `[VERIFIED: ls reports/06-segments/]`（year/month/jyocd/entry_count/ninki/odds_band の6ファイル確認）・HIGH。 |
 | A8 | Streamlit 1.58.0 が Python 3.12 で動作 | Standard Stack | `[CITED: docs.streamlit.io]`（Python ≥3.10 サポート・3.12 完全対応）・HIGH。 |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> **解決済（Phase 7 revision・planner が src/ev/odds_snapshot.py・src/ev/ev_rank.py・src/db/schema.py・src/db/backtest_load.py を読んで確定）:**
+> 3 Question とも 07-02-PLAN.md / 07-03-PLAN.md に反映済。正経路は **JODDS snapshot（`src/ev/odds_snapshot.py::fetch_jodds` + `select_odds_snapshot(policy)`）+ `compute_ev_and_rank` 純粋関数再計算**（backtest JOIN 経路は `backtest.fukusho_backtest` に odds 値カラム `fuku_odds_lower`/`fuku_odds_upper` が不存在のため構造的に不可能・`BACKTEST_COLUMNS` L77-116 実証済）。
 
 1. **`odds_snapshot_at` の予測 CSV への取得元**
    - What we know: prediction テーブル DDL（schema.py L59-94）に `odds_snapshot_at` 列はない。backtest テーブル（L182）にはある。OUT-01 CSV は `odds_snapshot_at` を含む。
    - What's unclear: 予測生成時に odds snapshot 取得時点をどこかに保持しているか（別テーブル/メタ/`as_of_datetime` 代用）、または UI/CLI 側で固定値/推定値を入れるか。
    - Recommendation: planner が Phase 4/5 の予測・EV パイプライン（`src/model/predict.py`/`src/ev/odds_snapshot.py`）を確認し、`odds_snapshot_at` の取得元を確定する。`as_of_datetime` 代用が妥当ならその旨を定数化。
+   - **✅ RESOLVED:** `src/ev/odds_snapshot.py::select_odds_snapshot` 戻り値の `odds_snapshot_at` 列（選択 snapshot の `happyo_datetime` Timestamp・L213/L326）から取得する。`fetch_jodds(readonly_cur, years=...)` で JODDS 中間オッズ（`datakubun='1'`・D-01）を取得し・`select_odds_snapshot(jodds_df, race_times_df, policy)` で `merge_asof(direction='backward', by=['race_key','umaban'])` により各馬単位の cutoff 以下最大 snapshot を選択・その戻り値の `odds_snapshot_at` を予測 CSV に結合する（07-02-PLAN.md Task 1 Step 2）。`as_of_datetime`（予測生成時点）は `prediction_created_at` 代用として別列に使用（Open Question #1 とは別物）。未来リーク構造的不可（D-02・HIGH-1 per-horse odds 保証）。
 
 2. **予測 CSV の EV/odds/rank の算出経路**
    - What we know: prediction テーブルは `p_fukusho_hit` のみ。EV_lower/EV_upper/fukusho_odds_lower/upper/recommend_rank は prediction 行単体からは得られない。
    - What's unclear: UI/CLI 側で `src/ev/ev_rank.py::compute_ev_and_rank`（純粋関数・p + odds → EV/rank）を都度適用するか、ev 計算結果を永続化したテーブル/JSON があるか。
    - Recommendation: planner が `src/ev/` 配下と Phase 5 ev 計算結果の永続化有無を確認。純粋関数再適用が最もリーク安全（odds は EV 判定のみ・特徴量非混入）。
+   - **✅ RESOLVED:** `src/ev/ev_rank.py::compute_ev_and_rank`（L80・純粋関数）を UI/CLI 側で都度適用する（Recommendation どおり・最もリーク安全）。経路: prediction SELECT（`is_primary=true`）→ JODDS snapshot 取得（`fetch_jodds` + `select_odds_snapshot(policy)`・`fuku_odds_lower`/`fuku_odds_upper` 取得）→ `(race_key, umaban)` で結合 → `compute_ev_and_rank` で `EV_lower`/`EV_upper`（§11.1 直線積 p*odds）・`recommend_rank`（§11.5 階層判定 S/A/B/C/D）を算出（07-02-PLAN.md Task 1 Step 3）。odds は EV 判定にのみ使用し特徴量に混入しない（D-07 odds 非依存確率 p_fukusho_hit + EV 分離・Core Value 直結・§19.1 再現性）。backtest JOIN 経路は backtest テーブルに `fuku_odds_lower`/`fuku_odds_upper` が不存在（`BACKTEST_COLUMNS` L77-116）のため構造的に不可能。
 
 3. **`src/ui/` vs `streamlit_app/` 最終判断**
    - What we know: §17.2 は `streamlit_app/` を提案。実コードは `src/` レイアウト。`src/ui/` は import 単純・`streamlit_app/` は `sys.path` 操作要。
    - What's unclear: hatch wheel `packages`（現 `src/config`/`src/db`）に `src/ui` を追加するだけで `streamlit run src/ui/app.py` が動くか。
    - Recommendation: `src/ui/` を推奨（実コード慣例・import 単純）。`pyproject.toml` の `[tool.hatch.build.targets.wheel] packages` に `"src/ui"` を追加。planner が判断。
+   - **✅ RESOLVED:** `src/ui/` を採用（Recommendation どおり）。`pyproject.toml` の `[tool.hatch.build.targets.wheel] packages` に `"src/ui"` を追加し・`streamlit run src/ui/app.py` で起動可能（07-01-PLAN.md Task 1/2・Open Question #3 解決）。
 
 ## Environment Availability
 
