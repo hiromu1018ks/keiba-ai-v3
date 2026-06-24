@@ -1,0 +1,16 @@
+# Phase 7 Streamlit テーマ設定（UI-SPEC Color Contract・spec-driven）
+#
+# UI-SPEC §Color L146-173 に従い light theme + primaryColor=#FF4B4B のみ上書き。
+# secondaryBackgroundColor / backgroundColor / font 等は Streamlit 既定のまま（上書きしない）。
+#
+# accent (#FF4B4B) は UI-SPEC で以下の reserved-for のみに限定:
+#   - st.download_button（CSV 出力ボタン・主要 CTA）
+#   - データ再読込（キャッシュクリア）ボタン
+#   - 選択中の st.dataframe 行ハイライト（Streamlit 既定）
+#   - 推奨ランク S のみ の色付け（最も注目度が高い）
+# それ以外（A/B/C/D ランク色・注記色）は accent でなく categorical / semantic 色。
+
+[theme]
+base = "light"
+primaryColor = "#FF4B4B"
+# その他は Streamlit 既定（secondaryBackgroundColor / backgroundColor / font 等は上書きしない）
