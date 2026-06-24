@@ -62,7 +62,7 @@
 
 ### テスト (TEST)
 
-- [ ] **TEST-01**: 複勝ラベル生成・払戻テーブル突合・出走取消/競走除外/競走中止の扱い・オッズ時点固定・仮想購入ルール・`feature_cutoff_datetime`・評価指標計算・`race_id`単位分割・クラス正規化・カテゴリ/欠損処理 に対するテストを実装できる（リーク防止の対抗的監査テストを含む）
+- [x] **TEST-01**: 複勝ラベル生成・払戻テーブル突合・出走取消/競走除外/競走中止の扱い・オッズ時点固定・仮想購入ルール・`feature_cutoff_datetime`・評価指標計算・`race_id`単位分割・クラス正規化・カテゴリ/欠損処理 に対するテストを実装できる（リーク防止の対抗的監査テストを含む）
 
 ## v2 Requirements
 
@@ -135,7 +135,7 @@
 | UI-01 | Phase 7: Presentation | Complete |
 | OUT-01 | Phase 7: Presentation | Complete |
 | OUT-02 | Phase 7: Presentation | Complete |
-| TEST-01 | Phase 8: Adversarial Audit Suite | Pending |
+| TEST-01 | Phase 8: Adversarial Audit Suite | Complete |
 
 **Coverage:**
 

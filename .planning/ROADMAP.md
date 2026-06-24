@@ -284,12 +284,12 @@ Plans:
   2. The suite includes adversarial audit tests that catch what functional tests cannot: a synthetic-lookahead injection (a feature value at T using data from T+1) is detected and fails; a payout-table-positive horse missing from labels is detected; a fold whose train/test share a race_id is detected
   3. The test suite is wired into the reproducibility smoke-test path — running it confirms the full pipeline reproduces identical predictions/backtest numbers from stamped snapshots under fixed seeds
 
-**Plans**: 3 plans in 3 waves
+**Plans**: 1/3 plans executed
 
 Plans:
 **Wave 1**（基盤・先行）
 
-- [ ] 08-01-PLAN.md — Wave 1 tests/audit/ 新設（SC#2 の3ケース注入 adversarial: lookahead/payout正欠損/fold共有 + D-06 UI/CSV 対抗的監査 read-only 保証・スタンプ inline 検出・4テストファイル + conftest・docstring で既存機能テストへ cross-reference）— TEST-01
+- [x] 08-01-PLAN.md — Wave 1 tests/audit/ 新設（SC#2 の3ケース注入 adversarial: lookahead/payout正欠損/fold共有 + D-06 UI/CSV 対抗的監査 read-only 保証・スタンプ inline 検出・4テストファイル + conftest・docstring で既存機能テストへ cross-reference）— TEST-01
 
 **Wave 2**（Plan 01 完了後・01 の tests/audit/ を参照）
 
@@ -314,4 +314,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 5. EV & Backtest | 6/6 | Complete    | 2026-06-21 |
 | 6. Evaluation & Calibration Gates | 5/5 | Complete    | 2026-06-23 |
 | 7. Presentation | 3/3 | Complete    | 2026-06-24 |
-| 8. Adversarial Audit Suite | 0/3 | Not started | - |
+| 8. Adversarial Audit Suite | 1/3 | In Progress|  |

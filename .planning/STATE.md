@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 8
+current_phase: 08
 current_phase_name: Adversarial Audit Suite
 status: executing
-stopped_at: Phase 8 context gathered
-last_updated: "2026-06-24T14:14:45.262Z"
+stopped_at: Plan 08-01 complete
+last_updated: "2026-06-24T23:38:09.307Z"
 last_activity: 2026-06-24
-last_activity_desc: Phase 07 complete, transitioned to Phase 8
+last_activity_desc: Plan 08-01 complete (tests/audit/ adversarial テスト新設)
 progress:
   total_phases: 9
   completed_phases: 8
-  total_plans: 37
-  completed_plans: 37
-  percent: 89
+  total_plans: 40
+  completed_plans: 38
+  percent: 95
 ---
 
 # Project State
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-16)
 
 **Core value:** オッズ非依存の確率 `p_fukusho_hit` と固定オッズ時点のEVで、過小評価されている馬の複勝払戻対象入り可能性をリークなく検出し、race_id単位・時系列順の再現可能なバックテストで定量評価できること。リーク防止と再現性だけは必ず守る。
-**Current focus:** Phase 07 — presentation
+**Current focus:** Phase 08 — Adversarial Audit Suite
 
 ## Current Position
 
-Phase: 8 — Adversarial Audit Suite
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-24 — Phase 07 complete, transitioned to Phase 8
+Phase: 08 (Adversarial Audit Suite) — EXECUTING
+Plan: 2 of 3
+Status: Plan 08-01 complete (tests/audit/ 9 adversarial テスト GREEN)
+Last activity: 2026-06-24 — Plan 08-01 complete (SC#2 3ケース + D-06 adversarial テスト新設)
 
 Progress: [██████████] 100%
 
@@ -100,6 +100,7 @@ Progress: [██████████] 100%
 | Phase 07 P01 | 7min | 3 tasks tasks | 11 files files |
 | Phase 07 P02 | 12min | 2 tasks | 5 files |
 | Phase 07 P03 | 8 | 2 tasks | 6 files |
+| Phase 08 P01 | 5min | 3 tasks | 6 files |
 
 ### Decisions
 
@@ -214,6 +215,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 07-03: download_button scope=選択レースのみ（MEDIUM-6）・フィルタ全体は OUT-01 CLI で使い分け
 - [Phase ?]: 07-03: 推奨ランク S 強調色は column_config と競合するため caption 代替（LOW-4 non-blocking polish）
 - [Phase ?]: 07-03: SEGMENT_AXES モジュール定数を selectbox に変数渡し・テストは str Constant fallback で検証
+- [Phase 08]: 08-01: tests/audit/ パッケージ新設（SC#2 3ケース lookahead/payout正欠損/fold race_id共有 + D-06 UI/CSV 計9テスト・KEIBA_SKIP_DB_TESTS=1 GREEN・DB 不要・adversarial 5段階鋳型で false-pass 構造的排除・docstring cross-reference で機能テストと棲み分け）
+- [Phase 08]: 08-01: payout recall は cursor ベース end-to-end で検証（DataFrame 受け API 非存在・src/etl/label_reconcile.py L933 署名 cur: Cursor）・backtest_strategy_version は予測テーブル非存在のため PREDICTION_CSV_COLUMNS presence assert 対象から除外（UI 用 REPRODUCIBILITY_STAMPS 側にのみ含む）
 
 ### Pending Todos
 
