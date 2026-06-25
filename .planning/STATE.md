@@ -4,11 +4,11 @@ milestone: v1.1
 milestone_name: Ability Feature v2 & Conditional Calibration
 current_phase: 09
 current_phase_name: speed-figure-foundation
-status: executing
+status: completed
 stopped_at: "Phase 9 P03 完了: builder Step 5b 統合 + SC#1/SC#3 + REVIEW H1-a/H1-b/H1-c data.py/orchestrator snapshot parameterization（34 テスト GREEN）"
-last_updated: "2026-06-25T13:50:00.700Z"
+last_updated: "2026-06-25T23:59:04.586Z"
 last_activity: 2026-06-25
-last_activity_desc: "Phase 09 P03 完了 (builder Step 5b + REVIEW H1 横断的・SC#1/SC#3 GREEN)"
+last_activity_desc: "Phase 09 P05 Task 1/2 完了 (SC#6 stop gate script + 合成 E2E smoke 9 tests GREEN)"
 progress:
   total_phases: 4
   completed_phases: 0
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 09 (speed-figure-foundation) — EXECUTING
-Plan: 4 of 5
-Status: P03 complete・P04 (audit/可視化) 待機
-Last activity: 2026-06-25 — Phase 09 P03 完了 (builder Step 5b + REVIEW H1 横断的・SC#1/SC#3 GREEN)
+Plan: 5 of 5
+Status: Phase 9 実質完了(09-01〜04 complete・09-05 学習通過確認・SC#6 完全化は別タスク 260626-09-05-stopgate-completion)
+Last activity: 2026-06-25 — Phase 09 P05 Task 1/2 完了 (SC#6 stop gate script + 合成 E2E smoke 9 tests GREEN)
 
 ## v1.1 Milestone Context
 

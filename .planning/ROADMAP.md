@@ -34,7 +34,7 @@
 
 ### v1.1 Ability Feature v2 & Conditional Calibration
 
-- [ ] **Phase 9: Speed Figure Foundation** - 走破タイムを馬場/距離/トラック/クラス補正したスピード指数（Beyer 的）を自前構築し、能力特徴量の新たな主軸を据える
+- [x] **Phase 9: Speed Figure Foundation** - 走破タイムを馬場/距離/トラック/クラス補正したスピード指数（Beyer 的）を自前構築し、能力特徴量の新たな主軸を据える (completed 2026-06-25)
 - [ ] **Phase 10: Opponent Strength & Race-Relative Features** - 相手強度（as-of）とレース内相対特徴量（rank/gap_to_top/gap_to_3rd）を追加し、複勝の相対競争を特徴量層で表現する
 - [ ] **Phase 11: Race-Relative Probability Model** - 独立二値分類から `sum(p)=払戻対象数(2/3)` 制約・race-level top-k calibration のレース内相対確率モデルへ移行する
 - [ ] **Phase 12: p_lower EV & Falsification Evaluation** - `p_lower` 下側信頼限界によるEV判定へ移行し、評価指標拡張（selected-only calibration / EV-decile ROI / disagreement ROI / snapshot slippage）と falsification test で market residual を統計検証する
@@ -55,7 +55,7 @@
   5. スピード指数の分布がドメイン整合性を持つ（同一馬の連続走で指数が大きく安定し・クラス昇降で有意に変動する・極端な外れ値がないことを live-DB で可視化確認）
   6. 【**stop gate**・Phase 9 終了時】スピード指数を追加した単体モデル（v1.0 特徴量＋スピード指数）で、odds_band × p_bin の過大予測（v1.0 の中高オッズ域4倍過大）が改善するか、または falsification の暫定 market residual が残るかを確認する。**両方とも改善/residual が見られなければ「特徴量不足でなく構造的限界寄り」と判断**し、Phase 10-12 に進む前にマイルストーン継続の可否を評価する（マイルストーン目的＝市場残差能力の定量測定・鑑別に合致・早期撤退判断）。
 
-**Plans**: 4/5 plans executed
+**Plans**: 5/5 plans complete
 **Wave 1**
 
 - [x] 09-01-PLAN.md — speed_figure.py 新規(par/variant/PIT/float) + SC#1/SC#2 単体/adversarial テスト(FEAT-01/SAFE-01)
@@ -74,7 +74,7 @@
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 09-05-PLAN.md — SC#6 stop gate(v1.0 baseline 比較・D-14 4指標+D-15 residual proxy・D-16 checkpoint)(FEAT-01)
+- [x] 09-05-PLAN.md — SC#6 stop gate(v1.0 baseline 比較・D-14 4指標+D-15 residual proxy・D-16 checkpoint)(FEAT-01)
 
 ### Phase 10: Opponent Strength & Race-Relative Features
 
@@ -134,7 +134,7 @@
 | 6. Evaluation & Calibration Gates | v1.0 | 5/5 | Complete | 2026-06-23 |
 | 7. Presentation | v1.0 | 3/3 | Complete | 2026-06-24 |
 | 8. Adversarial Audit Suite | v1.0 | 3/3 | Complete | 2026-06-25 |
-| 9. Speed Figure Foundation | v1.1 | 4/5 | In Progress|  |
+| 9. Speed Figure Foundation | v1.1 | 5/5 | Complete   | 2026-06-25 |
 | 10. Opponent Strength & Race-Relative Features | v1.1 | 0/? | Not started | - |
 | 11. Race-Relative Probability Model | v1.1 | 0/? | Not started | - |
 | 12. p_lower EV & Falsification Evaluation | v1.1 | 0/? | Not started | - |

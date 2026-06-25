@@ -267,3 +267,12 @@ tests/audit/test_audit_speed_figure.py::test_false_pass_detection_power PASSED [
 ## Self-Check: PASSED
 
 PLAN verification 全パス・SC#4 audit 7テスト GREEN（AST + H5 SQL proxy 検出 + H1 allowlist + M2 fallback mask 廃止 + 構造的保証 + docstring cross-reference + false-pass 回避）・tests/audit/ パッケージ全体 16テスト GREEN（false-pass 構造維持）・SC#5 script 作成 + AST syntax/M2 verify GREEN・2コミット存在確認済み・P05 stop gate は SC#4 GREEN（SAFE-01 構造的証明済み）を前提にモデル評価に進める基盤完成。
+
+## 実データ検証で発覚した bug 修正（orchestrator が live-DB 実行で実施・feature-snapshot-regen-required MEMORY の典型）
+
+本 SUMMARY は executor（DB 不要開発）完了時点のもの。orchestrator が live-DB で SC#5 HTML を生成した際、実データ固有 bug が 2 件発覚し修正した（合成テストでは検出不可）:
+
+1. **feature_matrix に生 `speed_figure` 列はない**（commit ee49e32）: target race の生 speed_figure は未来情報＝リーク防止で feature_matrix に入らない。可視化列を `rolling_speed_figure_mean_5`（過去集約）に修正。
+2. **snapshot 読み込みに変更**（commit 7bc7357）: `build_feature_matrix`（~17分・DB 全件再構築の重複）でなく `load_feature_matrix(snapshot_id)`（秒単位・DB 不要）で Parquet を読む設計に分離。producer=`run_feature_build.py` / consumer=`verify_speed_figure_domain.py`。DB 負荷ゼロ・重複排除（ユーザー要望）。
+
+更に、SC#5 が speed_figure 外れ値（min=-1748/max=4591・|値|>1000 が2659件）を検出したことが、**09-01 の `time/10.0`（decisecond 仮定）が MMSS.t 可変長エンコードの誤認と判明** する起点になった（真の根本原因・commit 4a20f13・09-01 参照）。SC#5 が意図通り機能した証拠。
