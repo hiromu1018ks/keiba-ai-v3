@@ -248,3 +248,95 @@ def test_compute_speed_figure_for_history_adds_columns() -> None:
             assert abs(row["speed_residual_sec"] - expected) < 1e-6, (
                 f"speed_residual_sec != time_sec - par_sec: {row['speed_residual_sec']} vs {expected}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Phase 9 P03 Task 2: SC#1 byte-reproducible snapshot + SC#3 registry↔Parquet parity
+# ---------------------------------------------------------------------------
+
+def test_byte_reproducible_snapshot_with_speed_figure(tmp_path) -> None:
+    """SC#1 byte-reproducible snapshot: 同一 DataFrame で snapshot_id/created_at を変えて
+    write_snapshot を2回呼出し・SHA256 が bit-identical になる（CR-04・metadata 除外 schema bytes のみ依存）。
+
+    speed_figure / rolling_speed_figure_* が snapshot の numeric path で Float64 化され・
+    同一 DataFrame なら SHA256 が不変であることを実証する（T-09-11 mitigate）。
+    """
+    from src.features.rolling import build_rolling_features
+    from src.features.snapshot import write_snapshot
+    from src.model.orchestrator import FIXED_REPRODUCE_TS
+
+    # 合成 history に speed_figure を付与 → rolling で rolling_speed_figure_* 6 feature を生成
+    history = _build_speed_figure_history_rows(obs_race_date="2023-06-04", kettonum=1001)
+    obs = pd.DataFrame(
+        [_build_race_obs_row("2023A0610-R1", 1001, "2023-06-04", obs_id="OBS_SNAP")]
+    )
+    history_with_sf = compute_speed_figure_for_history(history, observations=obs)
+    fm = build_rolling_features(obs, history_with_sf)
+
+    # rolling_speed_figure_* 6 列が含まれることを確認（前提）
+    expected_sf_cols = [
+        "rolling_speed_figure_last_1",
+        "rolling_speed_figure_mean_3",
+        "rolling_speed_figure_mean_5",
+        "rolling_speed_figure_max_5",
+        "rolling_speed_figure_sd_5",
+        "rolling_speed_figure_count_5",
+    ]
+    for col in expected_sf_cols:
+        assert col in fm.columns, f"{col} が rolling 出力に含まれない（P02 拡張不備の可能性）"
+
+    # 同一 DataFrame で snapshot_id/created_at_fixed を変えて2回書出し
+    fixed_ts = FIXED_REPRODUCE_TS.isoformat()
+    sha1 = write_snapshot(
+        fm, out_dir=tmp_path, snapshot_id="test-speed-v1", created_at_fixed=fixed_ts
+    )
+    sha2 = write_snapshot(
+        fm, out_dir=tmp_path, snapshot_id="test-speed-v2", created_at_fixed=fixed_ts
+    )
+    assert sha1 == sha2, (
+        f"SHA256 が snapshot_id で変化した（CR-04 byte-reproducible 違反）: {sha1} vs {sha2}"
+    )
+
+
+def test_registry_parquet_parity_speed_figure() -> None:
+    """SC#3 registry↔Parquet parity: rolling_speed_figure_* 6 feature が registry と
+    FEATURE_COLUMNS の両方で整合する（HIGH #3 silent parity 違反回避・T-09-13 mitigate）。
+
+    REVIEW H1 (data.py parameterization): ``_derive_feature_columns(snapshot_id=None)``
+    は v1.0 デフォルト（rolling_speed_figure_* 非含）・speed_figure snapshot 生成後は
+    動的導出で FEATURE_COLUMNS に含まれる契約を docstring で明示。
+    本テストは registry と derived list の静的整合性を検証（KEIBA_SKIP_DB_TESTS 非依存）。
+    """
+    from src.features.availability import (
+        load_feature_availability,
+        registered_feature_columns,
+    )
+    from src.model.data import META_KEY_COLUMNS, RAW_ID_COLUMNS, LABEL_COLUMNS, _derive_feature_columns
+
+    spec = load_feature_availability()
+    reg = registered_feature_columns(spec)
+
+    # registry に rolling_speed_figure_* 6 feature が登録されていること（P02 拡張）
+    excluded = META_KEY_COLUMNS | RAW_ID_COLUMNS | LABEL_COLUMNS
+    speed_cols_in_registry = [
+        c for c in reg
+        if c.startswith("rolling_speed_figure_") and c not in excluded
+    ]
+    assert sorted(speed_cols_in_registry) == sorted([
+        "rolling_speed_figure_last_1",
+        "rolling_speed_figure_mean_3",
+        "rolling_speed_figure_mean_5",
+        "rolling_speed_figure_max_5",
+        "rolling_speed_figure_sd_5",
+        "rolling_speed_figure_count_5",
+    ]), f"registry の rolling_speed_figure_* が D-09 の6 feature と不一致: {speed_cols_in_registry}"
+
+    # REVIEW H1: _derive_feature_columns(snapshot_id=None) は v1.0 snapshot を読むため
+    # rolling_speed_figure_* を含まない（v1.0 は Phase 9 直前の snapshot）。これは H1-a/H1-b で
+    # snapshot_id parameterization を行う前の後方互換挙動（A5）。
+    v1_cols = _derive_feature_columns(snapshot_id=None)
+    v1_speed = [c for c in v1_cols if c.startswith("rolling_speed_figure_")]
+    assert v1_speed == [], (
+        f"v1.0 snapshot_id=None の FEATURE_COLUMNS は rolling_speed_figure_* を含まない前提・"
+        f"実際: {v1_speed}（snapshot_id 動的導入前の v1.0 硬結合状態）"
+    )
