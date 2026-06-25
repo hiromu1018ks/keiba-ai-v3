@@ -2,13 +2,25 @@
 # ruff: noqa: E501  (長い docstring / SQL リテラルを保持するため行長は緩和)
 """Phase 9 SC#5 ドメイン整合性可視化スクリプト（live-DB 必須・KEIBA_SKIP_DB_TESTS unset）.
 
-本スクリプトは live-DB で生成した speed_figure snapshot の ``speed_figure`` 分布を
-Plotly HTML で可視化し・以下のドメイン整合性を目視確認する（D-08）:
+本スクリプトは live-DB で生成した speed_figure snapshot の過去集約値
+``rolling_speed_figure_mean_5`` 分布を Plotly HTML で可視化し・以下のドメイン整合性を
+目視確認する（D-08）:
 
-  1. 同一馬の連続走 ``speed_figure`` 推移（安定性・連続走で大きくブレない）
-  2. ``class_code_normalized`` 毎の ``speed_figure`` ボックスプロット（クラス昇格で指数上昇・
-     降格で下降の単調性・D-08）
-  3. ``speed_figure`` 全体ヒストグラム（極端な外れ値がないこと・Pitfall 4・0-100 程度に収まる）
+  1. 同一馬の連続走 ``rolling_speed_figure_mean_5`` 推移（安定性・連続走で大きくブレない）
+  2. ``class_code_normalized`` 毎の ``rolling_speed_figure_mean_5`` ボックスプロット
+     （クラス昇格で指数上昇・降格で下降の単調性・D-08）
+  3. ``rolling_speed_figure_mean_5`` 全体ヒストグラム（極端な外れ値がないこと・
+     Pitfall 4・0-100 程度に収まる）
+
+リーク防止上の制約: ``build_feature_matrix`` は target race の **過去走 (history)** にのみ
+生 ``speed_figure``（= 当日レースの指数・予測時点では未来情報 = リーク）を付与し
+（src/features/builder.py Step 5b・compute_speed_figure_for_history）・``build_rolling_features``
+がそれを過去集約値 ``rolling_speed_figure_*`` (6 feature・P02 登録済み) に変換して
+``feature_matrix`` に merge する。したがって ``feature_matrix`` には生 ``speed_figure``
+列は **構造上存在しない**（未来情報が混入すると §13 PIT 不変量違反）。本スクリプトは
+``rolling_speed_figure_mean_5``（過去5走平均・馬の最近能力軸）を domain-integrity proxy
+として可視化する（同一馬安定性・クラス単調性 D-08・外れ値/points_per_second 健全性は
+5走平均でも意味的に有効）。
 
 REVIEW M2: ``build_feature_matrix`` は DataFrame でなく **dict** を返す
 （``result["feature_matrix"]`` / ``result["snapshot_id"]`` / ``result["row_count"]`` 等・
@@ -54,6 +66,17 @@ logging.basicConfig(
 logger = logging.getLogger("verify_speed_figure_domain")
 
 # ---------------------------------------------------------------------------
+# SC#5 可視化対象列: rolling_speed_figure_mean_5（過去5走平均・P02 登録済み）
+# ---------------------------------------------------------------------------
+# feature_matrix（target race の observation 行）には生 ``speed_figure`` 列は構造上
+# 存在しない（src/features/builder.py Step 5b が history 側にのみ付与し・
+# build_rolling_features が rolling_speed_figure_* 6 feature に変換して feature_matrix に
+# merge する・生 speed_figure は当日の予測時点で未来情報 = §13 PIT リーク防止で混入不可）。
+# SC#5 のドメイン整合性チェック（同一馬安定性・クラス単調性 D-08・外れ値/points_per_second
+# 健全性）は過去5走平均でも馬の最近能力軸として意味的に有効なため・本定数を proxy に使う。
+_SPEED_FIGURE_PLOT_COL = "rolling_speed_figure_mean_5"
+
+# ---------------------------------------------------------------------------
 # Plotly は重い依存なので main で遅延 import（スクリプト不使用時の import コスト回避）
 # ---------------------------------------------------------------------------
 
@@ -95,6 +118,11 @@ def _fetch_feature_matrix(snapshot_id: str, readonly_pool: Any) -> pd.DataFrame:
     DataFrame を取得・src/features/builder.py L407-411/L637-643）。本関数は subscript で
     DataFrame を取り出す。既存 Parquet から読込む場合は dict 抽出不要だが・live-DB 経路では
     build_feature_matrix を呼ぶのが正道（最新 snapshot を生成して可視化）。
+
+    注意: feature_matrix には生 ``speed_figure`` 列は存在しない（target race の指数は
+    予測時点で未来情報 = §13 PIT リーク防止で混入不可・builder Step 5b は history 側にのみ
+    付与し rolling_speed_figure_* 過去集約値のみ feature_matrix に残る）。本スクリプトは
+    ``_SPEED_FIGURE_PLOT_COL`` (rolling_speed_figure_mean_5) を可視化対象とする。
     """
     # REVIEW M2: dict 戻り値契約・result["feature_matrix"] で DataFrame を取り出す
     result = build_feature_matrix(
@@ -116,25 +144,26 @@ def _fetch_feature_matrix(snapshot_id: str, readonly_pool: Any) -> pd.DataFrame:
 def _build_trajectory_plot(
     feature_matrix: pd.DataFrame, sample_horses: int
 ) -> Any:
-    """プロット1: 同一馬の連続走 speed_figure 推移ラインプロット（安定性確認）。
+    """プロット1: 同一馬の連続走 rolling_speed_figure_mean_5 推移ラインプロット（安定性確認）。
 
-    各馬1ライン・連続走で大きくブレしないことを目視。
+    各馬1ライン・連続走で大きくブレしないことを目視。``_SPEED_FIGURE_PLOT_COL``
+    (rolling_speed_figure_mean_5) は target race 時点での過去5走平均能力軸。
     """
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
 
-    # speed_figure 列の存在確認
-    if "speed_figure" not in feature_matrix.columns:
+    # 可視化対象列の存在確認（feature_matrix に生 speed_figure は非存在・未来情報 = リーク）
+    if _SPEED_FIGURE_PLOT_COL not in feature_matrix.columns:
         raise ValueError(
-            "feature_matrix に 'speed_figure' 列がない・snapshot 生成不正の疑い"
+            f"feature_matrix に '{_SPEED_FIGURE_PLOT_COL}' 列がない・snapshot 生成不正の疑い"
         )
     # kettonum / race_date が無ければ推移プロット不能
-    required = ("kettonum", "race_date", "speed_figure")
+    required = ("kettonum", "race_date", _SPEED_FIGURE_PLOT_COL)
     missing = [c for c in required if c not in feature_matrix.columns]
     if missing:
         raise ValueError(f"feature_matrix に必須列が欠損: {missing}")
 
-    df = feature_matrix.dropna(subset=["speed_figure"]).copy()
+    df = feature_matrix.dropna(subset=[_SPEED_FIGURE_PLOT_COL]).copy()
     df["race_date_dt"] = pd.to_datetime(df["race_date"], errors="coerce")
     df = df.dropna(subset=["race_date_dt"]).sort_values(["kettonum", "race_date_dt"])
 
@@ -147,7 +176,7 @@ def _build_trajectory_plot(
         rows=1,
         cols=1,
         subplot_titles=(
-            f"同一馬連続走 speed_figure 推移（上位 {len(top_horses)} 馬・安定性確認）",
+            f"同一馬連続走 {_SPEED_FIGURE_PLOT_COL} 推移（上位 {len(top_horses)} 馬・安定性確認）",
         ),
     )
     for horse_id in top_horses:
@@ -155,7 +184,7 @@ def _build_trajectory_plot(
         fig.add_trace(
             go.Scatter(
                 x=horse_df["race_date_dt"],
-                y=horse_df["speed_figure"],
+                y=horse_df[_SPEED_FIGURE_PLOT_COL],
                 mode="lines+markers",
                 name=f"kettonum={horse_id}",
                 showlegend=True,
@@ -164,9 +193,11 @@ def _build_trajectory_plot(
             col=1,
         )
     fig.update_xaxes(title_text="race_date", row=1, col=1)
-    fig.update_yaxes(title_text="speed_figure", row=1, col=1)
+    fig.update_yaxes(
+        title_text=f"{_SPEED_FIGURE_PLOT_COL}（過去5走平均）", row=1, col=1
+    )
     fig.update_layout(
-        title="SC#5 プロット1: 同一馬連続走 speed_figure 安定性",
+        title=f"SC#5 プロット1: 同一馬連続走 {_SPEED_FIGURE_PLOT_COL} 安定性",
         width=1100,
         height=600,
     )
@@ -174,9 +205,9 @@ def _build_trajectory_plot(
 
 
 def _build_class_box_plot(feature_matrix: pd.DataFrame) -> Any:
-    """プロット2: class_code_normalized 毎の speed_figure ボックスプロット（単調性確認・D-08）。
+    """プロット2: class_code_normalized 毎の rolling_speed_figure_mean_5 ボックスプロット（単調性確認・D-08）。
 
-    クラス昇格で speed_figure 上昇・降格で下降の単調性を目視。
+    クラス昇格で過去5走平均能力が上昇・降格で下降の単調性を目視。
     """
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
@@ -185,20 +216,24 @@ def _build_class_box_plot(feature_matrix: pd.DataFrame) -> Any:
         raise ValueError(
             "feature_matrix に 'class_code_normalized' 列がない・snapshot 生成不正の疑い"
         )
-    df = feature_matrix.dropna(subset=["speed_figure", "class_code_normalized"]).copy()
+    df = feature_matrix.dropna(
+        subset=[_SPEED_FIGURE_PLOT_COL, "class_code_normalized"]
+    ).copy()
 
     # class_code_normalized 昇順で box プロット
     classes = sorted(df["class_code_normalized"].dropna().unique().tolist())
     fig = make_subplots(
         rows=1,
         cols=1,
-        subplot_titles=("class_code_normalized 別 speed_figure 分布（D-08 単調性）",),
+        subplot_titles=(
+            f"class_code_normalized 別 {_SPEED_FIGURE_PLOT_COL} 分布（D-08 単調性）",
+        ),
     )
     for cls in classes:
         cls_df = df[df["class_code_normalized"] == cls]
         fig.add_trace(
             go.Box(
-                y=cls_df["speed_figure"],
+                y=cls_df[_SPEED_FIGURE_PLOT_COL],
                 name=str(cls),
                 boxmean="sd",
             ),
@@ -206,9 +241,11 @@ def _build_class_box_plot(feature_matrix: pd.DataFrame) -> Any:
             col=1,
         )
     fig.update_xaxes(title_text="class_code_normalized", row=1, col=1)
-    fig.update_yaxes(title_text="speed_figure", row=1, col=1)
+    fig.update_yaxes(
+        title_text=f"{_SPEED_FIGURE_PLOT_COL}（過去5走平均）", row=1, col=1
+    )
     fig.update_layout(
-        title="SC#5 プロット2: class_code_normalized × speed_figure 単調性（D-08）",
+        title=f"SC#5 プロット2: class_code_normalized × {_SPEED_FIGURE_PLOT_COL} 単調性（D-08）",
         width=1100,
         height=600,
         showlegend=False,
@@ -217,7 +254,7 @@ def _build_class_box_plot(feature_matrix: pd.DataFrame) -> Any:
 
 
 def _build_histogram(feature_matrix: pd.DataFrame) -> Any:
-    """プロット3: speed_figure 全体ヒストグラム（外れ値確認・Pitfall 4）。
+    """プロット3: rolling_speed_figure_mean_5 全体ヒストグラム（外れ値確認・Pitfall 4）。
 
     極端な外れ値（±1000 等・Pitfall 4）がないこと・分布がドメイン整合的
     （0-100 程度に収まる）ことを目視。
@@ -225,25 +262,27 @@ def _build_histogram(feature_matrix: pd.DataFrame) -> Any:
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
 
-    df = feature_matrix.dropna(subset=["speed_figure"]).copy()
+    df = feature_matrix.dropna(subset=[_SPEED_FIGURE_PLOT_COL]).copy()
     fig = make_subplots(
         rows=1,
         cols=1,
-        subplot_titles=("speed_figure 全体分布（外れ値確認・Pitfall 4）",),
+        subplot_titles=(
+            f"{_SPEED_FIGURE_PLOT_COL} 全体分布（外れ値確認・Pitfall 4）",
+        ),
     )
     fig.add_trace(
         go.Histogram(
-            x=df["speed_figure"],
+            x=df[_SPEED_FIGURE_PLOT_COL],
             nbinsx=80,
-            name="speed_figure",
+            name=_SPEED_FIGURE_PLOT_COL,
         ),
         row=1,
         col=1,
     )
-    fig.update_xaxes(title_text="speed_figure", row=1, col=1)
+    fig.update_xaxes(title_text=_SPEED_FIGURE_PLOT_COL, row=1, col=1)
     fig.update_yaxes(title_text="count", row=1, col=1)
     fig.update_layout(
-        title="SC#5 プロット3: speed_figure ヒストグラム（外れ値確認）",
+        title=f"SC#5 プロット3: {_SPEED_FIGURE_PLOT_COL} ヒストグラム（外れ値確認）",
         width=1100,
         height=600,
         showlegend=False,
@@ -274,9 +313,9 @@ def _write_combined_html(
         rows=3,
         cols=1,
         subplot_titles=(
-            "プロット1: 同一馬連続走 speed_figure 安定性",
-            "プロット2: class_code_normalized × speed_figure 単調性（D-08）",
-            "プロット3: speed_figure ヒストグラム（外れ値確認）",
+            f"プロット1: 同一馬連続走 {_SPEED_FIGURE_PLOT_COL} 安定性",
+            f"プロット2: class_code_normalized × {_SPEED_FIGURE_PLOT_COL} 単調性（D-08）",
+            f"プロット3: {_SPEED_FIGURE_PLOT_COL} ヒストグラム（外れ値確認）",
         ),
         vertical_spacing=0.08,
     )
@@ -313,25 +352,30 @@ def _write_combined_html(
 def _write_stats_json(
     feature_matrix: pd.DataFrame, out_path: Path, snapshot_id: str
 ) -> dict[str, Any]:
-    """speed_figure 統計量を JSON 出力（HTML 本体とは別・byte-reproducible を保つため時刻は JSON のみ）。
+    """rolling_speed_figure_mean_5 統計量を JSON 出力（HTML 本体とは別・byte-reproducible を保つため時刻は JSON のみ）。
 
     戻り値: JSON に書き出した stats dict（呼出元で stdout 表示に再利用）。
     """
-    if "speed_figure" not in feature_matrix.columns:
-        raise ValueError("feature_matrix に 'speed_figure' 列がない")
-    sf = feature_matrix["speed_figure"].dropna()
+    if _SPEED_FIGURE_PLOT_COL not in feature_matrix.columns:
+        raise ValueError(
+            f"feature_matrix に '{_SPEED_FIGURE_PLOT_COL}' 列がない"
+        )
+    sf = feature_matrix[_SPEED_FIGURE_PLOT_COL].dropna()
     stats: dict[str, Any] = {
         "feature_snapshot_id": snapshot_id,
         "row_count": int(len(feature_matrix)),
-        "speed_figure_non_null_count": int(len(sf)),
-        "speed_figure_min": float(sf.min()) if len(sf) > 0 else None,
-        "speed_figure_max": float(sf.max()) if len(sf) > 0 else None,
-        "speed_figure_mean": float(sf.mean()) if len(sf) > 0 else None,
-        "speed_figure_std": float(sf.std()) if len(sf) > 0 else None,
-        "speed_figure_median": float(sf.median()) if len(sf) > 0 else None,
+        "rolling_speed_figure_mean_5_non_null_count": int(len(sf)),
+        "rolling_speed_figure_mean_5_min": float(sf.min()) if len(sf) > 0 else None,
+        "rolling_speed_figure_mean_5_max": float(sf.max()) if len(sf) > 0 else None,
+        "rolling_speed_figure_mean_5_mean": float(sf.mean()) if len(sf) > 0 else None,
+        "rolling_speed_figure_mean_5_std": float(sf.std()) if len(sf) > 0 else None,
+        "rolling_speed_figure_mean_5_median": float(sf.median()) if len(sf) > 0 else None,
         "outlier_check": {
             "abs_max_below_1000": bool(sf.abs().max() < 1000.0) if len(sf) > 0 else True,
-            "domain_range_note": "speed_figure は 0-100 程度に収まることが期待（Pitfall 4・外れ値 ±1000 は不正）",
+            "domain_range_note": (
+                f"{_SPEED_FIGURE_PLOT_COL} は 0-100 程度に収まることが期待"
+                "（過去5走平均・Pitfall 4・外れ値 ±1000 は points_per_seconds 不正の疑い）"
+            ),
         },
         "generated_at_utc": pd.Timestamp.utcnow().isoformat(),
     }
@@ -391,10 +435,12 @@ def main(argv: list[str] | None = None) -> int:
         # stdout に目視確認手順を表示（manual-only verification・VALIDATION.md 参照）
         print(
             f"SC#5 ドメイン整合性: {html_path} を開いて目視確認 "
-            f"(同一馬安定・クラス単調・外れ値なし)\n"
-            f"  stats: min={stats['speed_figure_min']} max={stats['speed_figure_max']} "
-            f"mean={stats['speed_figure_mean']:.4f} std={stats['speed_figure_std']:.4f} "
-            f"median={stats['speed_figure_median']}\n"
+            f"(同一馬安定・クラス単調・外れ値なし・target col={_SPEED_FIGURE_PLOT_COL})\n"
+            f"  stats: min={stats['rolling_speed_figure_mean_5_min']} "
+            f"max={stats['rolling_speed_figure_mean_5_max']} "
+            f"mean={stats['rolling_speed_figure_mean_5_mean']:.4f} "
+            f"std={stats['rolling_speed_figure_mean_5_std']:.4f} "
+            f"median={stats['rolling_speed_figure_mean_5_median']}\n"
             f"  outlier_check: abs_max_below_1000={stats['outlier_check']['abs_max_below_1000']}"
         )
         return 0
