@@ -1,10 +1,21 @@
 # ruff: noqa: E501  (docstring / assert メッセージの日本語行長は緩和・tests/utils/test_group_split.py と同一慣例)
 """SC#2 ケース3: fold の train/test が race_id を共有すると ValueError で検出される adversarial。
 
-本ファイルは SC#2 adversarial（注入型メタ検証）。SC#2 要件「3ケースそれぞれ独立 adversarial」を
-docstring で明示するための再定式化（``tests/utils/test_group_split.py::test_get_bt_race_ids_raises_on_leak``
-が既存・同一注入パターン）。機能テストは「正しく分割される」を検証するのに対し・本テストは
-「BTWindow で train/test が race_id を共有するよう意図的に注入すると ``ValueError`` が raise される
+REVIEW WR-06 開示（機械的複製であることの誠実な開示・非削除の判断理由）:
+本テストは ``tests/utils/test_group_split.py::test_get_bt_race_ids_raises_on_leak`` と**注入
+パターンが機械的に等価**である（BTWindow の ``train_end == test_start`` で R2 を共有させ
+``ValueError(match='race_id')`` を検証する点で同一）。すなわち adversarial としての**新規
+検証力はゼロ**である点を誠実に開示する。
+
+それでも本テストを残す理由は SC#2 要件「3ケースそれぞれ独立 adversarial を docstring で明示」
+の体裁要件 (Plan 08-01) を満たすため: SC#1 機能テスト (test_group_split.py) と SC#2 adversarial
+テスト (本ファイル) を物理的に分離し・SC#2 三ケースの独立性を suite shape で示すことが
+Phase 08 の成果物要件。削除は SC#2 形状要件を損なうため見送る。ただし片方だけ修正する際の
+stale 化リスクは残るため・``test_group_split.py`` 側を修正した際は本テストの同期を必須とする
+(maintainer への指針として本 docstring に明記)。
+
+機能テストは「正しく分割される」を検証するのに対し・本テストは「BTWindow で train/test が
+race_id を共有するよう意図的に注入すると ``ValueError`` が raise される
 （=リークがあれば検出される）」ことを実証する（T-08-01 mitigate・per D-02）。
 
 注入手法: analog ``tests/utils/test_group_split.py::test_get_bt_race_ids_raises_on_leak`` L208-234 と
