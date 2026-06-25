@@ -37,6 +37,7 @@ stamped Parquet **のみ**から学習できる状態を届ける。
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -113,7 +114,13 @@ def _coerce_rolling_columns_for_parquet(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _is_categorical_rolling_col(col: str) -> bool:
-    """``rolling_{system}_{axis}_5`` 形式の列が categorical 系統（``jyocd`` 等）か判定する。
+    """``rolling_{system}_{axis}_{window}`` 形式の列が categorical 系統（``jyocd`` 等）か判定する。
+
+    REVIEW H3a (Phase 9): window suffix を ``_5`` 固定から可変 window ``_1``/``_3``/``_5``
+    に拡張。Phase 9 の speed_figure 系統は D-09 の6 feature で window 1/3/5 が混在するため
+    （``rolling_speed_figure_last_1`` / ``rolling_speed_figure_mean_3`` 等）・``_5`` 固定では
+    coercion パスから脱落し Parquet ArrowTypeError を起こす。window 数字を分離して axis を
+    取り出す（``rolling_speed_figure_last_1`` → axis='last'・window=1）。
 
     rolling.py の ``_axes_for``: categorical 系統は ``(mode, latest, count)``・numeric 系統は
     ``(mean, latest, sd, count)``。categorical（文字列）なのは ``mode`` と categorical 系統の
@@ -121,18 +128,24 @@ def _is_categorical_rolling_col(col: str) -> bool:
 
       - ``mode`` 軸 → categorical 専用（文字列） → True
       - ``mean`` / ``sd`` / ``count`` 軸 → numeric（数値） → False
+      - ``last`` / ``max`` 軸（Phase 9 speed_figure） → numeric（数値） → False
       - ``latest`` 軸 → ``system`` が ``_CATEGORICAL_SYSTEMS`` かで判定
     """
-    if not (col.startswith("rolling_") and col.endswith("_5")):
+    if not col.startswith("rolling_"):
         return False
-    core = col[len("rolling_"):-len("_5")]  # {system}_{axis}
+    # REVIEW H3a: 可変 window suffix _1/_3/_5 を解釈（Phase 9 D-09 の window 混在対応）
+    m = re.match(r"^rolling_(.+)_(1|3|5)$", col)
+    if m is None:
+        return False
+    core = m.group(1)  # {system}_{axis}（window 数字は分離済み）
     parts = core.split("_")
     if len(parts) < 2:
         return False
+    # parts の末尾(window 数字)は既に分離済み・最後要素が axis
     *system_parts, axis = parts
     if axis == "mode":
         return True
-    if axis in ("mean", "sd", "count"):
+    if axis in ("mean", "sd", "count", "last", "max"):
         return False
     # latest 軸: system が categorical 系統か（jyuni3c_jyuni4c 等 _ 含み対応）
     system = "_".join(system_parts)
