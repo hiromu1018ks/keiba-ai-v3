@@ -506,9 +506,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-# BT-1 split periods (§15.5) — train 2019-06-01..2022-12-31 / test 2023
+# BT-1 split periods (§15.5) — train 2019-06-01..2022-06-30 / calib 2022-07-01..2022-12-31 / test 2023
+# Phase 5 D-03 / HIGH-B cycle-2 idiom: calib は train tail 6ヶ月から切り出す
+# (_carve_calib_from_train_tail と同一方針・max(train)<min(calib)<max(calib)<min(test) を満たす)
 BT1_PERIODS: dict[str, tuple[str, str]] = {
-    "train": ("2019-06-01", "2022-12-31"),
+    "train": ("2019-06-01", "2022-06-30"),
+    "calib": ("2022-07-01", "2022-12-31"),
     "test": ("2023-01-01", "2023-12-31"),
 }
 
