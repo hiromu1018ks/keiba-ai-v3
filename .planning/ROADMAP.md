@@ -42,57 +42,83 @@
 ## Phase Details
 
 ### Phase 9: Speed Figure Foundation
+
 **Goal**: 走破タイムを馬場/距離/トラック/クラス/開催日で補正したスピード指数（Beyer 的）を odds-free かつ PIT-correct に構築し、能力特徴量の主軸として v1.0 snapshot に追加可能な形で確立する。着順でなく能力を直接測る。
 **Depends on**: Phase 8 (v1.0 shipped・既存 normalized 層 + feature snapshot pipeline を踏襲)
 **Requirements**: FEAT-01, SAFE-01 (特徴量追加時のリーク/市場回帰ガード)
 **Success Criteria** (what must be TRUE):
+
   1. スピード指数が par time（距離/トラック/開催日ごとの標準タイム）と馬場差（baba 差分）の算出を通じて、normalized 層の素材（`time`/`kyori`/`babacd`/`trackcd`/`class_code_normalized`）から byte-reproducible に生成できる（同じ snapshot metadata で再生成すると bit-identical）
   2. スピード指数が PIT-correct である。各過去走の指数には `available_at`（その走の `race_date`）を持たせ、target row では **`available_at < feature_cutoff_datetime`（= `race_date - 1day`・JST midnight・strict <）の指数だけを** par time（距離/トラック/開催日ごとの標準タイム）・馬場差（track variant）の算出に集計する。**対象レース当日の走破タイム・馬場結果は絶対に par/variant に入れない**（未来情報リーク）。`merge_asof(direction='backward')` 相当の as-of 計算・adversarial lookahead テスト GREEN。
   3. スピード指数を追加した新 feature snapshot（feature_count 増・新 `feature_snapshot_id`）が `§12.4` metadata を満たし、`KEIBA_SKIP_DB_TESTS` unset の live-DB で生成でき・registry↔Parquet parity が保たれる
   4. オッズ/人気/過去人気/過去オッズ proxy が新特徴量に混入していないことを adversarial audit（AST 静的保証・allowlist grep）で証明できる（SAFE-01・過去オッズ proxy 排除）
   5. スピード指数の分布がドメイン整合性を持つ（同一馬の連続走で指数が大きく安定し・クラス昇降で有意に変動する・極端な外れ値がないことを live-DB で可視化確認）
   6. 【**stop gate**・Phase 9 終了時】スピード指数を追加した単体モデル（v1.0 特徴量＋スピード指数）で、odds_band × p_bin の過大予測（v1.0 の中高オッズ域4倍過大）が改善するか、または falsification の暫定 market residual が残るかを確認する。**両方とも改善/residual が見られなければ「特徴量不足でなく構造的限界寄り」と判断**し、Phase 10-12 に進む前にマイルストーン継続の可否を評価する（マイルストーン目的＝市場残差能力の定量測定・鑑別に合致・早期撤退判断）。
+
 **Plans**: 5 plans
+**Wave 1**
+
 - [ ] 09-01-PLAN.md — speed_figure.py 新規(par/variant/PIT/float) + SC#1/SC#2 単体/adversarial テスト(FEAT-01/SAFE-01)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 09-02-PLAN.md — rolling.py/availability.py/feature_availability.yaml 拡張(speed_figure 6 feature + course_kubun bug 修正)(FEAT-01)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 09-03-PLAN.md — builder.py Step 5b 統合 + SC#1 byte-reproducible/SC#3 registry↔Parquet parity(FEAT-01)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 09-04-PLAN.md — SC#4 SAFE-01 proxy 排除 AST audit + SC#5 ドメイン整合性可視化(SAFE-01/FEAT-01)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 09-05-PLAN.md — SC#6 stop gate(v1.0 baseline 比較・D-14 4指標+D-15 residual proxy・D-16 checkpoint)(FEAT-01)
 
 ### Phase 10: Opponent Strength & Race-Relative Features
+
 **Goal**: 過去走の相手の as-of 能力平均（`field_strength`）と、レース内相対特徴量（`speed_index_rank` / `gap_to_top` / `gap_to_3rd` / `field_strength_adjusted_rank`）を、Phase 9 のスピード指数を前提として odds-free・PIT-safe に追加する。複勝の「相対競争・各馬独立事象でない」性質を特徴量層で表現する。
 **Depends on**: Phase 9 (スピード指数が能力の基盤・相手強度・レース内相対の計算に使用)
 **Requirements**: FEAT-02, FEAT-03, SAFE-01 (特徴量追加時のリーク/市場回帰ガード)
 **Success Criteria** (what must be TRUE):
+
   1. 相手強度特徴量が PIT-correct に計算できる。as-of 定義は**計画段階で以下のいずれかを決定し明文化**する: (厳格版) 各過去走の時点 `available_at` で存在する相手の能力のみ使用、または (current-cutoff 再評価版) 予測時点 `feature_cutoff_datetime` で既知の相手の能力（そのレース後に相手が強かったという事後情報も予測時点では合法な能力情報）を使用。**いずれも対象レース当日の結果は使わない**・未来の能力値を遡及注入しない・adversarial lookahead テスト GREEN。
   2. レース内相対特徴量（`speed_index_rank` / `gap_to_top` / `gap_to_3rd` / `field_strength_adjusted_rank`）が race_id 単位で計算され・出走馬内の順序付けが future-information なしで確定する（出馬表確定時点 `feature_cutoff_datetime` 基準・同着・欠損の境界処理が明文化される）
   3. 追加特徴量を含む feature snapshot が byte-reproducible・registry↔Parquet parity を満たし・`§12.4` metadata に新 `feature_cutoff_datetime` と `feature_availability` エントリが反映される
   4. オッズ/人気/過去人気/過去オッズ proxy の混入がないことを adversarial audit で証明できる（SAFE-01）
   5. live-DB で生成した snapshot が・v1.0 の主モデル（LightGBM）で再学習時に Brier/LogLoss/AUC の現行水準（Phase 6 D-07 数値）を悪化させない（特徴量ノイズ化の回帰検知）
+
 **Plans**: TBD
 
 ### Phase 11: Race-Relative Probability Model
+
 **Goal**: 独立二値分類（v1.0 LightGBM）から、`sum(p)=払戻対象数(2/3)` 制約と race-level top-k calibration（Plackett-Luce/Harville 的）を取り入れたレース内相対確率モデルへ移行し、過大EVを構造的に抑える。`p_fukusho_hit` の確率品質（Brier/Calibration）を維持または改善する。
 **Depends on**: Phase 10 (FEAT-01/02/03 の完成した feature snapshot が入力)
 **Requirements**: MODEL-01, SAFE-01 (モデル変更時のリーク/市場回帰ガード)
 **Success Criteria** (what must be TRUE):
+
   1. モデルが race_id 単位で `sum(p)` を払戻対象数（8頭以上3頭・5-7頭2頭・それ以外は仕様通り）に近づける構造（制約付き正規化・race-level top-k calibration・listwise loss のいずれか）を持ち・train→calib→test が `GroupTimeSeriesSplit`（groups=`race_id`）で時系列厳守・キャリブレーションは既存 `src/utils/calibrator.py` の `fit_prefit_calibrator`（**sklearn 1.9.0 で削除された `cv='prefit'` でなく `FrozenEstimator` + `CalibratedClassifierCV(estimator=...)` idiom・v1.0 Phase 1 確定**）で厳格に later-disjoint に実施（`max(train.race_date) < min(calib.race_date)` unit-test GREEN・§8.4/§15.4）
   2. 新モデルの予測 `p_fukusho_hit` が、v1.0 §15.2 事前登録指標（calibration_max_dev 等は不変・後知恵すり替え禁止）で評価され、全体 Brier/LogLoss は v1.0 主モデル LightGBM（Phase 6 D-07: Brier=0.15222/LogLoss=0.47488/AUC=0.73230/calib=0.231）に対し**事前登録した非劣化マージン（許容幅）内**に収まる（`sum(p)` 制約・`p_lower` 過信抑制が狙いなので全体指標の微小悪化で有用な改善を落とさない）・`sum(p)` 分布チェック（≥8頭 2.7-3.3・5-7頭 1.8-2.2）で過大/過小なし、かつ **selected-only calibration / odds-band calibration が v1.0 より改善**する（投票層の過大予測是正の定量証拠）
   3. 新モデルが LightGBM 構成（native categorical・`__MISSING__`/`__UNSEEN__` sentinel・target/mean encoding 構造的禁止 §14.3）と CatBoost 構成（`cat_features` + `has_time=True`・`race_start_datetime`-sorted Pool §14.4）の両方で構築でき・bit-identical（FIXED_REPRODUCE_TS + 固定 thread/seed・`np.array_equal` 実データ実証）
   4. 特徴量にオッズ/人気/過去人気/過去オッズ proxy が入っていないこと・LightGBM categorical code が非負 int32 であること（`.cat.codes.min()>=0` fail-loud）を adversarial leak diagnostic で証明できる（SAFE-01・SC#3 踏襲）
   5. 新 `p_fukusho_hit` の prediction テーブルが `§19.1` 再現性メタデータ（model_version・feature_snapshot_id・label_version・`odds_snapshot_policy`・`backtest_strategy_version`）付きで DB に model_version-scoped idempotent swap で永続化される（HIGH#1 踏襲）
+
 **Plans**: TBD
 
 ### Phase 12: p_lower EV & Falsification Evaluation
+
 **Goal**: EV 判定を点推定 `p` から `p_lower`（下側信頼限界・bootstrap/ensemble/conformal・train/calib 設計で test 窓は最終評価のみ）へ移行し、評価指標を拡張（selected-only calibration / EV-decile ROI / model-market disagreement ROI / snapshot-final slippage）して falsification test `logit(outcome) ~ logit(market) + logit(model)` で odds-free market residual を統計検証する。オッズ帯別条件付き calibration を受入基準に追加し、投票層の過大予測を構造的に検出する。
 **Depends on**: Phase 11 (レース内相対確率モデルの `p_fukusho_hit` 完成が前提)
 **Requirements**: EV-01, EVAL-01, EVAL-02, SAFE-01 (オッズ帯別条件付き calibration 受入基準)
 **Success Criteria** (what must be TRUE):
+
   1. `p_lower`（下側信頼限界）が train/calib データのみで設計され（bootstrap/ensemble/conformal・test 窓での閾値すり替え禁止 §11.2 聖域厳守）・EV 判定が点推定 `p` でなく `p_lower × odds_lower` に移行できる。purchase_simulator が `p_lower` を用いる設定で byte-reproducible に再現可能
   2. 評価指標拡張（selected-only calibration / EV-decile 別実現 ROI / model-market disagreement 別 ROI / odds snapshot→final payout slippage）が実装され・§15.2 事前登録指標（calibration_max_dev/Brier/LogLoss/sum(p) 分布）は一切不変（後知恵すり替え防止）で報告に併載される。投票層（`p_lower` EV で選ばれた馬）の miscalibration が v1.0（p=0.15-0.20 bin で4倍過大予測・実現EV -0.34〜-0.35）から統計的に改善したかどうかが定量化される
   3. falsification test `logit(outcome) ~ logit(market_implied) + logit(model_p)` が時系列 out-of-sample（train/calib で設計し**test 窓の予測のみで評価**・§11.2 聖域厳守）で実行される。**統計仕様を事前登録**: (a) `market_implied` の定義（複勝 `1/odds` をそのまま使うか train/calib で再校正するか）、(b) race 内の outcome は独立でないため **race_id clustered 標準誤差**を採用、(c) field size・odds clipping（極端オッズの丸め）を統制。`model_p` 係数が統計的に有意（market residual が残る）か否かが明確に結論づけられ、回収率0.65天井が「特徴量不足（model_p に有意な残差）」か「構造的限界（market 係数が model を包摂）」かの鑑別結果が reports/ に honest 記録される（market 情報は診断層のみ・`p` モデルには入れない・EVAL-02/SAFE-01）
   4. オッズ帯別条件付き calibration が受入基準に追加され・投票層（高オッズ域・EV 上位）で `p` が統計的に過大でないことが構造的に検証される（v1.0 の投票馬 p=0.16→実0.04 の4倍過大を catch する gate・SAFE-01）。§15.2 の既存 BLOCK/WARN gate と整合（D-01/D-02/D-03）
   5. v1.0 対抗的監査パターン（tests/audit/・`KEIBA_SKIP_DB_TESTS` unset の live-DB フルスイート GREEN・SC#1/#2/#3 踏襲）が本マイルストーンの全変更（特徴量追加・モデル変更・EV/eval 拡張）に対して GREEN を維持する。byte-reproducible snapshot + 再現性スモークが実データで PASS。現実回収率シナリオ（0.78-0.92 見込・正直な結論）が backtest で定量測定される
+
 **Plans**: TBD
 
 ## Progress

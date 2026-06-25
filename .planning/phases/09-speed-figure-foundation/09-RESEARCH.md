@@ -488,22 +488,24 @@ def compute_speed_figure(
 | A3 | leave-one-race-out variant の vectorized 近似（group_median - 自レース寄与）は十分精度。 | Pattern 2 | LOW — avg 215完走馬/開催日×surface で自レースの寄与は < 1%。厳密ループは極小 group のみ。 |
 | A4 | `course_kubun` は trackcd で完全代替可能。 | Standard Stack / Anti-Patterns | LOW — live-DB で trackcd が競馬場×コース形態を包含確認。par 粒度 `jyocd×trackcd×kyori` は141 group（130 group ≥100件）で十分。 |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **par/variant の永続化先（Claude's Discretion → planner）**
-   - What we know: §19.1 再現性聖域と監査性のトレード。中間成果物（Parquet/JSON）のみか・normalized 層に永続化するか。
-   - What's unclear: normalized 層永続化は ETL 拡張（Phase 3.1 パターン）が必要だが、再現性は Parquet snapshot で保証済み。
-   - Recommendation: 中間成果物（`snapshots/speed_figure_<snapshot_id>.parquet`）のみで十分。normalized 層は system of record（raw 素材）・par/variant は derived（snapshot に固定）。これが §12.1「DuckDB/derived を永続化層にしない」と整合。
+> 全3問とも Phase 9 plan（P01/P02/P05）で採用済み。以下に RESOLVED 文として最終解決方針を明記する（PLAN.md 変更不要・形式整合のみ）。
 
-2. **stop gate「許容幅（非劣化マージン）」の具体値（Claude's Discretion → planner）**
-   - What we know: D-14 (3) Brier/LogLoss/AUC の非劣化。Phase 11 SC#2 で事前登録される非劣化マージンとの整合が必要。
-   - What's unclear: Brier +0.001 は「非劣化」か「悪化」か。v1.0 LightGBM Brier=0.15222。
-   - Recommendation: planner が Phase 11 SC#2 事前登録マージン（例: Brier +0.005 以内）と整合する値を設定。Phase 9 は「特徴量追加の有効性判定」で「Brier 悪化 < 許容幅 AND selected calibration 改善」を stop gate 通過条件。
+1. **RESOLVED: par/variant の永続化先（中間成果物のみ・normalized 層には入れない）**
+   - 決定: **中間成果物（`snapshots/speed_figure_<snapshot_id>.parquet` および `reports/09-speed-figure-domain.{html,json}`）のみ**で永続化する。normalized 層（PostgreSQL system of record）には par/variant を書込まない。
+   - 根拠: §12.1「DuckDB/derived を永続化層にしない」と整合。再現性は feature snapshot（byte-reproducible Parquet・§12.4 metadata + SHA256 metadata 除外）で保証済み・監査性も同一手順で再生成可能。ETL 拡張は不要。
+   - 採用先: P01 は中間成果物（Parquet/JSON）のみを出力、P03 builder 統合で feature snapshot に取り込み、normalized 層への書込みは行わない。
 
-3. **軽量 residual proxy の分位 bucket 数（Claude's Discretion → planner）**
-   - What we know: D-15 で market_implied×model_p を分位 bucket 化。
-   - What's unclear: 5分位か10分位か。MIN_BIN_COUNT=30（segment_eval.py）との整合。
-   - Recommendation: 10分位（segment_eval.py の CALIBRATION_CURVE_BINS=10 と整合）・MIN_BIN_COUNT=30 で極小 bucket skip。
+2. **RESOLVED: stop gate「許容幅（非劣化マージン）」の具体値**
+   - 決定: **Brier +0.005 以内・LogLoss +0.02 以内・AUC -0.005 以内**を「非劣化」とする。
+   - 根拠: v1.0 LightGBM Brier=0.15222 を基準に、特徴量6個追加で起きうる微小な性能変動（過学習リスク由来）を許容する現実的なマージン。Phase 11 SC#2 で事前登録する非劣化マージンと**同一スケール**で設定（事前登録の聖域§15.2 を事後的に緩めない）。
+   - 採用先: P05 stop gate（Task 1 指標3・`_compute_global_metric_delta`）でこの値を適用。**Phase 11 plan 作成時に SC#2 事前登録マージンと本 P05 許容幅が矛盾しないか再確認が必要**（整合確認事項: Phase 11 が P05 より厳しい値を事前登録した場合、P05 SUMMARY の判定は再解釈が必要になる可能性あり）。
+
+3. **RESOLVED: 軽量 residual proxy の分位 bucket 数**
+   - 決定: **10 分位**（market_implied 10分位 × model_p 10分位の 2 軸グリッド）。
+   - 根拠: `src/model/evaluator.py` の `CALIBRATION_CURVE_BINS=10` と整合・`MIN_BIN_COUNT=30` で極小 bucket を skip（binning 契約固定・§15.2 事前登録指標不変・bit-identical）。
+   - 採用先: P05 stop gate Task 1 (o) でこの bucket 数を採用。
 
 ## Environment Availability
 

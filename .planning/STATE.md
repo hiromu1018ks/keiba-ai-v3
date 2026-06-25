@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Ability Feature v2 & Conditional Calibration
 current_phase: 09
-current_phase_name: Speed Figure Foundation — plans 作成済(5 plans)・実行待ち
+current_phase_name: plans 作成済・5 plans・実行待ち
 status: planning
-stopped_at: Phase 9 Speed Figure Foundation の 5 PLAN 作成完了(P01-P05・wave 1-5・依存グラフ確定・SC#1-6 全カバー)
-last_updated: "2026-06-25T12:00:00.000Z"
+stopped_at: "Phase 9 Speed Figure Foundation の 5 PLAN 作成完了(P01-P05・wave 1-5・依存グラフ確定・SC#1-6 全カバー)"
+last_updated: "2026-06-25T11:14:21.271Z"
 last_activity: 2026-06-25
-last_activity_desc: ROADMAP created for v1.1 (4 phases・Phases 9-12)
+last_activity_desc: Phase 9 の 5 PLAN 作成完了(P01-P05・依存グラフ確定)
 progress:
   total_phases: 4
   completed_phases: 0
