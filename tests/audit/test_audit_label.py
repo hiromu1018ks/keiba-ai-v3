@@ -33,9 +33,16 @@ def _mock_cursor(fetch_map: dict[str, object]) -> MagicMock:
     analog ``tests/test_label_reconcile.py::_mock_cursor`` L61-87 の複製（adversarial 注入用）。
     ``fetch_map`` のキーは SQL 部分文字列・値は ``fetchone()`` が返す tuple。
     未知の SELECT には安全な ``(0,)`` を返す（他の BLOCK 検査が通過するように）。
+
+    ``fetchall`` は明示的に空リスト ``[]`` を返すよう設定する（CR-02/IN-03）。
+    ``_compute_race_level_agreement`` が ``cur.fetchall()`` を呼ぶ際・MagicMock default
+    （MagicMock instance）のままだと ``for ... in label_rows:`` で例外が raise され
+    ``reconcile_against_payout`` の ``except Exception`` (L980) に捕捉される挙動が mock の
+    偶然の振舞いに依存する。明示的に ``[]`` を返すことで空行 path を確定させる。
     """
     cur = MagicMock()
     cur._fetch_map = fetch_map  # noqa: SLF001
+    cur.fetchall.return_value = []  # CR-02/IN-03: 空行 path を明示保証
 
     def _execute(sql: str, *args, **kwargs):  # noqa: ANN002
         cur._last_sql = sql  # noqa: SLF001
@@ -77,6 +84,20 @@ def test_payout_positive_missing_from_labels_detected() -> None:
     # _check_payout_recall の SQL は "l.fukusho_hit_validated = 0" を含む（src/etl/label_reconcile.py L289）。
     # この部分文字列を fetch_map のキーにして (1,) を返す → cnt=1 → passed=False。
     cur = _mock_cursor({"fukusho_hit_validated = 0": (1,)})
+
+    # --- (1b) 回帰 guard: 注入キーが本番 SQL に現れることを assert（CR-02・文字列 drift 検出）---
+    # もし _check_payout_recall の本番 SQL が将来リファクタで "fukusho_hit_validated = 0" を含まなく
+    # なった場合・mock cursor の fetch_map key が dead path 化し・注入が効かなくなる。これを検出するため
+    # 本番 SQL ソースに当該部分文字列が含まれることを inspect で確認する（文字列 drift 回帰テスト）。
+    import inspect
+
+    import src.etl.label_reconcile as _lr
+
+    recall_sql_source = inspect.getsource(_lr._check_payout_recall)
+    assert "fukusho_hit_validated = 0" in recall_sql_source, (
+        "_check_payout_recall の本番 SQL から 'fukusho_hit_validated = 0' が消失・"
+        "mock cursor の fetch_map key が dead path 化している可能性（CR-02・adversarial 検証力低下）"
+    )
 
     # --- (2) _check_payout_recall.passed is False を検証 ---
     result = _check_payout_recall(cur)
