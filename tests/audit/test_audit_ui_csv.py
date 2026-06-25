@@ -188,13 +188,15 @@ def test_reproducibility_stamp_missing_detected() -> None:
             f"PREDICTION_CSV_COLUMNS={PREDICTION_CSV_COLUMNS})"
         )
 
-    # --- (2) 正規 REPRODUCIBILITY_STAMPS に5スタンプ全存在を assert（GREEN）---
+    # --- (2) 正規 REPRODUCIBILITY_STAMPS の要素数を assert（GREEN）---
+    # REVIEW WR-07: 旧実装は ``for stamp in REPRODUCIBILITY_STAMPS: assert stamp in
+    # REPRODUCIBILITY_STAMPS`` という tautology (常に GREEN) を含んでいたため削除。
+    # 実質検証力は step (4) の _verify_degraded_tuple_fails_presence_assert が担う。
+    # 本 step では5項目であること（§19.1 聖域の構成要件）のみを検証する。
     assert len(REPRODUCIBILITY_STAMPS) == 5, (
         f"REPRODUCIBILITY_STAMPS は5項目期待 (actual={len(REPRODUCIBILITY_STAMPS)}・"
         f"REPRODUCIBILITY_STAMPS={REPRODUCIBILITY_STAMPS})"
     )
-    for stamp in REPRODUCIBILITY_STAMPS:
-        assert stamp in REPRODUCIBILITY_STAMPS  # tautology guard・定数が tuple ので常に GREEN
 
     # --- (3) 検証力証明: _CSV_STAMPS から1つ除いた縮退 tuple で presence assert が fail すること ---
     # 縮退 tuple に対して presence assert を走らせ・AssertionError が raise されることを try/except で捕捉。
