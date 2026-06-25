@@ -74,9 +74,39 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # 定数（D-01 正 snapshot・review MEDIUM#6 完全 hash は manifest から読込）
 # ---------------------------------------------------------------------------
-SNAPSHOT_PATH = "snapshots/feature_matrix_20260620-1a-postreview-v2.parquet"
-SNAPSHOT_MANIFEST_PATH = "snapshots/feature_matrix_20260620-1a-postreview-v2.manifest.yaml"
+# REVIEW H1 (Phase 9 P03): 従来 SNAPSHOT_PATH/SNAPSHOT_MANIFEST_PATH は v1.0 hard-code だったが・
+# Phase 9 の rolling_speed_figure_* 6 feature を含む新 snapshot で学習可能にするため
+# parameterize（後方互換 A5: snapshot_id=None は v1.0 デフォルト）。
+DEFAULT_SNAPSHOT_PATH = "snapshots/feature_matrix_20260620-1a-postreview-v2.parquet"
+DEFAULT_SNAPSHOT_MANIFEST_PATH = "snapshots/feature_matrix_20260620-1a-postreview-v2.manifest.yaml"
+DEFAULT_CATEGORY_MAP_PATH = "snapshots/category_map_20260620-1a-postreview-v2.json"
 EXPECTED_FEATURE_COUNT = 62  # manifest feature_count（Parquet 全列数・review HIGH#9 検証用）
+
+# 後方互換: 既存 import `from src.model.data import SNAPSHOT_PATH` が壊れないよう v1.0 デフォルト
+# への alias として残す（Phase 5 BT・test_data.py 等）。新コードは _snapshot_paths(snapshot_id) を使用。
+SNAPSHOT_PATH = DEFAULT_SNAPSHOT_PATH
+SNAPSHOT_MANIFEST_PATH = DEFAULT_SNAPSHOT_MANIFEST_PATH
+
+
+def _snapshot_paths(snapshot_id: str | None = None) -> tuple[str, str, str]:
+    """REVIEW H1: snapshot_id から (parquet_path, manifest_path, category_map_path) を解決する helper。
+
+    snapshot_id=None の場合は v1.0 デフォルト（DEFAULT_*）を返す（後方互換 A5・Phase 5 D-03 と同一 idiom）。
+    snapshot_id 指定時は ``snapshots/feature_matrix_{snapshot_id}.parquet`` /
+    ``snapshots/feature_matrix_{snapshot_id}.manifest.yaml`` /
+    ``snapshots/category_map_{snapshot_id}.json`` を返す。
+
+    本 helper は path 文字列の生成のみ（ファイル存在確認は呼出側で実施）。Category map は
+    存在しない場合がある（P05 stop gate が生成予定）・呼出側で FileNotFoundError を catch するか
+    事前確認する。
+    """
+    if snapshot_id is None:
+        return DEFAULT_SNAPSHOT_PATH, DEFAULT_SNAPSHOT_MANIFEST_PATH, DEFAULT_CATEGORY_MAP_PATH
+    return (
+        f"snapshots/feature_matrix_{snapshot_id}.parquet",
+        f"snapshots/feature_matrix_{snapshot_id}.manifest.yaml",
+        f"snapshots/category_map_{snapshot_id}.json",
+    )
 
 # label.fukusho_label と同一 PK 先頭5カラム（fukusho_label.py:524 _RACE_KEY と同一）
 LABEL_PK_COLUMNS = ["year", "jyocd", "kaiji", "nichiji", "racenum"]
@@ -146,20 +176,28 @@ META_KEY_COLUMNS: frozenset[str] = (
 # 構造的に防止する（review HIGH#9 / T-04-12c）。
 
 
-def _derive_feature_columns() -> list[str]:
-    """registry から FEATURE_COLUMNS allowlist を導出する（review HIGH#9）。
+def _derive_feature_columns(snapshot_id: str | None = None) -> list[str]:
+    """registry から FEATURE_COLUMNS allowlist を導出する（review HIGH#9 / REVIEW H1）。
+
+    REVIEW H1 (Phase 9 P03): ``snapshot_id`` 引数で v1.0/speed_figure 両 snapshot のカラム集合から
+    動的に FEATURE_COLUMNS を導出する。``snapshot_id=None`` は v1.0 デフォルト（後方互換 A5）。
 
     手順:
       1. ``load_feature_availability()`` で registry 読込
       2. ``registered_feature_columns(spec)`` で登録 feature 集合を取得
-      3. SNAPSHOT Parquet の実際の列集合との積を取る（実在する feature のみ）
+      3. **選択 snapshot** の Parquet 実カラム集合との積を取る（実在する feature のみ・H1-a）
       4. META_KEY_COLUMNS ∪ RAW_ID_COLUMNS ∪ LABEL_COLUMNS を差し引く
       5. category map 由来の ``<col>_code`` 列を追加（_CATEGORY_COLUMNS に対応する5列）
       6. 決定的順序で sort して返す（byte-reproducible な allowlist）
+
+    後方互換: モジュールレベル ``FEATURE_COLUMNS: list[str] = _derive_feature_columns()`` は
+    v1.0 デフォルト（snapshot_id=None）のまま残存（既存 import を壊さない・A5）。
     """
     spec = load_feature_availability()
     reg = registered_feature_columns(spec)
-    parq_cols = set(pq.read_table(SNAPSHOT_PATH).schema.names)
+    # REVIEW H1-a: SNAPSHOT_PATH でなく選択 snapshot_id に基づき path を解決
+    parquet_path, _manifest_path, _cat_path = _snapshot_paths(snapshot_id)
+    parq_cols = set(pq.read_table(parquet_path).schema.names)
     # registry 登録 feature のうち SNAPSHOT に実在するもの
     reg_present = reg & parq_cols
     # category map 由来 _code 列（SNAPSHOT に実在するもの）
@@ -208,29 +246,40 @@ def make_race_key(df: pd.DataFrame) -> pd.Series:
 # ---------------------------------------------------------------------------
 # 1. load_feature_matrix — SC#1: stamped Parquet のみ（live DB 引数を持たない）
 # ---------------------------------------------------------------------------
-def load_feature_matrix() -> pd.DataFrame:
+def load_feature_matrix(snapshot_id: str | None = None) -> pd.DataFrame:
     """SNAPSHOT_PATH の stamped Parquet のみを読込し DataFrame で返す（SC#1 聖域）。
 
-    **live DB 引数を持たない**（シグネチャ arity 0）。feature を live DB から再計算する
-    経路は構造的に存在しない（T-04-06 Information Disclosure mitigate）。
+    **REVIEW H1-a (Phase 9 P03・横断的・最優先)**: ``snapshot_id`` 引数で v1.0/speed_figure
+    両 snapshot をロード可能（``snapshot_id=None`` は v1.0 デフォルト・後方互換 A5）。本関数は
+    ``snapshot_id`` を**必須パラメータ**として受け取る（acceptance_criteria が arity-0 escape
+    ``or list(sig.parameters)==[]`` を削除・古い arity-0 関数を構造的に拒否・T-09-25 mitigate）。
+
+    **live DB 引数を持たない**（feature を live DB から再計算する経路は構造的に存在しない・
+    T-04-06 Information Disclosure mitigate）。``snapshot_id`` はローカル Parquet path の選択のみ。
 
     戻り値に以下を付与する:
       - ``race_date`` を ``pd.to_datetime`` 化（時系列分割・calibrator の strict-later 検証用）
       - ``race_key`` 列（``make_race_key`` で導出した正準キー・disjoint 検査で使用）
       - ``feature_snapshot_id`` 列はそのまま保持（provenance 用）
 
-    末尾で ``verify_snapshot_sha256`` を呼び、manifest の完全 SHA256 と hash scope を
+    末尾で ``verify_snapshot_sha256(snapshot_id)`` を呼び、manifest の完全 SHA256 と hash scope を
     検証する（review MEDIUM#6）。
+
+    Phase 9 stop gate は明示的に ``snapshot_id="20260625-1a-speedfigure-v1"`` 等を渡し・
+    v1.0 baseline と speed_figure snapshot の両方をロード可能（P05 が直接呼出）。
     """
-    df = pq.read_table(SNAPSHOT_PATH).to_pandas()
+    parquet_path, _manifest_path, _cat_path = _snapshot_paths(snapshot_id)
+    df = pq.read_table(parquet_path).to_pandas()
     df["race_date"] = pd.to_datetime(df["race_date"])
     df["race_key"] = make_race_key(df)
-    verify_snapshot_sha256()
+    verify_snapshot_sha256(snapshot_id)
     return df
 
 
-def verify_snapshot_sha256() -> None:
-    """SNAPSHOT manifest の完全 SHA256 と hash scope を検証する（review MEDIUM#6）。
+def verify_snapshot_sha256(snapshot_id: str | None = None) -> None:
+    """SNAPSHOT manifest の完全 SHA256 と hash scope を検証する（review MEDIUM#6 / REVIEW H1）。
+
+    REVIEW H1: ``snapshot_id`` 引数で検証対象 snapshot を切替（``None`` は v1.0 デフォルト）。
 
     - manifest の ``sha256`` が 64 hex（完全 hash・略記でない）であることを assert
     - manifest の ``byte_reproducible_scope`` が ``parquet_data_only_metadata_excluded``
@@ -253,7 +302,8 @@ def verify_snapshot_sha256() -> None:
     これにより run 毎に変動する schema metadata を除外し、純粋に DataFrame データ内容 +
     PyArrow 決定論的書込設定のみで hash を決定する（byte-reproducible・Phase 3 HIGH #6 契約）。
     """
-    with Path(SNAPSHOT_MANIFEST_PATH).open(encoding="utf-8") as f:
+    _parquet_path, manifest_path, _cat_path = _snapshot_paths(snapshot_id)
+    with Path(manifest_path).open(encoding="utf-8") as f:
         manifest: dict[str, Any] = yaml.safe_load(f)
 
     expected_sha = manifest.get("sha256")
@@ -272,7 +322,7 @@ def verify_snapshot_sha256() -> None:
     # Phase 3 snapshot.write_snapshot と同一の手順で hash 再計算（metadata 除外）
     import pyarrow as pa
 
-    df = pq.read_table(SNAPSHOT_PATH).to_pandas()
+    df = pq.read_table(_parquet_path).to_pandas()
     base_schema = pa.Schema.from_pandas(df, preserve_index=False)
     base_table = pa.Table.from_pandas(df, schema=base_schema, preserve_index=False)
     sha_buf = pa.BufferOutputStream()
@@ -402,32 +452,44 @@ def filter_eligible(frame: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # 4. make_X_y — 厳密 feature 選択（review HIGH#9: X.columns == FEATURE_COLUMNS）
 # ---------------------------------------------------------------------------
-def make_X_y(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
+def make_X_y(
+    frame: pd.DataFrame,
+    *,
+    snapshot_id: str | None = None,
+) -> tuple[pd.DataFrame, pd.Series]:
     """frame から厳密に FEATURE_COLUMNS のみを X として抽出し (X, y) を返す。
 
     **review HIGH#9 / T-04-12c**: ``X.columns == FEATURE_COLUMNS`` を完全一致（集合 + 順序）
     で assert する。metadata / raw-ID / label 列の混入を構造的に防止する。
 
+    **REVIEW H1-a/b (Phase 9 P03)**: ``snapshot_id`` 引数で選択 snapshot から動的に導出した
+    FEATURE_COLUMNS を使用する（``snapshot_id=None`` は v1.0 デフォルト・後方互換 A5）。
+    orchestrator が ``make_X_y(..., snapshot_id=snapshot_id)`` で明示伝播することで・
+    speed_figure snapshot で学習しても v1.0 FEATURE_COLUMNS が静かに使われる失敗を閉塞
+    （T-09-26 mitigate・H1-b grep/AST verify で保証）。
+
     併せて ``load_feature_availability`` で spec を読み、``assert_matrix_columns_registered``
-    を呼び FEATURE_COLUMNS が registry 登録済み（+ reserved/_code/raw-id）であることを
+    を呼し FEATURE_COLUMNS が registry 登録済み（+ reserved/_code/raw-id）であることを
     二重検査する（SC#1・banned feature 混入防止）。``banned_features(spec)`` が空でなければ
     ``ValueError``。
 
     y = ``frame["fukusho_hit_validated"].astype(int)``。
     """
     spec = load_feature_availability()
+    # REVIEW H1-a: 選択 snapshot_id に基づき FEATURE_COLUMNS を動的導出
+    feature_columns = _derive_feature_columns(snapshot_id)
     # FEATURE_COLUMNS が registry / reserved / _code / raw-id 由来であることの二重検査
-    assert_matrix_columns_registered(spec, FEATURE_COLUMNS)
+    assert_matrix_columns_registered(spec, feature_columns)
     banned = banned_features(spec)
     if banned:
         raise ValueError(f"banned features が混入 (D-07/§13.4 odds-free allowlist 違反): {banned}")
 
-    X = frame[FEATURE_COLUMNS].copy()
+    X = frame[feature_columns].copy()
     # 完全一致（集合 + 順序）assert・review HIGH#9
-    if list(X.columns) != FEATURE_COLUMNS:
+    if list(X.columns) != feature_columns:
         raise ValueError(
             "make_X_y: X.columns が FEATURE_COLUMNS と完全一致しない (review HIGH#9): "
-            f"X.columns={list(X.columns)} FEATURE_COLUMNS={FEATURE_COLUMNS}"
+            f"X.columns={list(X.columns)} FEATURE_COLUMNS={feature_columns}"
         )
 
     # build_training_frame が PK 列 (umaban 含む) を str 化する副作用に対する numeric 復元
@@ -446,7 +508,7 @@ def make_X_y(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
         "bms_id_code",
         "horse_id_code",
     }
-    for col in FEATURE_COLUMNS:
+    for col in feature_columns:
         if col in _categorical_feature_cols:
             continue
         # pandas StringDtype / object / str 系の dtype を numeric に復元
@@ -472,9 +534,12 @@ def prepare_model_matrix(
     feature_df_or_frame: pd.DataFrame,
     *,
     readonly_cur: Cursor | None = None,
+    snapshot_id: str | None = None,
 ) -> tuple[pd.DataFrame, pd.Series]:
     """``load_feature_matrix`` / ``load_labels`` / ``build_training_frame`` / ``make_X_y``
-    を統合する thin orchestrator（review HIGH#9）。
+    を統合する thin orchestrator（review HIGH#9 / REVIEW H1）。
+
+    REVIEW H1: ``snapshot_id`` 引数を ``make_X_y`` に伝播（``snapshot_id=None`` は v1.0 デフォルト）。
 
     本関数は実ロジックを持たない。各純粋関数を順に呼出すのみ:
 
@@ -484,7 +549,7 @@ def prepare_model_matrix(
       (b) ``feature_df_or_frame`` が既に join 済み frame（``fukusho_hit_validated`` 列を持つ）
           場合: そのまま ``make_X_y`` に渡す。
 
-    戻り値の ``X.columns == FEATURE_COLUMNS``（厳密）。
+    戻り値の ``X.columns == FEATURE_COLUMNS``（厳密・選択 snapshot_id に基づき動的導出）。
     """
     if "fukusho_hit_validated" in feature_df_or_frame.columns:
         frame = feature_df_or_frame
@@ -496,7 +561,7 @@ def prepare_model_matrix(
             )
         label_df = load_labels(readonly_cur)
         frame = build_training_frame(feature_df_or_frame, label_df)
-    return make_X_y(frame)
+    return make_X_y(frame, snapshot_id=snapshot_id)
 
 
 # ---------------------------------------------------------------------------
@@ -639,13 +704,19 @@ def split_3way(
 # ---------------------------------------------------------------------------
 # load_frozen_maps — trainer が消費する frozen category map helper
 # ---------------------------------------------------------------------------
-def load_frozen_maps() -> dict[str, Any]:
-    """``snapshots/category_map_20260620-1a-postreview-v2.json`` を読込む helper。
+def load_frozen_maps(snapshot_id: str | None = None) -> dict[str, Any]:
+    """``snapshots/category_map_<snapshot_id>.json`` を読込む helper。
+
+    REVIEW H1: ``snapshot_id`` 引数で読込対象 category_map を切替（``None`` は v1.0 デフォルト）。
 
     本 task では map 自体の適用は行わない（SNAPSHOT 内に既に ``_code`` int32 化済み・
     PATTERNS data.py 注意差分）。trainer.py が本 helper を消費して val/test の code 化に
     使用する。再 fit 禁止（``load_category_maps`` は frozen map を読むのみ）。
+
+    指定 snapshot_id の category_map が存在しない場合は明示的 FileNotFoundError
+    （silent fallback 禁止・D-13 fail-loud）。
     """
     from src.features.category_map_consumer import load_category_maps
 
-    return load_category_maps("snapshots/category_map_20260620-1a-postreview-v2.json")
+    _parquet_path, _manifest_path, cat_path = _snapshot_paths(snapshot_id)
+    return load_category_maps(cat_path)

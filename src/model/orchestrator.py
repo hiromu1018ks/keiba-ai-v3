@@ -243,6 +243,7 @@ def train_and_predict(
     as_of_datetime: datetime | None = None,
     split_periods: dict[str, tuple[str, str]] | None = None,
     category_map: dict[str, Any] | None = None,
+    snapshot_id: str | None = None,
 ) -> dict[str, Any]:
     """``trainer`` + ``calibrate_model`` + ``predict_p_fukusho`` を統合し・行整列保証付きで
     予測 DataFrame を返す orchestrator (review HIGH#2 / HIGH#7 / HIGH#12 / SC#4)。
@@ -287,6 +288,15 @@ def train_and_predict(
     (§14.3 / CLAUDE.md leak-safe categorical handling)。model_version メタに
     ``category_map_source`` を stamp する (``'bt_train_only'`` / ``'orchestrator_internal'``)。
 
+    **REVIEW H1-b (Phase 9 P03・``snapshot_id`` パラメータ・FEATURE_COLUMNS 選択用):**
+
+    ``snapshot_id`` は ``feature_snapshot_id`` とは**別引数**(FEATURE_COLUMNS 選択用・provenance
+    でなく)・内部3箇所の ``make_X_y`` 呼出に ``snapshot_id=snapshot_id`` で明示伝播する
+    (T-09-26 mitigate)。``snapshot_id=None`` (既定) は v1.0 デフォルト FEATURE_COLUMNS (A5 後方互換)。
+    これにより speed_figure snapshot で学習しても v1.0 FEATURE_COLUMNS が静かに使われる失敗
+    (P05 stop gate も検出不能) を閉塞する。予測経路に snapshot_id 無しの bare 呼出 が残らないことは
+    acceptance_criteria の grep/AST verify で保証 (H1-b)。
+
     Parameters
     ----------
     feature_df : pd.DataFrame
@@ -315,6 +325,9 @@ def train_and_predict(
         Phase 5 HIGH-A cycle-2 BT-train-only frozen category map
         (``{raw_id_col: dict[str, int]}``・例: ``{"jockey_id": {...}}``)。``None`` の場合は
         Phase 4 等価 (feature snapshot 構築済み ``_code`` 列をそのまま使用)。
+    snapshot_id : str | None
+        Phase 9 P03 REVIEW H1-b: FEATURE_COLUMNS 選択用 snapshot_id (``feature_snapshot_id``
+        とは別・provenance でない)。``None`` (既定) は v1.0 デフォルト FEATURE_COLUMNS (A5)。
 
     Returns
     -------
@@ -370,9 +383,11 @@ def train_and_predict(
     test_df = splits["test"]
 
     # --- make_X_y で厳密 feature 選択 (X.columns == FEATURE_COLUMNS 完全一致 assert) ---
-    X_train_full, y_train_full = make_X_y(train_df)
-    X_calib, y_calib = make_X_y(calib_df)
-    X_test, y_test = make_X_y(test_df)
+    # REVIEW H1-b (Phase 9 P03): snapshot_id を明示伝播 (bare call でない・T-09-26 mitigate)。
+    # snapshot_id=None は v1.0 デフォルト FEATURE_COLUMNS (A5 後方互換)。
+    X_train_full, y_train_full = make_X_y(train_df, snapshot_id=snapshot_id)
+    X_calib, y_calib = make_X_y(calib_df, snapshot_id=snapshot_id)
+    X_test, y_test = make_X_y(test_df, snapshot_id=snapshot_id)
 
     # --- review HIGH#2: index equality assert (X/y は make_X_y が同一 frame から抽出) ---
     if not X_train_full.index.equals(y_train_full.index):
@@ -765,6 +780,7 @@ def _assert_deterministic(
     as_of_datetime: datetime = FIXED_REPRODUCE_TS,
     split_periods: dict[str, tuple[str, str]] | None = None,
     category_map: dict[str, Any] | None = None,
+    snapshot_id: str | None = None,
 ) -> None:
     """SC#4 reproduce smoke: 固定 seed + 固定 thread count + 固定 as_of_datetime で2回
     ``train_and_predict`` を呼出し・戻り prediction の ``p_fukusho_hit`` 列が
@@ -772,7 +788,9 @@ def _assert_deterministic(
 
     Phase 5 D-03 / HIGH-A cycle-2: BT窓再学習 (``split_periods``) と BT-train-only
     category_map (``category_map``) を指定しても bit-identical が維持されることを検証。
-    失敗時は ``RuntimeError``。
+
+    Phase 9 P03 REVIEW H1-b: ``snapshot_id`` も reproduce smoke に伝播し・両 snapshot で
+    同一契約 (FEATURE_COLUMNS 選択含む) で bit-identical になることを検証。失敗時は ``RuntimeError``。
 
     Parameters
     ----------
@@ -786,6 +804,8 @@ def _assert_deterministic(
         Phase 5 D-03 BT窓区間 (``None`` の場合は Phase 4 ハードコード)。
     category_map : dict | None
         Phase 5 HIGH-A cycle-2 BT-train-only frozen category map。
+    snapshot_id : str | None
+        Phase 9 P03 REVIEW H1-b: FEATURE_COLUMNS 選択用 snapshot_id。
     """
     result1 = train_and_predict(
         feature_df,
@@ -796,6 +816,7 @@ def _assert_deterministic(
         as_of_datetime=as_of_datetime,
         split_periods=split_periods,
         category_map=category_map,
+        snapshot_id=snapshot_id,
     )
     result2 = train_and_predict(
         feature_df,
@@ -806,6 +827,7 @@ def _assert_deterministic(
         as_of_datetime=as_of_datetime,
         split_periods=split_periods,
         category_map=category_map,
+        snapshot_id=snapshot_id,
     )
 
     pred1 = result1["pred_df"]["p_fukusho_hit"].to_numpy()

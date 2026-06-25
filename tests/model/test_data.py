@@ -44,14 +44,25 @@ def test_load_from_parquet_only():
     """SC#1: load_feature_matrix は SNAPSHOT のみ読込 (live DB 引数なし).
 
     - 戻り値 shape が (554267, 62+) (Parquet 全列 + race_key)
-    - live DB cursor 引数を持たない (シグネチャ arity 0)
+    - **REVIEW H1-a (Phase 9 P03)**: live DB cursor 引数を持たない (SC#1 聖域・T-04-06)。
+      ``snapshot_id`` 引数は受け取るがローカル Parquet path の選択のみ (live DB 非依存)。
+      旧来の arity-0 escape (``len(sig.parameters)==0``) は削除・snapshot_id を必須パラメータ化。
     - verify_snapshot_sha256 が完全 hash (64 hex) で PASS
     - byte_reproducible_scope が parquet_data_only_metadata_excluded (Phase 3 D-08)
     """
-    # シグネチャ arity 0 検査 (live DB 引数を持たない・SC#1 聖域)
+    # REVIEW H1-a: live DB cursor 引数を持たない (SC#1 聖域・T-04-06)。
+    # snapshot_id 引数は受け取るが live DB cursor / ConnectionPool は持たない。
+    # 旧来の arity-0 escape は H1-a で削除（古い arity-0 関数を構造的に拒否）。
     sig = inspect.signature(load_feature_matrix)
-    assert len(sig.parameters) == 0, (
-        "load_feature_matrix は live DB 引数を持ってはならない (SC#1 聖域・T-04-06)"
+    assert "snapshot_id" in sig.parameters, (
+        "load_feature_matrix は snapshot_id 引数を受け取る (REVIEW H1-a・後方互換 A5)"
+    )
+    # live DB 系引数 (cursor/ConnectionPool) を持たないことを検査
+    forbidden_db_params = {"readonly_cur", "cur", "pool", "read_pool", "conn"}
+    actual_db_params = forbidden_db_params & set(sig.parameters)
+    assert not actual_db_params, (
+        f"load_feature_matrix は live DB 引数を持ってはならない (SC#1 聖域・T-04-06): "
+        f"{actual_db_params}"
     )
 
     df = load_feature_matrix()
@@ -242,3 +253,114 @@ def _make_synthetic_labels(feature_df: pd.DataFrame) -> pd.DataFrame:
     for c in label_cols:
         assert c in labels.columns, f"合成 label に必須列 {c} が無い"
     return labels
+
+
+# ---------------------------------------------------------------------------
+# Phase 9 P03 Task 3: REVIEW H1-b — snapshot_id 伝播で FEATURE_COLUMNS が実際切替わる証明
+# ---------------------------------------------------------------------------
+def test_make_X_y_uses_snapshot_feature_columns(tmp_path):
+    """REVIEW H1-b (Phase 9 P03): ``make_X_y(frame, snapshot_id="...")`` が選択 snapshot の
+    FEATURE_COLUMNS を実際に消費することを検証（静かな失敗の閉塞証明・T-09-26 mitigate）。
+
+    合成 speed_figure snapshot を一時生成し・snapshot_id で v1.0 と speed_figure を切り替えて
+    ``make_X_y`` が返す X.columns が異なる FEATURE_COLUMNS になることを assert する。
+    orchestrator.train_and_predict も snapshot_id を内部 make_X_y に伝播する（H1-b grep verify 済み）。
+    """
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from src.model.data import (
+        DEFAULT_SNAPSHOT_PATH,
+        _derive_feature_columns,
+        _snapshot_paths,
+    )
+
+    # v1.0 snapshot を読み・rolling_speed_figure_* 6 列を追加して合成 speed_figure snapshot を作成
+    v1_path, _v1_manifest, _v1_cat = _snapshot_paths(snapshot_id=None)
+    df = pq.read_table(v1_path).to_pandas()
+    n = len(df)
+    # rolling_speed_figure_* 6 列を数値で追加（registry 登録済み・P02）
+    speed_cols = [
+        "rolling_speed_figure_last_1",
+        "rolling_speed_figure_mean_3",
+        "rolling_speed_figure_mean_5",
+        "rolling_speed_figure_max_5",
+        "rolling_speed_figure_sd_5",
+        "rolling_speed_figure_count_5",
+    ]
+    rng = np.random.default_rng(42)
+    for col in speed_cols:
+        df[col] = rng.standard_normal(n).astype("float64")
+
+    # 合成 snapshot を一時ディレクトリに書出し（snapshot_id="test-speed-figure"）
+    # _snapshot_paths は "snapshots/feature_matrix_test-speed-figure.parquet" を返すが・
+    # 本テストは tmp_path 配下に書出したいので monkeypatch で _snapshot_paths を上書き。
+    test_parquet = tmp_path / "feature_matrix_test-speed-figure.parquet"
+    table = pa.Table.from_pandas(df, preserve_index=False)
+    pq.write_table(table, test_parquet)
+
+    # _snapshot_paths を tmp_path に向けるよう monkeypatch
+    import src.model.data as data_mod
+
+    orig_snapshot_paths = data_mod._snapshot_paths
+    orig_pq_read_table = pq.read_table
+
+    def _fake_snapshot_paths(snapshot_id=None):
+        if snapshot_id == "test-speed-figure":
+            return (
+                str(test_parquet),
+                str(tmp_path / "feature_matrix_test-speed-figure.manifest.yaml"),
+                str(tmp_path / "category_map_test-speed-figure.json"),
+            )
+        return orig_snapshot_paths(snapshot_id)
+
+    data_mod._snapshot_paths = _fake_snapshot_paths
+    # _derive_feature_columns 内部で呼ばれる pq.read_table も test_parquet を指すよう
+    # _snapshot_paths 経由で解決されるため pq monkeypatch 不要（pq.read_table は引数 path を使う）
+    try:
+        # H1-a: snapshot_id="test-speed-figure" の FEATURE_COLUMNS は rolling_speed_figure_* を含む
+        sf_cols = _derive_feature_columns(snapshot_id="test-speed-figure")
+        speed_in_sf = [c for c in sf_cols if c.startswith("rolling_speed_figure_")]
+        assert sorted(speed_in_sf) == sorted(speed_cols), (
+            f"snapshot_id=test-speed-figure の FEATURE_COLUMNS は rolling_speed_figure_* 6 列を"
+            f"含むべき・実際: {speed_in_sf}"
+        )
+        # snapshot_id=None (v1.0) の FEATURE_COLUMNS は rolling_speed_figure_* を含まない
+        v1_cols = _derive_feature_columns(snapshot_id=None)
+        v1_speed = [c for c in v1_cols if c.startswith("rolling_speed_figure_")]
+        assert v1_speed == [], (
+            f"snapshot_id=None (v1.0) の FEATURE_COLUMNS は rolling_speed_figure_* を含まない・"
+            f"実際: {v1_speed}"
+        )
+    finally:
+        data_mod._snapshot_paths = orig_snapshot_paths
+
+    # make_X_y が実際に snapshot_id で FEATURE_COLUMNS を切替えることを検証
+    # （合成 label を inject して build_training_frame → make_X_y）
+    df_with_speed = df.copy()
+    # build_training_frame が race_date 列を期待するため v1 同様に datetime 化
+    df_with_speed["race_date"] = pd.to_datetime(df_with_speed["race_date"])
+    df_with_speed["race_key"] = make_race_key(df_with_speed)
+    labels = _make_synthetic_labels(df_with_speed)
+    frame = build_training_frame(df_with_speed, labels)
+
+    # snapshot_id を切替えて make_X_y が異なる FEATURE_COLUMNS を選択することを検証
+    # v1.0 側は rolling_speed_figure_* を含まない
+    data_mod._snapshot_paths = orig_snapshot_paths  # 既に戻した状態
+    X_v1, _ = make_X_y(frame, snapshot_id=None)
+    assert not any(c.startswith("rolling_speed_figure_") for c in X_v1.columns), (
+        "snapshot_id=None で rolling_speed_figure_* が X に含まれている（H1-a/b 違反）"
+    )
+
+    # snapshot_id="test-speed-figure" 側は rolling_speed_figure_* を含む（H1-b の核心）
+    data_mod._snapshot_paths = _fake_snapshot_paths
+    try:
+        X_sf, _ = make_X_y(frame, snapshot_id="test-speed-figure")
+        sf_in_X = [c for c in X_sf.columns if c.startswith("rolling_speed_figure_")]
+        assert sorted(sf_in_X) == sorted(speed_cols), (
+            f"snapshot_id=test-speed-figure で rolling_speed_figure_* 6 列が X に含まれるべき・"
+            f"実際: {sf_in_X}（H1-b: snapshot_id 伝播で FEATURE_COLUMNS が切替わっていない）"
+        )
+    finally:
+        data_mod._snapshot_paths = orig_snapshot_paths
+
