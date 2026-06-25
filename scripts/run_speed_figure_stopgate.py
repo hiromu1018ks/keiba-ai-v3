@@ -617,28 +617,83 @@ def main(argv: list[str] | None = None) -> int:
     return 0  # BLOCK でなく exit 0 (継続可否は checkpoint:human-verify)
 
 
+def _build_race_times_per_horse(pred_df: pd.DataFrame) -> pd.DataFrame:
+    """予測馬単位の ``race_times`` (race_key + umaban + race_start_datetime) を構築する (HIGH-1)。
+
+    Phase 5 ``scripts/run_backtest.py::L448 _build_race_times_per_horse`` と同一ロジック・
+    こちらは scripts 間 import 依存を避けるため inline で再実装 (cross-ref: run_backtest L448)。
+
+    ``select_odds_snapshot`` は ``by=['race_key','umaban']`` で per-horse snapshot を返すため・
+    ``race_times`` も馬単位であることが前提 (Plan 03 契約)。
+    """
+    if "race_start_datetime" not in pred_df.columns:
+        raise RuntimeError(
+            "_build_race_times_per_horse: pred_df に race_start_datetime 列がない (HIGH-1 前提違反・"
+            "orchestrator.train_and_predict が pred_df に race_start_datetime を付与していない)"
+        )
+    return pred_df[["race_key", "umaban", "race_start_datetime"]].copy()
+
+
 def _attach_market_data(pred_df: pd.DataFrame, *, cur_pool: Any) -> pd.DataFrame:
     """JODDS snapshot から ``fuku_odds_lower``/``fuku_odds_upper`` を取得し pred_df に JOIN する.
 
     REVIEW H6: ``fuku_odds`` 系の誤略称でなく ``fuku_odds_lower``/``fuku_odds_upper`` を使用
     (src/ev/odds_snapshot.py L210-215 の正しい列名・T-09-29 mitigate)。
     本 helper は live-DB 専用 (KEIBA_SKIP_DB_TESTS unset)。
+
+    Phase 5 idiom (scripts/run_backtest.py L578-599 参照):
+      1. ``fetch_jodds(cur, years=[...])`` で JODDS 時系列 DataFrame 取得
+      2. ``_build_race_times_per_horse(pred_df)`` で馬単位 race_times 構築 (HIGH-1)
+      3. ``select_odds_snapshot(jodds_df, race_times, policy)`` — 3引数署名
+         (``jodds_df``/``race_times`` は DataFrame・cursor でない)
+      4. ``pred_df.merge(snapshot, on=['race_key','umaban'], how='left')``
     """
     from src.db.connection import readonly_cursor
-    from src.ev.odds_snapshot import select_odds_snapshot
+    from src.ev.odds_snapshot import fetch_jodds, select_odds_snapshot
 
+    # test 窓は BT-1 = 2023 (BT1_PERIODS["test"]・§15.5) のみ固定。
+    test_years = ["2023"]
+
+    jodds_df: pd.DataFrame
     with readonly_cursor(cur_pool) as cur:
-        odds_df = select_odds_snapshot(cur, policy="30min_before")
+        jodds_df = fetch_jodds(cur, years=test_years)
 
-    if len(odds_df) == 0:
-        # odds 未取得時は NaN 埋め (D-15 residual proxy は skip・signal_present=False)
+    if len(jodds_df) == 0:
+        # JODDS 未取得時は NaN 埋め (D-15 residual proxy は skip・signal_present=False)
+        logger.warning(
+            "_attach_market_data: JODDS DataFrame が空 (years=%s)・fuku_odds_lower/upper を NaN 埋め "
+            "(D-15 residual proxy skip・signal_present=False で低下)",
+            test_years,
+        )
         pred_df = pred_df.copy()
         pred_df["fuku_odds_lower"] = float("nan")
         pred_df["fuku_odds_upper"] = float("nan")
         return pred_df
 
+    # HIGH-1: 馬単位 race_times 構築
+    race_times = _build_race_times_per_horse(pred_df)
+
+    # select_odds_snapshot: per-horse cutoff (race_start_datetime) 以下最大 snapshot
+    # 正しい署名: (jodds_df, race_times, policy) — cursor でない (review H-new fix)
+    snapshot = select_odds_snapshot(jodds_df, race_times, policy="30min_before")
+
+    if len(snapshot) == 0:
+        logger.warning(
+            "_attach_market_data: select_odds_snapshot 戻り値が空 (policy=30min_before)・"
+            "fuku_odds_lower/upper を NaN 埋め"
+        )
+        pred_df = pred_df.copy()
+        pred_df["fuku_odds_lower"] = float("nan")
+        pred_df["fuku_odds_upper"] = float("nan")
+        return pred_df
+
+    logger.info(
+        "_attach_market_data: JODDS market データ JOIN (rows=%d, snapshot=%d, policy=30min_before)",
+        len(pred_df),
+        len(snapshot),
+    )
     merged = pred_df.merge(
-        odds_df[["race_key", "umaban", "fuku_odds_lower", "fuku_odds_upper"]],
+        snapshot[["race_key", "umaban", "fuku_odds_lower", "fuku_odds_upper"]],
         on=["race_key", "umaban"],
         how="left",
         validate="many_to_one",
