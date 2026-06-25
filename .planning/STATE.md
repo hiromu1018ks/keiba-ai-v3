@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Ability Feature v2 and Conditional Calibration
 status: planning
-last_updated: "2026-06-25T06:35:25.200Z"
+last_updated: "2026-06-25T07:04:21.000Z"
 last_activity: 2026-06-25
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -19,21 +19,35 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-06-16)
 
-**Core value:** オッズ非依存の確率 `p_fukusho_hit` と固定オッズ時点のEVで、過小評価されている馬の複勝払戻対象入り可能性をリークなく検出し、race_id単位・時系列順の再現可能なバックテストで定量評価できること。リーク防止と再現性だけは必ず守る。
-**Current focus:** Phase 08 — Adversarial Audit Suite
+**Core value:** オッズ非依存の確率 `p_fukusho_hit` と固定オッズ時点のEVで、過小評価されている馬の複勝払戻対象入り可能性をリークなく検出し、race_id単位・時系列順の再現可能バックテストで定量評価できること。リーク防止と再現性だけは必ず守る。
+**Current focus:** Phase 09 — Speed Figure Foundation（v1.1 最初のフェーズ・FEAT-01 スピード指数構築）
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 09 Speed Figure Foundation (Not started — ROADMAP 作成済・plan 未作成)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-06-25 — Milestone v1.1 started
+Status: Ready for planning（ROADMAP.md v1.1 Phase 9-12 完成済・8/8 要件マッピング済・次は `/gsd-plan-phase 9` で Phase 9 計画）
+Last activity: 2026-06-25 — ROADMAP created for v1.1 (4 phases・Phases 9-12)
+
+## v1.1 Milestone Context
+
+**Goal:** core value（odds-free）維持のもと、回収率0.65天井（debug `fukusho-recovery-070` 3層 ROOT CAUSE）へ正統に対応する。能力特徴量を「着順中心」から「速度・相手強度・レース内相対」へ拡張し、レース内相対確率モデル + `p_lower` EV で投票層の過大予測を是正。falsification test で odds-free market residual を統計検証（特徴量不足 vs 構造的限界の鑑別）。
+
+**成功基準（正直・黒字化でない）:** 市場残差能力の定量測定 + 投票層の過大予測是正。現実回収率 0.78-0.92 見込（外部2AI 一致）。
+
+**Phase 構成（依存関係 DAG）:**
+- Phase 9: FEAT-01 スピード指数基盤（FEAT-02/03 の前提）
+- Phase 10: FEAT-02 相手強度 + FEAT-03 レース内相対（FEAT-01 に依存）
+- Phase 11: MODEL-01 レース内相対確率モデル（FEAT-01/02/03 完成後）
+- Phase 12: EV-01 p_lower EV + EVAL-01 指標拡張 + EVAL-02 falsification + SAFE-01 オッズ帯別条件付き calibration 受入基準
+
+**聖域（全フェーズで遵守）:** odds-free（オッズ/人気/過去人気/過去オッズ proxy は `p` モデルに入れない）・リーク防止（PIT correct・race_id group split・merge_asof backward・adversarial audit）・再現性（§19.1・byte-reproducible snapshot・FIXED_REPRODUCE_TS）・§15.2 事前登録指標不変（後知恵すり替え禁止）・test 窓は最終評価のみ（過学習聖域 §11.2）
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 40
+- Total plans completed: 40 (v1.0) + 0 (v1.1)
 - Average duration: — min
 - Total execution time: 0.0 hours
 
@@ -50,11 +64,15 @@ Last activity: 2026-06-25 — Milestone v1.1 started
 | 06 | 5 | - | - |
 | 07 | 3 | - | - |
 | 08 | 3 | - | - |
+| 09 | 0/? | - | - |
+| 10 | 0/? | - | - |
+| 11 | 0/? | - | - |
+| 12 | 0/? | - | - |
 
 **Recent Trend:**
 
 - Last 5 plans: —
-- Trend: — (no execution yet)
+- Trend: — (v1.1 未実行)
 
 *Updated after each plan completion*
 | Phase 01 P01 | 64 | 4 tasks | 19 files |
@@ -104,9 +122,14 @@ Last activity: 2026-06-25 — Milestone v1.1 started
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- Roadmap: Strict DAG-driven phase order — no model work (Phase 4) before labels (Phase 2) and as-of features (Phase 3) are locked and gated
-- Roadmap: Phase 2 (Labels) is the long pole with a hard >99.9% payout-table reconciliation gate; Phase 8 is a dedicated adversarial-audit acceptance gate consolidating TEST-01
-- Roadmap: Snapshots/reproducibility-stamping folded into Phase 3 (as-of builder writes immutable Parquet) rather than a standalone phase
+- Roadmap v1.1: Strict DAG-driven phase order（Phase 9→10→11→12）— スピード指数（FEAT-01）は相手強度・レース内相対（FEAT-02/03）の前提・それらが揃ってから MODEL-01 レース内相対確率モデル・その後に EV-01 p_lower + EVAL-01/02 + falsification を統合
+- Roadmap v1.1: core value（odds-free）維持での正統な改善道（能力特徴量精密化 + レース内相対確率モデル）・過去人気/過去オッズ proxy は市場回帰で除外（2AI 一致・debug + リサーチ準拠・SAFE-01 横断）
+- Roadmap v1.1: 成功基準は黒字化でなく「市場残差能力の定量測定」+「投票層の過大予測是正」（現実回収率 0.78-0.92 見込・正直な結論・EVAL-02 falsification で特徴量不足 vs 構造的限界を鑑別）
+- Roadmap v1.1: §15.2 事前登録指標（calibration_max_dev/Brier/LogLoss/sum(p) 分布）は不変・追加指標は上書きでなく併載（後知恵すり替え禁止）
+- Roadmap v1.1: v1.0 対抗的監査パターン（tests/audit/・KEIBA_SKIP_DB_TESTS unset live-DB GREEN・SC#1/#2/#3 踏襲）を全フェーズで遵守
+- Roadmap v1.0 (履歴): Strict DAG-driven phase order — no model work (Phase 4) before labels (Phase 2) and as-of features (Phase 3) are locked and gated
+- Roadmap v1.0 (履歴): Phase 2 (Labels) is the long pole with a hard >99.9% payout-table reconciliation gate; Phase 8 is a dedicated adversarial-audit acceptance gate consolidating TEST-01
+- Roadmap v1.0 (履歴): Snapshots/reproducibility-stamping folded into Phase 3 (as-of builder writes immutable Parquet) rather than a standalone phase
 - [Phase ?]: plan 01-01: hatchling ビルドバックエンド採用（uv_build は src/config,src/db を扱えないため）
 - [Phase ?]: plan 01-02: Hybrid Quality Gate 実装（BLOCK/INFO 分離・HIGH#7 mojibake + code-anomaly・HIGH#8 fail-by-default）
 - [Phase ?]: sklearn 1.9.0 で cv='prefit' 文字列削除のため FrozenEstimator 公式 prefit イディオムに適合（01-04・リーク防止セマンティクス不変）
@@ -117,7 +140,7 @@ Recent decisions affecting current work:
 - [Phase 01]: plan 01-03: 要件 §6.1（2015年以降）を ETL 側で機械適用（_JRA_FILTER に year::int >= 2015 を追加・Rule 2）
 - [Phase 02]: [Phase 02] plan 02-01: label_spec.yaml でラベル定義を Git 管理化（D-07・label_generation_version='v1.0.0'・marker canonicalization sentinel・source_confidence 分離）
 - [Phase 02]: [Phase 02] plan 02-01: GRANT_READER_SQL は明示的 reader ロール（keiba_readonly）のみ付与・TO PUBLIC 一切不使用（HIGH #3）
-- [Phase ?]: RED テスト collection 保証のため module-level import を遅延 import 化（Plan 02-02）
+- [Phase ?]: RED テスト collection 保証のため module-level import を遅延 import 化（Plan 02-22）
 - [Phase ?]: Phase 2 Plan 03 GREEN: fukusho_label ETL 実装完了・27 unit tests GREEN・REVIEWS HIGH #1/#3/#4/#5/#6 + NEW HIGH #2/#3 解決・Task 3 実DB実行は checkpoint:human-verify で停止
 - [Phase ?]: 02-04: LABEL-03 gate PASSES live (100% agreement, 6 BLOCK checks green). Drift BLOCK->INFO per Rule 1 (drift is D-04-legitimate, label correctness via precision/recall BLOCK)
 - [Phase ?]: 03-01: rolling 8 systems x 3 axes (24) + static 15 + running_style 1 = 40 features; source_role taxonomy [HIGH #4]; strict < cutoff unified [HIGH #2]
@@ -223,9 +246,8 @@ None yet.
 
 ### Blockers/Concerns
 
-- Phase 2 research flag: `sales_start_entry_count` restoration logic and payout-table schema cannot be specified without inspecting actual EveryDB2/JRA-VAN columns — likely needs `/gsd-plan-phase --research-phase 2`
-- Phase 3 research flag: `available_from_timing` mapping depends on exact JRA-VAN data-availability timings — likely needs `/gsd-plan-phase --research-phase 3`
-- Phase 5 sub-spike: odds-snapshot timing granularity in EveryDB2 gates the candidate `odds_snapshot_policy` set
+- Phase 9 research flag: スピード指数構築（FEAT-01）に必要な normalized 層素材（`time`/`kyori`/`babacd`/`trackcd`/`class_code_normalized`）の正式カラム名・品質・欠損パターン・par time 算出に必要な開催日/馬場メタの実態を live-DB で精査する必要 — `/gsd-plan-phase 9 --research-phase 9` または計画時の精査がlikely
+- Phase 11 research flag: レース内相対確率モデル（MODEL-01）の `sum(p)=払戻対象数` 制約・race-level top-k calibration の実装方針（Plackett-Luce/Harville/listwise loss/制約付き正規化のどれを採用するか）は、v1.0 独立二値分類の拡張として計画フェーズで比較検討が必要
 
 ### Quick Tasks Completed
 
@@ -243,17 +265,18 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-06-25:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| debug | fukusho-recovery-070 | diagnosed — 回収率0.65-0.70天井の構造的限界（ROOT CAUSE 確定・3層構造: 市場情報不足→中高オッズ域過大予測→EV演算増幅→複勝控除率天井）。戦略判断（A受容/B 1-A改善/C Phase 1-B）は別計画フェーズ・ユーザー承認済(2026-06-24)・要件未達でなく正直な結論 | 2026-06-25 |
+| debug | fukusho-recovery-070 | diagnosed — 回収率0.65-0.70天井の構造的限界（ROOT CAUSE 確定・3層構造: 市場情報不足→中高オッズ域過大予測→EV演算増幅→複勝控除率天井）。戦略判断（A受容/B 1-A改善/C Phase 1-B）は別計画フェーズ・ユーザー承認済(2026-06-24)・要件未達でなく正直な結論 → **v1.1 は戦略 B（1-A改善: 能力特徴量精密化 + レース内相対確率モデル）として実行中** | 2026-06-25 |
 | verification | phase-07-human-needed | human_needed — 36/36 truths verified・残り2件はライブブラウザ描画振る舞い（grep/AST 不可視）・07-03 checkpoint:human-verify で RESOLVED 済・回帰監視として残存 | 2026-06-25 |
 
 ## Session Continuity
 
 **Resume file:** None
 
-Last session: 2026-06-25T00:52:52.737Z
-Stopped at: Completed 08-03-PLAN.md (live-DB full-suite GREEN・checkpoint approved・Phase 8 全 plan 完了)
-Resume: /gsd-execute-phase 6
+Last session: 2026-06-25T07:04:21Z
+Stopped at: ROADMAP created for v1.1 (4 phases・Phases 9-12・8/8 要件マッピング済・STATE.md/REQUIREMENTS.md 更新済)
+Resume: `/gsd-plan-phase 9`（Phase 9 Speed Figure Foundation の計画作成へ）
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- `/gsd-plan-phase 9` で Phase 9 Speed Figure Foundation を計画（FEAT-01 スピード指数構築・normalized 層素材の live-DB 精査を含む）
+- Phase 9 完了後、Phase 10 → 11 → 12 の順で厳格に実行（依存関係 DAG・各 Phase の完了が次の前提）

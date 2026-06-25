@@ -63,22 +63,30 @@
 
 ロードマップ作成時に gsd-roadmapper が埋める。
 
+SAFE-01（core value 維持・横断要件）は全フェーズで遵守すべき聖域だが、特に Phase 9/10（特徴量追加・リーク/市場回帰ガード）・Phase 11（モデル変更・リーク/市場回帰ガード）・Phase 12（オッズ帯別条件付き calibration 受入基準）に明示マッピング。
+
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FEAT-01 | (TBD) | Pending |
-| FEAT-02 | (TBD) | Pending |
-| FEAT-03 | (TBD) | Pending |
-| MODEL-01 | (TBD) | Pending |
-| EV-01 | (TBD) | Pending |
-| EVAL-01 | (TBD) | Pending |
-| EVAL-02 | (TBD) | Pending |
-| SAFE-01 | (TBD) | Pending |
+| FEAT-01 | Phase 9 | Pending |
+| FEAT-02 | Phase 10 | Pending |
+| FEAT-03 | Phase 10 | Pending |
+| MODEL-01 | Phase 11 | Pending |
+| EV-01 | Phase 12 | Pending |
+| EVAL-01 | Phase 12 | Pending |
+| EVAL-02 | Phase 12 | Pending |
+| SAFE-01 | Phase 9 / 10 / 11 / 12 (横断・各 SC に明示) | Pending |
 
 **Coverage:**
 - v1.1 requirements: 8 total
-- Mapped to phases: 0（ロードマップ作成後に埋まる）
-- Unmapped: 8 ⚠️（roadmapper が解消）
+- Mapped to phases: 8/8 ✓
+- Unmapped: 0 ✓
+
+**Phase マッピング根拠（依存関係 DAG）:**
+- Phase 9 (FEAT-01): スピード指数は能力特徴量の基盤 → FEAT-02/03 の前提
+- Phase 10 (FEAT-02 + FEAT-03): 相手強度とレース内相対は FEAT-01 に依存 → 同フェーズで追加（複雑度 fine 粒度で自然な境界）
+- Phase 11 (MODEL-01): FEAT-01/02/03 完成後に入力。レース内相対確率モデル
+- Phase 12 (EV-01 + EVAL-01 + EVAL-02): MODEL-01 の `p` 完成後。p_lower EV 移行・評価拡張・falsification は最終フェーズで統合（§15.2 事前登録指標不変の上に追加指標を載せる）
 
 ---
 *Requirements defined: 2026-06-25 after v1.1 milestone start（外部 ChatGPT/Codex 2AI リサーチ統合・debug ROOT CAUSE 準拠）*
-*Last updated: 2026-06-25 after initial v1.1 definition*
+*Last updated: 2026-06-25 after ROADMAP creation (8/8 mapped・Phase 9-12)*
