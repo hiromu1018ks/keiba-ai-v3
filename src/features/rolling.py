@@ -77,6 +77,10 @@ _ROLLING_SYSTEMS: tuple[str, ...] = (
     "days_since_prev",
     "timediff",
     "babacd",
+    # NEW Phase 9・Beyer 型スピード指数（history 側で builder が
+    # compute_speed_figure_for_history で付与・float）。既存8系統とは異なり
+    # _SPEED_FIGURE_AXES で (axis, window) ペアを明示指定し window 1/3/5 が混在。
+    "speed_figure",
 )
 
 # 各系統が ``history`` から読む source 列の対応表。target race 当日の後半3ハロン
@@ -91,6 +95,9 @@ _SYSTEM_SOURCE: dict[str, tuple[str, ...]] = {
     "days_since_prev": ("days_since_prev",),
     "timediff": ("timediff",),
     "babacd": ("babacd",),
+    # NEW Phase 9: speed_figure は builder が compute_speed_figure_for_history で
+    # history に付与済みの float 列をそのまま source とする（単一 source）。
+    "speed_figure": ("speed_figure",),
 }
 
 # CR-02 (03-REVIEW): ``jyocd`` は JRA 競馬場コード（"01"=札幌, "05"=東京 等）の
@@ -116,9 +123,32 @@ def _pit_cutoff_prefilter(expanded: pd.DataFrame) -> pd.DataFrame:
     ].copy()
 
 
+# ---------------------------------------------------------------------------
+# Phase 9: speed_figure 系統は D-09 の6 feature で window が混在するため
+# (axis, window) ペアで明示指定。既存8系統（kakuteijyuni/harontimel3/
+# jyuni3c_jyuni4c/kyori/jyocd/days_since_prev/timediff/babacd・M1 訂正）は
+# 従来通り axis 名のみで window=5 固定（_axes_for 経由・本仕組みは使わない）。
+# D-09 命名の正は rolling_speed_figure_{axis}_{window}（latest_5 でない・P03/P04 と完全一致）。
+# ---------------------------------------------------------------------------
+_SPEED_FIGURE_AXES: tuple[tuple[str, int], ...] = (
+    ("last", 1),    # rolling_speed_figure_last_1   (直近状態・window=1)
+    ("mean", 3),    # rolling_speed_figure_mean_3   (安定能力・window=3)
+    ("mean", 5),    # rolling_speed_figure_mean_5   (window=5)
+    ("max", 5),     # rolling_speed_figure_max_5    (潜在能力・window=5)
+    ("sd", 5),      # rolling_speed_figure_sd_5     (不安定性・window=5)
+    ("count", 5),   # rolling_speed_figure_count_5  (信頼度・window=5)
+)
+
+
 # 系統毎の出力 axis セット（mean/latest/sd/count または mode/latest/count）。
+# **既存8系統専用**（speed_figure には使わない・speed_figure は _SPEED_FIGURE_AXES で別経路）。
 def _axes_for(system: str) -> tuple[str, ...]:
-    """系統が出力すべき axis タプルを返す（categorical は mode/latest/count）。"""
+    """系統が出力すべき axis タプルを返す（categorical は mode/latest/count）。
+
+    **既存8系統専用**。speed_figure 系統は呼出側で別途 _SPEED_FIGURE_AXES を参照すること
+    （本関数は速度低下回避と明示的分離のため speed_figure を扱わない・window 1/3/5 混在は
+    _SPEED_FIGURE_AXES の (axis, window) 形式でのみ表現）。
+    """
     if system in _CATEGORICAL_SYSTEMS:
         return ("mode", "latest", "count")
     return ("mean", "latest", "sd", "count")
@@ -181,6 +211,14 @@ def build_rolling_features(
         - categorical 系統: ``rolling_<system>_{mode,latest,count}_5`` （jyocd 1系統 × 3 = 3 列）
         - 計 31 列（CR-02 で jyocd を mode/latest/count に変更・numeric 32→28 + categorical 3 = 31）
 
+        Phase 9 で追加: speed_figure 系統は D-09 の6 feature・``_SPEED_FIGURE_AXES`` で
+        (axis, window) を明示指定し window 1/3/5 が混在。列名形式は
+        ``rolling_speed_figure_{axis}_{window}``（``latest_5`` でない・D-09 命名の正）。
+        既存8系統（kakuteijyuni/harontimel3/jyuni3c_jyuni4c/kyori/jyocd/
+        days_since_prev/timediff/babacd・M1 訂正）の ``rolling_<sys>_<axis>_5``
+        形式は不変（回帰リスク回避）。5走未満は ``__MISSING__`` sentinel（count_5 のみ
+        実際 count を出力・D-11 信頼度軸）。
+
     Raises
     ------
     ValueError
@@ -217,8 +255,19 @@ def build_rolling_features(
     # rolling 出力列を object dtype で初期化（数値と __MISSING__ sentinel 文字列が混在・
     # silent fill 禁止・D-13）。pandas が str dtype を推論して数値代入を拒否するのを避ける。
     # CR-02: categorical 系統（jyocd）は mean/sd でなく mode/latest を出力。
+    # Phase 9: speed_figure 系統は _SPEED_FIGURE_AXES から列名を生成
+    # （rolling_speed_figure_{axis}_{window}・window 1/3/5 混在）。既存8系統は
+    # _axes_for(system) で window=5 固定（rolling_<sys>_<axis>_5）。
     rolling_cols: list[str] = []
     for system in _ROLLING_SYSTEMS:
+        if system == "speed_figure":
+            for axis, window in _SPEED_FIGURE_AXES:
+                col = f"rolling_speed_figure_{axis}_{window}"
+                rolling_cols.append(col)
+                result[col] = pd.Series(
+                    [MISSING] * len(result), dtype=object, index=result.index
+                )
+            continue
         for axis in _axes_for(system):
             col = f"rolling_{system}_{axis}_5"
             rolling_cols.append(col)
@@ -273,6 +322,101 @@ def build_rolling_features(
         source_cols = _SYSTEM_SOURCE[system]
         # 系統の source 列が history に無ければ全系統 sentinel 初期値のまま（D-13 相当）
         if not all(c in recent.columns for c in source_cols):
+            # speed_figure 列が無い場合は次系統へ（sentinel 初期値維持・回帰安全和）
+            continue
+
+        # --- Phase 9: speed_figure 系統専用集約ブロック（D-09 の6 feature） ---
+        # 既存8系統のロジック（categorical/numeric）は維持し・speed_figure は別経路で処理。
+        # recent は既に groupby("obs_id").head(5) 済み（LOOKBACK=5 窓）・
+        # さらに head(window) で window<=5 に切詰める（PIT filter 後なので安全）。
+        if system == "speed_figure":
+            speed_series = pd.to_numeric(recent["speed_figure"], errors="coerce")
+            recent_sf = recent.assign(_sf_value=speed_series)
+            # 各 (axis, window) 毎に window 上位 K 件で集約（race_start_datetime DESC sort 済み）
+            # head(window) は sort 済み recent で時系列降順の上位 K 件を取る（groupby head）。
+            for axis, window in _SPEED_FIGURE_AXES:
+                # window 上位 K 件に切替（obs_id 毎に独立・window<=5 なので recent を起点に安全）
+                windowed = (
+                    recent_sf
+                    .groupby("obs_id", sort=False)
+                    .head(window)
+                )
+                if axis == "last":
+                    # first が最新1件（race_start_datetime DESC sort 済み）
+                    val_per_obs = (
+                        windowed.groupby("obs_id", sort=False)["_sf_value"].first().to_dict()
+                    )
+                    count_check = (
+                        windowed["_sf_value"].notna()
+                        .groupby(windowed["obs_id"]).sum().astype(int).to_dict()
+                    )
+                elif axis == "mean":
+                    val_per_obs = (
+                        windowed.groupby("obs_id")["_sf_value"].mean().to_dict()
+                    )
+                    count_check = (
+                        windowed["_sf_value"].notna()
+                        .groupby(windowed["obs_id"]).sum().astype(int).to_dict()
+                    )
+                elif axis == "max":
+                    val_per_obs = (
+                        windowed.groupby("obs_id")["_sf_value"].max().to_dict()
+                    )
+                    count_check = (
+                        windowed["_sf_value"].notna()
+                        .groupby(windowed["obs_id"]).sum().astype(int).to_dict()
+                    )
+                elif axis == "sd":
+                    val_per_obs = (
+                        windowed.groupby("obs_id")["_sf_value"].std(ddof=1).to_dict()
+                    )
+                    count_check = (
+                        windowed["_sf_value"].notna()
+                        .groupby(windowed["obs_id"]).sum().astype(int).to_dict()
+                    )
+                elif axis == "count":
+                    # count 軸は常に实际 count（0〜window）を出力（D-11・信頼度軸）
+                    val_per_obs = (
+                        windowed["_sf_value"].notna()
+                        .groupby(windowed["obs_id"]).sum().astype(int).to_dict()
+                    )
+                    count_check = None  # count 自身は sentinel 不要
+                else:  # pragma: no cover - D-09 設計上到達不能
+                    continue
+
+                col = f"rolling_speed_figure_{axis}_{window}"
+                for idx, obs_id in zip(result.index, result["obs_id"], strict=False):
+                    n = count_check.get(obs_id, 0) if count_check is not None else None
+                    if axis == "count":
+                        # 常に实际 count を出力（5走未満でも実際走数・D-11）
+                        result.at[idx, col] = val_per_obs.get(obs_id, 0)
+                    elif axis == "last":
+                        # count >= 1 で算出・未満 MISSING
+                        if n is not None and n >= 1:
+                            v = val_per_obs.get(obs_id)
+                            result.at[idx, col] = v if pd.notna(v) else MISSING
+                        else:
+                            result.at[idx, col] = MISSING
+                    elif axis == "mean":
+                        # count >= window で算出・未満 MISSING（D-11）
+                        if n is not None and n >= window:
+                            v = val_per_obs.get(obs_id)
+                            result.at[idx, col] = v if pd.notna(v) else MISSING
+                        else:
+                            result.at[idx, col] = MISSING
+                    elif axis == "max":
+                        if n is not None and n >= window:
+                            v = val_per_obs.get(obs_id)
+                            result.at[idx, col] = v if pd.notna(v) else MISSING
+                        else:
+                            result.at[idx, col] = MISSING
+                    elif axis == "sd":
+                        # sd は n>=window (>=2) で算出・未満 MISSING（既存 sd_per_obs と同一）
+                        if n is not None and n >= window:
+                            v = val_per_obs.get(obs_id)
+                            result.at[idx, col] = v if pd.notna(v) else MISSING
+                        else:
+                            result.at[idx, col] = MISSING
             continue
 
         is_categorical = system in _CATEGORICAL_SYSTEMS
