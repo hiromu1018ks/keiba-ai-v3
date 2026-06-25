@@ -38,10 +38,17 @@ _CSV_STAMPS: tuple[str, ...] = (
 )
 
 # 書き込み/DDL キーワード（大文字小文字区別なし・SQL 文字列リテラル内でマッチ）。
-# analog ``tests/ui/test_readonly_guarantee.py::_WRITE_DDL_KEYWORDS`` と同一キーワード6種。
-# bare（"insert"/"update"/"delete"/"truncate"/"create"/"drop"/"alter"）と DML/DDL 構文
-# （"insert into"/"update <table>"/"delete from"/"truncate <table>"/"create table"/"drop table"/
-# "alter table"）の両方を検出するため・大文字小文字区別なしで SQL 内に出現するかを確認。
+# adversarial 注入検出を最優先し・bare キーワード（"insert"/"update"/"delete"/"truncate"/
+# "create"/"drop"/"alter"）を採用。analog ``tests/ui/test_readonly_guarantee.py::_WRITE_DDL_KEYWORDS``
+# の複合キーワード（"insert into"/"update <table>"/"delete from"/"truncate <table>"/
+# "create table"/"drop table"/"alter table"）より広く捉えることで注入の確実検出を狙う。
+#
+# REVIEW CR-03 開示: 本キーワード集合は本番 guard (tests/ui/test_readonly_guarantee.py) と
+# **同一覆盖力を持たない**。bare 採用により本番 guard が通す SQL（例: "DELETE" 単独・
+# "SELECT * FROM updates" のようなテーブル名に "update" を含む参照）を audit 側が fail させる
+# 設計差が存在する。逆に本番 guard が通す SQL が audit で fail した場合・開発者はどちらを修正
+# すべきか個別判断が必要。本テストは「注入を確実に検出」(SC#2 adversarial) を優先しており・
+# 「audit GREEN ⇒ 本番 guard GREEN」を意味しない点に注意。
 _WRITE_DDL_KEYWORDS: tuple[str, ...] = (
     "insert",
     "update",
@@ -78,11 +85,15 @@ def _extract_sql_literals(tree: ast.AST) -> list[str]:
 def _contains_write_ddl(sql_literals: list[str]) -> bool:
     """SQL 文字列リテラルのリストに書き込み/DDL キーワードが含まれるかを返す（T-08-02 mitigate）。
 
-    大文字小文字区別なし・キーワード6種（INSERT/UPDATE/DELETE/TRUNCATE/CREATE/DROP/ALTER）。
+    大文字小文字区別なし・bare キーワード7種（INSERT/UPDATE/DELETE/TRUNCATE/CREATE/DROP/ALTER）。
     SQL リテラル内でキーワード単語として出現するかを確認（``alter`` が ``alter table`` でも
-    ``ALTER`` でも検出）。analog ``tests/ui/test_readonly_guarantee.py`` の書き込み/DDL 検出と
-    同一の覆盖力を持つが・本 adversarial テストでは bare キーワードで広く捉えることで注入を
-    確実に検出する（``insert into`` でなく ``insert`` でもヒット）。
+    ``ALTER`` でも検出）。
+
+    REVIEW CR-03 開示: analog ``tests/ui/test_readonly_guarantee.py`` の書き込み/DDL 検出とは
+    **同一の覆盖力を持たない**。本番 guard は複合キーワード（"insert into"/"update <table>" 等）
+    を使うのに対し・本 adversarial テストは bare キーワードで広く捉えることで注入を確実に検出
+    する（``insert into`` でなく ``insert`` でもヒット）。「本テスト GREEN ⇒ 本番 guard GREEN」
+    は成立しない点（例: ``DELETE`` 単独は本 test が fail させ本番 guard は通す）に注意。
     """
     for sql in sql_literals:
         sql_lower = sql.lower()
