@@ -52,7 +52,12 @@
   4. オッズ/人気/過去人気/過去オッズ proxy が新特徴量に混入していないことを adversarial audit（AST 静的保証・allowlist grep）で証明できる（SAFE-01・過去オッズ proxy 排除）
   5. スピード指数の分布がドメイン整合性を持つ（同一馬の連続走で指数が大きく安定し・クラス昇降で有意に変動する・極端な外れ値がないことを live-DB で可視化確認）
   6. 【**stop gate**・Phase 9 終了時】スピード指数を追加した単体モデル（v1.0 特徴量＋スピード指数）で、odds_band × p_bin の過大予測（v1.0 の中高オッズ域4倍過大）が改善するか、または falsification の暫定 market residual が残るかを確認する。**両方とも改善/residual が見られなければ「特徴量不足でなく構造的限界寄り」と判断**し、Phase 10-12 に進む前にマイルストーン継続の可否を評価する（マイルストーン目的＝市場残差能力の定量測定・鑑別に合致・早期撤退判断）。
-**Plans**: TBD
+**Plans**: 5 plans
+- [ ] 09-01-PLAN.md — speed_figure.py 新規(par/variant/PIT/float) + SC#1/SC#2 単体/adversarial テスト(FEAT-01/SAFE-01)
+- [ ] 09-02-PLAN.md — rolling.py/availability.py/feature_availability.yaml 拡張(speed_figure 6 feature + course_kubun bug 修正)(FEAT-01)
+- [ ] 09-03-PLAN.md — builder.py Step 5b 統合 + SC#1 byte-reproducible/SC#3 registry↔Parquet parity(FEAT-01)
+- [ ] 09-04-PLAN.md — SC#4 SAFE-01 proxy 排除 AST audit + SC#5 ドメイン整合性可視化(SAFE-01/FEAT-01)
+- [ ] 09-05-PLAN.md — SC#6 stop gate(v1.0 baseline 比較・D-14 4指標+D-15 residual proxy・D-16 checkpoint)(FEAT-01)
 
 ### Phase 10: Opponent Strength & Race-Relative Features
 **Goal**: 過去走の相手の as-of 能力平均（`field_strength`）と、レース内相対特徴量（`speed_index_rank` / `gap_to_top` / `gap_to_3rd` / `field_strength_adjusted_rank`）を、Phase 9 のスピード指数を前提として odds-free・PIT-safe に追加する。複勝の「相対競争・各馬独立事象でない」性質を特徴量層で表現する。
@@ -103,7 +108,7 @@
 | 6. Evaluation & Calibration Gates | v1.0 | 5/5 | Complete | 2026-06-23 |
 | 7. Presentation | v1.0 | 3/3 | Complete | 2026-06-24 |
 | 8. Adversarial Audit Suite | v1.0 | 3/3 | Complete | 2026-06-25 |
-| 9. Speed Figure Foundation | v1.1 | 0/? | Not started | - |
+| 9. Speed Figure Foundation | v1.1 | 0/5 | Not started | - |
 | 10. Opponent Strength & Race-Relative Features | v1.1 | 0/? | Not started | - |
 | 11. Race-Relative Probability Model | v1.1 | 0/? | Not started | - |
 | 12. p_lower EV & Falsification Evaluation | v1.1 | 0/? | Not started | - |

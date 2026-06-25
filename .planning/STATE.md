@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Ability Feature v2 & Conditional Calibration
 current_phase: 09
-current_phase_name: Not started — ROADMAP 作成済・plan 未作成
+current_phase_name: Speed Figure Foundation — plans 作成済(5 plans)・実行待ち
 status: planning
-stopped_at: Phase 9 Speed Figure Foundation context gathered（スピード指数設計4領域決定・CONTEXT.md 作成済）
-last_updated: "2026-06-25T10:10:39.801Z"
+stopped_at: Phase 9 Speed Figure Foundation の 5 PLAN 作成完了(P01-P05・wave 1-5・依存グラフ確定・SC#1-6 全カバー)
+last_updated: "2026-06-25T12:00:00.000Z"
 last_activity: 2026-06-25
 last_activity_desc: ROADMAP created for v1.1 (4 phases・Phases 9-12)
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
+  total_plans: 5
   completed_plans: 0
   percent: 0
 ---
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 
 ## Current Position
 
-Phase: 09 Speed Figure Foundation (Not started — ROADMAP 作成済・plan 未作成)
-Plan: —
-Status: Ready for planning（ROADMAP.md v1.1 Phase 9-12 完成済・8/8 要件マッピング済・次は `/gsd-plan-phase 9` で Phase 9 計画）
-Last activity: 2026-06-25 — ROADMAP created for v1.1 (4 phases・Phases 9-12)
+Phase: 09 Speed Figure Foundation (plans 作成済・5 plans・実行待ち)
+Plan: 09-01〜09-05(wave 1-5・直列依存グラフ・SC#1-6 全カバー・FEAT-01/SAFE-01 マッピング済)
+Status: Ready for execution（5 PLAN 作成済・`/gsd-execute-phase 9` で Phase 9 実行へ）
+Last activity: 2026-06-25 — Phase 9 の 5 PLAN 作成完了(P01-P05・依存グラフ確定)
 
 ## v1.1 Milestone Context
 
@@ -69,7 +69,7 @@ Last activity: 2026-06-25 — ROADMAP created for v1.1 (4 phases・Phases 9-12)
 | 06 | 5 | - | - |
 | 07 | 3 | - | - |
 | 08 | 3 | - | - |
-| 09 | 0/? | - | - |
+| 09 | 0/5 | - | - |
 | 10 | 0/? | - | - |
 | 11 | 0/? | - | - |
 | 12 | 0/? | - | - |
@@ -275,13 +275,13 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-06-25:
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/09-speed-figure-foundation/09-CONTEXT.md
+**Resume file:** .planning/phases/09-speed-figure-foundation/09-05-PLAN.md
 
-Last session: 2026-06-25T10:10:39.795Z
-Stopped at: Phase 9 Speed Figure Foundation context gathered（スピード指数設計4領域決定・CONTEXT.md 作成済）
-Resume: `/gsd-plan-phase 9`（Phase 9 Speed Figure Foundation の計画作成へ）
+Last session: 2026-06-25T12:00:00.000Z
+Stopped at: Phase 9 Speed Figure Foundation の 5 PLAN 作成完了(P01-P05・wave 1-5・SC#1-6 全カバー)
+Resume: `/gsd-execute-phase 9`（Phase 9 Speed Figure Foundation の実行へ・P01 から順次・wave 並列は依存グラフで制約）
 
 ## Operator Next Steps
 
-- `/gsd-plan-phase 9` で Phase 9 Speed Figure Foundation を計画（FEAT-01 スピード指数構築・normalized 層素材の live-DB 精査を含む）
+- `/gsd-execute-phase 9` で Phase 9 Speed Figure Foundation を実行（5 plans・wave 1-5 直列依存・P01=speed_figure.py 新規→P05=stop gate）
 - Phase 9 完了後、Phase 10 → 11 → 12 の順で厳格に実行（依存関係 DAG・各 Phase の完了が次の前提）
