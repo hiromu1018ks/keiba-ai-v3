@@ -18,6 +18,8 @@ import pandas as pd
 
 from src.features.speed_figure import (
     POINTS_PER_SECOND_BY_DISTANCE_M,
+    _decode_jra_time,
+    _decode_jra_time_series,
     _derive_surface,
     _time_to_seconds,
     _time_to_seconds_series,
@@ -32,21 +34,53 @@ from tests.features.conftest import (
 )
 
 
-def test_time_decisecond_conversion() -> None:
-    """``time`` (0.1秒単位) → 秒換算: 1108.0 → 110.8・0/<0 は NaN。"""
-    # スカラー版
-    assert abs(_time_to_seconds(1108.0) - 110.8) < 1e-9, "1108.0 ds → 110.8 s"
-    assert _time_to_seconds(0) != _time_to_seconds(0), "time=0 は NaN"
-    assert _time_to_seconds(-5.0) != _time_to_seconds(-5.0), "time<0 は NaN"
-    assert _time_to_seconds(None) != _time_to_seconds(None), "time=None は NaN"
-    # vectorized 版（kyori/surface 引数無し: 従来挙動・範囲チェック無し）
-    s = pd.Series([1108.0, 0.0, -1.0, 9990.0, None])
-    out = _time_to_seconds_series(s)
-    assert abs(out.iloc[0] - 110.8) < 1e-9, "iloc[0]: 1108.0 ds → 110.8 s"
-    assert pd.isna(out.iloc[1]), "iloc[1]: time=0 → NaN"
-    assert pd.isna(out.iloc[2]), "iloc[2]: time=-1 → NaN"
-    assert abs(out.iloc[3] - 999.0) < 1e-9, "iloc[3]: 9990.0 ds → 999.0 s"
-    assert pd.isna(out.iloc[4]), "iloc[4]: None → NaN"
+def test_decode_jra_time_mmss_t() -> None:
+    """``time`` (MMSS.t エンコード・JRA-VAN 可変長走捕タイム) → 秒デコード。
+
+    live-DB 実証 (composite race_nkey JOIN):
+      - 1000m time=591   → 3桁 "SST"   → 59.1s
+      - 1200m time=1152  → 4桁 "MSST"  → 1*60+15+0.2 = 75.2s
+      - 1600m time=1353  → 4桁         → 1*60+35+0.3 = 95.3s
+      - 2400m time=2374  → 4桁         → 2*60+37+0.4 = 157.4s
+      - 3000m time=3090  → 4桁         → 3*60+09+0.0 = 189.0s
+
+    09-01 の ``time/10.0`` decisecond 誤認は 3桁のみ偶然正しく・4桁+を ~1.5倍過大誤認
+    （1200m 1152 → 115.2s 異常 / 正しくは 75.2s）。
+    """
+    # スカラー版（5桁もカバー: 12分34秒5 = 754.5s）
+    assert abs(_decode_jra_time(591.0) - 59.1) < 1e-9, "591 (3桁) → 59.1s"
+    assert abs(_decode_jra_time(1152.0) - 75.2) < 1e-9, "1152 (4桁) → 1分15.2秒=75.2s"
+    assert abs(_decode_jra_time(1353.0) - 95.3) < 1e-9, "1353 (4桁) → 1分35.3秒=95.3s"
+    assert abs(_decode_jra_time(2374.0) - 157.4) < 1e-9, "2374 (4桁) → 2分37.4秒=157.4s"
+    assert abs(_decode_jra_time(3090.0) - 189.0) < 1e-9, "3090 (4桁) → 3分09秒0=189.0s"
+    assert abs(_decode_jra_time(12345.0) - 754.5) < 1e-9, "12345 (5桁) → 12分34秒5=754.5s"
+    # 整数秒境界: 1140 = 1分14秒0 = 74.0s（114.0s でない）
+    assert abs(_decode_jra_time(1140.0) - 74.0) < 1e-9, "1140 → 1分14秒0=74.0s"
+    # 異常値
+    assert _decode_jra_time(0) != _decode_jra_time(0), "time=0 は NaN"
+    assert _decode_jra_time(-5.0) != _decode_jra_time(-5.0), "time<0 は NaN"
+    assert _decode_jra_time(None) != _decode_jra_time(None), "time=None は NaN"
+    # 6桁以上は NaN（防御的・JRA 平地/障害は5桁以内に収まる）
+    assert _decode_jra_time(100000.0) != _decode_jra_time(100000.0), "6桁以上は NaN（不正形式）"
+    # vectorized 版
+    s = pd.Series([591.0, 1152.0, 1353.0, 2374.0, 3090.0, 0.0, -1.0, None])
+    out = _decode_jra_time_series(s)
+    assert abs(out.iloc[0] - 59.1) < 1e-9, "iloc[0]: 591 → 59.1s"
+    assert abs(out.iloc[1] - 75.2) < 1e-9, "iloc[1]: 1152 → 75.2s"
+    assert abs(out.iloc[2] - 95.3) < 1e-9, "iloc[2]: 1353 → 95.3s"
+    assert abs(out.iloc[3] - 157.4) < 1e-9, "iloc[3]: 2374 → 157.4s"
+    assert abs(out.iloc[4] - 189.0) < 1e-9, "iloc[4]: 3090 → 189.0s"
+    assert pd.isna(out.iloc[5]), "iloc[5]: time=0 → NaN"
+    assert pd.isna(out.iloc[6]), "iloc[6]: time=-1 → NaN"
+    assert pd.isna(out.iloc[7]), "iloc[7]: None → NaN"
+
+
+def test_time_mmss_t_conversion_via_time_to_seconds() -> None:
+    """``_time_to_seconds`` は MMSS.t デコードの thin wrapper（後方互換）。
+
+    1108.0 (4桁 "MSST") → 1*60+10+0.8 = 70.8s（decisecond 110.8s でない）。
+    """
+    assert abs(_time_to_seconds(1108.0) - 70.8) < 1e-9, "1108 → 1分10秒8=70.8s"
 
 
 def test_time_to_seconds_obstacle_and_physical_range_exclusion() -> None:
@@ -59,20 +93,24 @@ def test_time_to_seconds_obstacle_and_physical_range_exclusion() -> None:
 
     本テストは ``_time_to_seconds_series(time, kyori, surface)`` が両者を NaN 化することを実証。
     """
-    # 1000m・平地: 700 ds (70.0s・範囲 53-85) は保持・1176 ds (117.6s・範囲外) は NaN
-    time = pd.Series([700.0, 1176.0, 1100.0, 700.0])
+    # MMSS.t エンコード:
+    #   1000m 70.0s → "1108" (1分10秒8) は範囲外(53-85)でないが不正確 → 70.0s は3桁 "700" 不可
+    #   実際: 1000m 典型 ~58-60s → 60.0s = 4桁 "1000" (1分00秒0)
+    #   1000m 117.6s(物理異常) = "1576" (1分57秒6) → 117.6s 範囲外 NaN
+    #   1600m 110.0s(正常) = "1500" (1分50秒0)
+    time = pd.Series([1000.0, 1576.0, 1500.0, 1000.0])
     kyori = pd.Series([1000, 1000, 1600, 1000])
     surface = pd.Series(["turf", "turf", "dirt", "obstacle"])
     out = _time_to_seconds_series(time, kyori, surface)
-    # 1000m 70.0s → 保持
-    assert abs(out.iloc[0] - 70.0) < 1e-9, "1000m 70.0s は範囲内(53-85) → 保持"
+    # 1000m 60.0s → 保持
+    assert abs(out.iloc[0] - 60.0) < 1e-9, "1000m 60.0s は範囲内(53-85) → 保持"
     # 1000m 117.6s → NaN（物理妥持範囲外・落馬/故障/記録ミス）
     assert pd.isna(out.iloc[1]), (
         "1000m 117.6s は物理妥持範囲外(53-85) → NaN（JRA 1000m record ~56s・正常完走は ~58-75s）"
     )
     # 1600m 110.0s → 保持
     assert abs(out.iloc[2] - 110.0) < 1e-9, "1600m 110.0s は範囲内(92-125) → 保持"
-    # 1000m 70.0s だが obstacle → NaN（障害は Beyer 平地モデル不適合）
+    # 1000m 60.0s だが obstacle → NaN（障害は Beyer 平地モデル不適合）
     assert pd.isna(out.iloc[3]), (
         "surface=='obstacle' は time_sec を NaN 化（pps テーブルが平地専用・SC#5 外れ値根本原因）"
     )
@@ -106,7 +144,7 @@ def test_obstacle_race_excluded_from_speed_figure() -> None:
             kettonum=5001,
             race_date="2023-05-01",
             as_of_datetime=pd.to_datetime("2023-05-01"),
-            time=1690.0,   # 169.0s・障害 3000m 典型
+            time=2690.0,   # MMSS.t: 2分69秒0=189.0s・障害 3000m 典型（surface=='obstacle' で NaN 化）
             trackcd="52",  # 障害
             kyori=3000,
             jyocd="05",
@@ -142,23 +180,27 @@ def test_physical_outlier_does_not_pollute_par_median() -> None:
     # 同一 jyocd×trackcd×kyori group で物理異常値が par median を汚染しないことを検証
     rows = []
     for i in range(29):
+        # MMSS.t: 1000m 60.0-67.0s = "1000"-"1070" (1分00秒0 - 1分07秒0)
+        # i=0→1000(60.0s)・i=1→1010(61.0s)・...・i=7→1070(67.0s)
+        sec_t = 60.0 + (i % 8)
+        time_mmss = int(f"10{int(sec_t):02d}0")
         rows.append(_build_se_history_row(
             kettonum=6001,
             race_date=f"2023-04-{(i % 28) + 1:02d}",
             as_of_datetime=pd.to_datetime(f"2023-04-{(i % 28) + 1:02d}"),
-            time=600.0 + (i % 8) * 10,   # 60.0-67.0s（1000m 正常完走範囲 53-85 内）
+            time=float(time_mmss),   # MMSS.t 60.0-67.0s（1000m 正常完走範囲 53-85 内）
             trackcd="10",
             kyori=1000,
             jyocd="05",
             kakuteijyuni=1,
             row_label=f"normal_{i}",
         ))
-    # 物理異常行: 1000m 117.6s（live-DB SC#5 で観測された外れ値）
+    # 物理異常行: 1000m 117.6s（live-DB SC#5 で観測された外れ値）= MMSS.t "1576"
     rows.append(_build_se_history_row(
         kettonum=6001,
         race_date="2023-03-15",
         as_of_datetime=pd.to_datetime("2023-03-15"),
-        time=1176.0,   # 117.6s・物理不可能
+        time=1576.0,   # MMSS.t: 1分57秒6 = 117.6s・物理不可能
         trackcd="10",
         kyori=1000,
         jyocd="05",
@@ -241,11 +283,14 @@ def test_par_fallback_hierarchy() -> None:
     # jyocd×trackcd×kyori group が _MIN_SAMPLES_PAR_JYO_TRACK_KYORI(30) 未満の小さい history
     rows = []
     for i in range(5):  # 5行のみ(< 30)・全て同一 jyocd/trackcd/kyori
+        # MMSS.t: 1600m 110.0-114.0s = "1500"-"1540" (1分50秒0 - 1分54秒0)
+        sec_t = 110.0 + i
+        time_mmss = int(f"15{int(sec_t):02d}0")
         rows.append(_build_se_history_row(
             kettonum=2001,
             race_date=f"2023-05-{i+1:02d}",
             as_of_datetime=pd.to_datetime(f"2023-05-{i+1:02d}"),
-            time=1100.0 + i * 10,   # 110.0, 111.0, ..., 114.0 秒
+            time=float(time_mmss),   # MMSS.t 110.0, 111.0, ..., 114.0 秒
             trackcd="24",
             kyori=1600,
             jyocd="05",
@@ -270,13 +315,14 @@ def test_par_fallback_hierarchy() -> None:
 def test_variant_leave_one_race_out() -> None:
     """variant leave-one-race-out: 自レースを除く same-day residual median（近似精度は docstring 明記範囲）。"""
     # 同一日の3頭(3 race)・jyocd/surface 同一・各 race 1行 → leave-one-out で他2行の median
+    # MMSS.t: 1600m 110.0s="1500" / 111.0s="1510" / 112.0s="1520"
     rows = []
-    for horse, time_ds in [(3001, 1100.0), (3002, 1110.0), (3003, 1120.0)]:
+    for horse, time_mmss in [(3001, 1500.0), (3002, 1510.0), (3003, 1520.0)]:
         rows.append(_build_se_history_row(
             kettonum=horse,
             race_date="2023-05-15",
             as_of_datetime=pd.to_datetime("2023-05-15"),
-            time=time_ds,
+            time=time_mmss,
             trackcd="24",
             kyori=1600,
             jyocd="05",

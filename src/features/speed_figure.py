@@ -118,14 +118,80 @@ def _pit_cutoff_prefilter(expanded: pd.DataFrame) -> pd.DataFrame:
     ].copy()
 
 
-def _time_to_seconds(time_real: float | None) -> float:
-    """``time`` (0.1秒単位・decisecond) を秒に換算。``time <= 0`` は NaN（完走でない）。
+def _decode_jra_time(time_real: float | None) -> float:
+    """JRA-VAN 可変長走破タイム ``time`` (MMSS.t エンコード) を秒にデコード。
 
-    Live-DB 実証: ``time=1108.0`` (1200mダート1着) → 110.8秒 = 1分50秒（典型タイム）。
+    EveryDB2 ``normalized.n_uma_race.time`` は 0.1秒単位（decisecond）でなく・
+    **JRA-VAN 可変長 MMSS.t エンコード**（live-DB 実証・97.8% が4桁）:
+
+      - 3桁 "SST"   → ``SS + T/10`` 秒                  (例: 591 → 59.1s)
+      - 4桁 "MSST"  → ``M*60 + SS + T/10`` 秒           (例: 1152 → 75.2s = 1分15.2秒)
+      - 5桁 "MMSST" → ``MM*60 + SS + T/10`` 秒          (例: 長距離障害等)
+
+    JRA 平地(1000-3200m)・障害(3000-3900m) の完走タイムは全て3-5桁に収まる。
+    6桁以上・不正形式は NaN（防御的）。``time <= 0`` は NaN（取消/競走中止）。
+
+    本デコーダが SC#5 外れ値(±1000超)と 083bfa4 適用後の実値激減(404734→36149)の
+    **真の根本原因対応**（09-01 の ``time/10.0`` decisecond 誤認を是正）。``time/10.0``
+    は3桁(1000m 等)のみ偶然正しく・4桁+(1200m 以降)を ~1.5倍過大誤認していた。
     """
-    if time_real is None or time_real <= 0:
+    if time_real is None:
         return float("nan")
-    return float(time_real) / 10.0
+    try:
+        f = float(time_real)
+    except (TypeError, ValueError):
+        return float("nan")
+    if f <= 0 or not np.isfinite(f):
+        return float("nan")
+    # float → 整数文字列へ（1152.0 → "1152"・trailing ".0" を除去）
+    # ※ round でなく int 変換後 str 化が最も安全（10進で桁数を数える）
+    # 極端に大きい非整数は不正形式扱い
+    i = int(f)
+    if i <= 0:
+        return float("nan")
+    digits = str(i)
+    n = len(digits)
+    # 各桁を整数化
+    try:
+        d = [int(c) for c in digits]
+    except ValueError:
+        return float("nan")
+    if n <= 3:
+        # 1-3桁: SS + T/10 (3桁 "SST" 想定・1-2桁は SS.t or S.t の短縮表現と解釈)
+        ss = int(digits[:-1]) if n >= 2 else 0
+        tenths = d[-1]
+        return float(ss + tenths / 10.0)
+    if n == 4:
+        # 4桁 "MSST": M*60 + SS + T/10
+        m = d[0]
+        ss = d[1] * 10 + d[2]
+        tenths = d[3]
+        return float(m * 60 + ss + tenths / 10.0)
+    if n == 5:
+        # 5桁 "MMSST": MM*60 + SS + T/10
+        mm = d[0] * 10 + d[1]
+        ss = d[2] * 10 + d[3]
+        tenths = d[4]
+        return float(mm * 60 + ss + tenths / 10.0)
+    # 6桁以上・不正形式 → NaN（防御的・JRA タイムは5桁以内に収まる）
+    return float("nan")
+
+
+def _decode_jra_time_series(time_series: pd.Series) -> pd.Series:
+    """``_decode_jra_time`` の vectorized 版（pandas Series・MMSS.t エンコード）。
+
+    ``pd.to_numeric(errors="coerce")`` で非数値を NaN 化後・正数のみを MMSS.t デコード。
+    """
+    numeric = pd.to_numeric(time_series, errors="coerce")
+    return numeric.map(_decode_jra_time)
+
+
+def _time_to_seconds(time_real: float | None) -> float:
+    """``time`` (MMSS.t エンコード) を秒にデコード。``time <= 0`` は NaN（完走でない）。
+
+    本関数は ``_decode_jra_time`` への thin wrapper（後方互換・テスト参照用）。
+    """
+    return _decode_jra_time(time_real)
 
 
 def _time_to_seconds_series(
@@ -133,15 +199,15 @@ def _time_to_seconds_series(
     kyori_series: pd.Series | None = None,
     surface_series: pd.Series | None = None,
 ) -> pd.Series:
-    """``_time_to_seconds`` の vectorized 版（pandas Series 向け）。
+    """``_time_to_seconds`` の vectorized 版（pandas Series 向け・MMSS.t エンコード）。
 
-    ``pd.to_numeric(errors="coerce")`` で非数値を NaN 化後・``> 0`` のみ ``/10.0`` で秒換算。
-    ``time <= 0`` (取消/競走中止・live-DB で4882件) は NaN になる。
+    ``_decode_jra_time_series`` で MMSS.t デコード後・障害除外と距離別物理妥持範囲チェックを適用。
+    ``time <= 0`` (取消/競走中止・live-DB で4882件) および不正形式は NaN になる。
 
     Parameters
     ----------
     time_series : pd.Series
-        ``time`` (decisecond)。
+        ``time`` (MMSS.t エンコード・JRA-VAN 可変長走破タイム)。
     kyori_series : pd.Series, optional
         距離（メートル）。与えられた場合・``_TIME_RANGE_BY_KYORI_SEC`` で物理妥持範囲外の time を NaN 化
         （落馬/故障/記録ミス等のデータ品質障害を落とす・live-DB SC#5 outerlier 根本対策）。
@@ -150,8 +216,7 @@ def _time_to_seconds_series(
         ``_derive_surface`` 出力。``"obstacle"`` の行は time を NaN 化（障害は Beyer 平地モデル不適合・
         par/variant/speed_figure の全てから除外）。
     """
-    numeric = pd.to_numeric(time_series, errors="coerce")
-    seconds = numeric.where(numeric > 0, np.nan) / 10.0
+    seconds = _decode_jra_time_series(time_series)
 
     # 障害除外: surface=='obstacle' は time_sec NaN（Beyer 平地モデル不適合・pps テーブルが平地専用）
     if surface_series is not None:

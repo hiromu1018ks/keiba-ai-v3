@@ -210,24 +210,26 @@ def _build_speed_figure_history_rows(
     eligible 3行(time=1100/1110/1120・jyocd="05"・trackcd="24"・kyori=1600) のみが par/variant 算出に
     使用される。
 
-    ※ Phase 9 SC#5 fix: adversarial time は旧来 9990/9980/...(999.0/998.0s) だったが・これらは
-    1600m 物理妥持範囲(92-125s) 外のため新規 ``_time_to_seconds_series`` の範囲チェックで NaN 化され
-    SC#2 adversarial テストの leak 検出力が失われた。値を物理妥持範囲内の識別値(124.0-120.0s)に更新
-    （PIT 除外は値に無関係に strict < で効くため intent 不変）。eligible 3行(110,111,112) median=111.0
-    に対し previous_day=121.0 混入で median が (111+112)/2=111.5 に変化し leak が機械検出される。
+    ※ Phase 9 SC#5 fix: time は JRA-VAN 可変長 MMSS.t エンコード（decisecond でない・live-DB 実証）。
+    1600m 典型タイム ~95-110s を MMSS.t 表現すると 4桁 (例: 1分34秒0=1340 → 94.0s) になる。
+    adversarial 行(124-120s) は 1600m 物理妥持範囲(92-125s) 内の識別値・eligible(110,111,112)
+    median=111.0 に対し previous_day=121.0 混入で median が (111+112)/2=111.5 に変化し leak が機械検出。
     """
     obs_rd = pd.to_datetime(obs_race_date)
     rows = [
-        # (label, race_date offset from obs_rd, time deciseconds, kakuteijyuni)
-        ("target",         pd.Timedelta(days=0),  1240, 1),   # 当日・必ず除外（124.0s・1600m 範囲内）
-        ("same_day_prior", pd.Timedelta(days=0),  1230, 1),   # 同日別レース・必ず除外（123.0s）
-        ("same_day_later", pd.Timedelta(days=0),  1220, 1),   # 同日午後・必ず除外（122.0s）
-        ("previous_day",   pd.Timedelta(days=-1), 1210, 1),   # 前日==cutoff midnight・strict < で除外（121.0s）
-        ("future",         pd.Timedelta(days=2),  1200, 1),   # 未来・必ず除外（120.0s）
+        # (label, race_date offset from obs_rd, time MMSS.t, kakuteijyuni)
+        # 1600m 物理妥持範囲 92-125s → MMSS.t 表現:
+        #   121.0s = 2分01秒0 = "2010" / 120.0s = 2分00秒0 = "2000" / 124.0s = "2040"
+        #   110.0s = 1分50秒0 = "1500" / 111.0s = "1510" / 112.0s = "1520"
+        ("target",         pd.Timedelta(days=0),  2040, 1),   # 当日・必ず除外（MMSS.t 124.0s）
+        ("same_day_prior", pd.Timedelta(days=0),  2030, 1),   # 同日別レース・必ず除外（123.0s）
+        ("same_day_later", pd.Timedelta(days=0),  2020, 1),   # 同日午後・必ず除外（122.0s）
+        ("previous_day",   pd.Timedelta(days=-1), 2010, 1),   # 前日==cutoff midnight・strict < で除外（121.0s）
+        ("future",         pd.Timedelta(days=2),  2000, 1),   # 未来・必ず除外（120.0s）
         # eligible 3行（par/variant 算出に含まれるべき正当な過去走）
-        ("eligible",       pd.Timedelta(days=-2), 1100, 1),
-        ("eligible",       pd.Timedelta(days=-3), 1110, 1),
-        ("eligible",       pd.Timedelta(days=-4), 1120, 1),
+        ("eligible",       pd.Timedelta(days=-2), 1500, 1),   # MMSS.t 110.0s
+        ("eligible",       pd.Timedelta(days=-3), 1510, 1),   # 111.0s
+        ("eligible",       pd.Timedelta(days=-4), 1520, 1),   # 112.0s
     ]
     history = []
     for label, offset, time_ds, kakuteijyuni in rows:
@@ -238,7 +240,7 @@ def _build_speed_figure_history_rows(
             as_of_datetime=as_of,
             kakuteijyuni=kakuteijyuni,
             # speed_figure 用追加素材
-            time=float(time_ds),       # 0.1秒単位・decisecond
+            time=float(time_ds),       # MMSS.t エンコード（JRA-VAN 可変長走破タイム）
             trackcd="24",              # ダート・1600m
             kyori=1600,
         )

@@ -159,17 +159,17 @@ def test_cross_observation_pit_no_leak() -> None:
     # --- 構築: cutoff の異なる2 observation × 同一 jyocd×trackcd×kyori の合成 history ---
     # O_early: race_date=2023-06-04, cutoff=2023-06-03
     # O_late:  race_date=2023-06-11, cutoff=2023-06-10
-    # 介入行: race_date=2023-06-05 (as_of=2023-06-05)・time=1200.0 ds (極端な遅い値)
+    # 介入行: race_date=2023-06-05 (as_of=2023-06-05)・time MMSS.t "2000"(120.0s・極端な遅い値)
     #   - O_early に対しては as_of(06-05) >= cutoff(06-03) → ineligible
     #   - O_late に対しては  as_of(06-05) <  cutoff(06-10) → eligible
-    # base 行: race_date=2023-05-20 (as_of=2023-05-20)・time=1100.0 ds → 両 obs で eligible
+    # base 行: race_date=2023-05-20 (as_of=2023-05-20)・time MMSS.t "1500"(110.0s) → 両 obs で eligible
     common_kettonum = 4001
     rows = [
         _build_se_history_row(
             kettonum=common_kettonum,
             race_date="2023-05-20",
             as_of_datetime=pd.to_datetime("2023-05-20"),
-            time=1100.0,
+            time=1500.0,   # MMSS.t: 1分50秒0 = 110.0s
             trackcd="24",
             kyori=1600,
             jyocd="05",
@@ -180,7 +180,7 @@ def test_cross_observation_pit_no_leak() -> None:
             kettonum=common_kettonum,
             race_date="2023-06-05",
             as_of_datetime=pd.to_datetime("2023-06-05"),
-            time=1200.0,
+            time=2000.0,   # MMSS.t: 2分00秒0 = 120.0s
             trackcd="24",
             kyori=1600,
             jyocd="05",
