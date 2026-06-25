@@ -1341,3 +1341,22 @@ def test_compute_fukusho_labels_normal_case_no_diagnostic_log() -> None:
     unique_dates = pd.Series(out["race_date"].unique()).dropna()
     assert len(unique_dates) == 1
     assert pd.Timestamp(unique_dates.iloc[0]) == pd.Timestamp(expected_date)
+
+
+def test_run_label_etl_has_race_date_post_condition() -> None:
+    """regression: run_label_etl が staging-swap 後の race_date NULL post-condition を持つ。
+
+    compute_fukusho_labels の fail-loud を抜けた場合の最終検知（二重防波堤）として、
+    run_label_etl が staging-swap 完了後の label.fukusho_label に対して
+    `SELECT count(*) WHERE race_date IS NULL` を実行し、>0 で RuntimeError を raise
+    する構造を持つことを検証する（実DB不要の構造保証テスト・WR-10 guard と同パターン）。
+    """
+    mod = _get_fukusho_label_module()
+    src = inspect.getsource(mod.run_label_etl)
+    assert "race_date IS NULL" in src, (
+        "run_label_etl に race_date IS NULL post-condition が無い（二重防波堤欠如・"
+        "compute_fukusho_labels の fail-loud を抜けた場合の最終検知がない）"
+    )
+    assert "RuntimeError" in src, (
+        "run_label_etl に race_date NULL 検出時の RuntimeError raise が無い"
+    )

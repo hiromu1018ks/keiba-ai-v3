@@ -1183,6 +1183,32 @@ def run_label_etl(
             rows_inserted = _idempotent_load_label(
                 wcur, rows, _LABEL_INSERT_COLUMNS, reader_role=reader_role
             )
+            # --- post-condition: staging-swap 後の race_date NULL 二重防波堤 ---
+            # compute_fukusho_labels の fail-loud を抜けた場合（race_df 状態は正常だが
+            # INSERT/staging-swap のどこかで race_date が欠損した等の異常）の最終検知。
+            # staging-swap（DROP+RENAME）完了後の実表 label.fukusho_label に対して
+            # SELECT count(*) WHERE race_date IS NULL を実行し、>0 なら fail-loud する。
+            # null_count == 0 の場合は挙動不变（以降の checksum 計算・conn.commit() へ進む）。
+            # トランザクションは RuntimeError で context を抜けることで rollback される
+            # （conn.commit() に到達しない）。
+            wcur.execute(
+                "SELECT count(*) FROM label.fukusho_label WHERE race_date IS NULL"
+            )
+            null_count_row = wcur.fetchone()
+            null_count = int(null_count_row[0]) if null_count_row else 0
+            if null_count > 0:
+                logger.error(
+                    "label.fukusho_label post-condition violation: race_date NULL %d / %d rows"
+                    "（compute_fukusho_labels を抜けたが最終表で NULL 残存・二重防波堤）",
+                    null_count,
+                    rows_inserted,
+                )
+                raise RuntimeError(
+                    "label.fukusho_label post-condition violation: race_date に NULL が "
+                    f"{null_count} / {rows_inserted} 行残存（staging-swap 後の最終検知・"
+                    "二重防波堤）。compute_fukusho_labels の fail-loud を抜けたが INSERT/"
+                    "staging-swap のどこかで race_date が欠損した。診断ログを確認すること。"
+                )
             # checksum（idempotent 実行確認用・HIGH #3）
             # WR-07: row(r.*)::text は列順序依存で ALTER TABLE で checksum が変わる
             # ため、_LABEL_INSERT_COLUMNS で列を明示して順序非依存にする。
