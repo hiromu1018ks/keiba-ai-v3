@@ -643,8 +643,44 @@ def compute_fukusho_labels(
         if k in race_merge.columns:
             race_merge[k] = race_merge[k].astype(str)
     merged = merged.merge(race_merge, on=_RACE_KEY, how="left")
-    if "race_date" not in merged.columns:
-        merged["race_date"] = pd.NA
+
+    # --- race_date 伝播 fail-loud（silent corruption 再発防止・2026-06-23/06-24 事故対応）---
+    # 従来 `if "race_date" not in merged.columns: merged["race_date"] = pd.NA` の fallback が
+    # race_date 伝播失敗を黙って全行 NULL 化する構造的欠陥だった（label.fukusho_label.race_date
+    # 全行 NULL が2回再発）。再発時に止まり、なぜ race_date が抜けたかがログから分かる仕組みに
+    # 置換する。正常ケース（race_df に race_date があり merge 結果全行 non-NULL）は挙動不变。
+    if "race_date" not in merged.columns or merged["race_date"].isna().any():
+        # race_df 側の状態（行数・race_date 列有無・non-NULL 数）と merged 側の状態（行数・
+        # race_date 列有無・NULL 数・non-NULL 数）を診断ログで出力（再発時の原因特定用）。
+        race_df_has_race_date = "race_date" in race_df.columns
+        race_df_race_date_nonnull = (
+            int(race_df["race_date"].notna().sum()) if race_df_has_race_date else 0
+        )
+        merged_has_race_date = "race_date" in merged.columns
+        merged_race_date_null = (
+            int(merged["race_date"].isna().sum()) if merged_has_race_date else len(merged)
+        )
+        merged_race_date_nonnull = (
+            int(merged["race_date"].notna().sum()) if merged_has_race_date else 0
+        )
+        logger.error(
+            "race_date 伝播失敗: race_df(rows=%d, race_date列=%s, race_date_nonnull=%d) / "
+            "merged(rows=%d, race_date列=%s, race_date_null=%d, race_date_nonnull=%d) / "
+            "race_df空=%s / 原因候補=[race_df空 / race_date列なし / race_key型不整合]",
+            len(race_df),
+            race_df_has_race_date,
+            race_df_race_date_nonnull,
+            len(merged),
+            merged_has_race_date,
+            merged_race_date_null,
+            merged_race_date_nonnull,
+            len(race_df) == 0,
+        )
+        raise RuntimeError(
+            "race_date 伝播失敗: label.fukusho_label.race_date が全行 NULL になる構造的欠陥を"
+            "検知（silent corruption 再発防止の fail-loud）。診断ログで race_df / merged の"
+            "状態を確認し、原因（race_df 空 / race_date 列なし / race_key 型不整合）を特定すること。"
+        )
 
     # --- _canonicalize_markers で marker 列を正規化（HIGH #5 + NEW HIGH #3）---
     # marker 計算に必要な列が揃っていることを保証（test_canonicalize_markers_missing_time

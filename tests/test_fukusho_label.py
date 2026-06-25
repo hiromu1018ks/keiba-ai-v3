@@ -19,6 +19,7 @@ TDD note: このファイルが作成される時点（Plan 02-02）では src/e
 
 from __future__ import annotations
 
+import datetime as dt
 import inspect
 import re
 
@@ -133,6 +134,10 @@ def _build_label_input_df(
                 "racenum": "01",
                 "syubetucd": syubetucd,
                 "class_level_numeric": class_level_numeric,
+                # race_date は normalized.n_race から label ETL 本体が流す列。
+                # デフォルトで non-NULL の date を付与しておく（fail-loud 回帰テスト群は
+                # 明示的に race_date を drop または空 DataFrame で検証）。
+                "race_date": dt.date(2023, 1, 1),
             }
         ]
     )
@@ -536,6 +541,7 @@ def test_is_dh_handles_hr_missing_payout_count_nan() -> None:
             {
                 "year": "2023", "jyocd": "05", "kaiji": "01", "nichiji": "01",
                 "racenum": "01", "syubetucd": "00", "class_level_numeric": 2,
+                "race_date": dt.date(2023, 1, 1),
             }
         ]
     )
@@ -1291,7 +1297,7 @@ def test_compute_fukusho_labels_raises_on_empty_race_df() -> None:
 
 
 def test_compute_fukusho_labels_raises_on_missing_race_date_column() -> None:
-    """regression: race_df に race_date 列が無い場合・compute_fukusho_labels が RuntimeError を raise。
+    """regression: race_df に race_date 列が無い場合・RuntimeError を raise する。
 
     race_df は1行あるが race_date 列を持たない場合（デフォルトの _build_label_input_df
     は race_date 列を含まない）、compute_fukusho_labels は race_date を伝播できず
@@ -1300,8 +1306,9 @@ def test_compute_fukusho_labels_raises_on_missing_race_date_column() -> None:
     """
     mod = _get_fukusho_label_module()
     spec = _load_label_spec()
-    # _build_label_input_df のデフォルト race_df は race_date 列を含まない（そのまま使用）
+    # _build_label_input_df のデフォルト race_df は race_date 列を含むため明示的に drop
     hr_df, se_df, race_df = _build_label_input_df(8)
+    race_df = race_df.drop(columns=["race_date"])
 
     with pytest.raises(RuntimeError, match="race_date"):
         mod.compute_fukusho_labels(hr_df, se_df, race_df, spec=spec)
