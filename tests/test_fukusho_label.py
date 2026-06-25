@@ -1257,3 +1257,80 @@ def test_compute_fukusho_labels_propagates_race_date() -> None:
     assert pd.Timestamp(unique_dates.iloc[0]) == pd.Timestamp(expected_date), (
         "race_date が race_df の値と一致しない（伝播不正）"
     )
+
+
+# ---------------------------------------------------------------------------
+# regression: race_date fail-loud（Phase 2 負債 / silent corruption 再発防止）
+# ---------------------------------------------------------------------------
+# 2026-06-23/06-24 に label.fukusho_label.race_date 全行 NULL が2回再発。従来の
+# `if "race_date" not in merged.columns: merged["race_date"] = pd.NA` fallback が
+# race_date 伝播失敗を黙って全行 NULL 化する構造的欠陥だった。再発時に止まり、
+# なぜ race_date が抜けたか（race_df 空 / race_date 列なし / キー不整合）が
+# ログから分かる仕組みにする（fail-loud + 診断ログ）。根本原因は再発時の診断
+# ログで特定する。以下3テストは race_date 伝播失敗ケースで RuntimeError を
+# raise することを検証する。
+# ===========================================================================
+
+
+def test_compute_fukusho_labels_raises_on_empty_race_df() -> None:
+    """regression: race_df が空（0行）の場合・compute_fukusho_labels が RuntimeError を raise。
+
+    race_df が空の場合、race_date 列が merged に伝播しない（compute_fukusho_labels の
+    race_df merge が0行の race_df と left join しても race_date 列自体が生えない）。
+    従来は黙って pd.NA fallback で全行 NULL 化していたが、fail-loud で RuntimeError を
+    raise して再発時に原因（race_df 空）を特定可能にする。
+    """
+    mod = _get_fukusho_label_module()
+    spec = _load_label_spec()
+    hr_df, se_df, _ = _build_label_input_df(8)
+    # race_df を空 DataFrame（race_date 列なし・行0）に置換
+    race_df = pd.DataFrame(columns=["year", "monthday", "jyocd", "kaiji", "nichiji", "racenum"])
+
+    with pytest.raises(RuntimeError, match="race_date"):
+        mod.compute_fukusho_labels(hr_df, se_df, race_df, spec=spec)
+
+
+def test_compute_fukusho_labels_raises_on_missing_race_date_column() -> None:
+    """regression: race_df に race_date 列が無い場合・compute_fukusho_labels が RuntimeError を raise。
+
+    race_df は1行あるが race_date 列を持たない場合（デフォルトの _build_label_input_df
+    は race_date 列を含まない）、compute_fukusho_labels は race_date を伝播できず
+    RuntimeError を raise する。既存 test_compute_fukusho_labels_propagates_race_date は
+    race_df に race_date を付与してから呼ぶため GREEN を維持。
+    """
+    mod = _get_fukusho_label_module()
+    spec = _load_label_spec()
+    # _build_label_input_df のデフォルト race_df は race_date 列を含まない（そのまま使用）
+    hr_df, se_df, race_df = _build_label_input_df(8)
+
+    with pytest.raises(RuntimeError, match="race_date"):
+        mod.compute_fukusho_labels(hr_df, se_df, race_df, spec=spec)
+
+
+def test_compute_fukusho_labels_normal_case_no_diagnostic_log() -> None:
+    """regression: 正常ケース（race_date 全行 non-NULL）は RuntimeError 未発生・挙動不变。
+
+    race_df に race_date が存在し全行 non-NULL で伝播する通常ケースでは、
+    RuntimeError が raise されず・logger.error も出力されず・出力の race_date が
+    全行 non-NULL であることを検証（正常ケース挙動不变保証）。
+    """
+    import datetime as dt  # noqa: PLC0415
+
+    mod = _get_fukusho_label_module()
+    spec = _load_label_spec()
+    hr_df, se_df, race_df = _build_label_input_df(8)
+    race_df = race_df.copy()
+    expected_date = dt.date(2023, 1, 1)
+    race_df["race_date"] = expected_date
+
+    # 正常ケース: RuntimeError 未発生
+    out = mod.compute_fukusho_labels(hr_df, se_df, race_df, spec=spec)
+
+    # 出力の race_date が全行 non-NULL（正常伝播）
+    assert "race_date" in out.columns, "出力に race_date 列が無い（伝播漏れ）"
+    assert out["race_date"].notna().all(), (
+        f"正常ケースで race_date に NULL が {int(out['race_date'].isna().sum())} 件ある"
+    )
+    unique_dates = pd.Series(out["race_date"].unique()).dropna()
+    assert len(unique_dates) == 1
+    assert pd.Timestamp(unique_dates.iloc[0]) == pd.Timestamp(expected_date)
