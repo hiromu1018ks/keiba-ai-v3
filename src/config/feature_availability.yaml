@@ -3,7 +3,7 @@
 # Phase 3 で枠（features: []）から §13.5 全 feature エントリに拡充。
 # schema_version 0.1.0 → 0.2.0 → 0.3.0（Phase 3 features 拡充後・CR-02 で rolling_jyocd を
 # categorical 化し obs_id を中間処理用に除外・feature 定義が変わった印・§19.1 再現性）。
-# Phase 9: schema_version 0.3.0 → 0.4.0（rolling_speed_figure 6 feature 追加 + course_kubun 削除）。
+# Phase 9: schema_version 0.3.0 → 0.4.0（rolling_speed_figure 6 feature 追加 + 旧 course 区分エントリ削除）。
 # 各 feature エントリは7項目スキーマ（feature_name / feature_group / available_from_timing /
 # source_role / source_table / cutoff_rule / leakage_risk_level）を持つ。
 #
@@ -127,8 +127,8 @@ features:
     source_table: normalized.n_race
     cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
     leakage_risk_level: low
-  # Phase 9: course_kubun は normalized 層にカラム不存在（live-DB 確定）・silent parity bug 修正のため
-  # エントリ削除・trackcd が代替（RESEARCH Pitfall 2・A4・T-09-07 mitigate）。
+  # Phase 9: 旧 course 区分エントリは normalized 層にカラム不存在（live-DB 確定）・
+  # silent parity bug 修正のため削除・trackcd が代替（RESEARCH Pitfall 2・A4・T-09-07 mitigate）。
   - feature_name: class_code_normalized
     feature_group: race_context
     available_from_timing: entry_confirmed
