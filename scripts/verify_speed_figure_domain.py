@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # ruff: noqa: E501  (長い docstring / SQL リテラルを保持するため行長は緩和)
-"""Phase 9 SC#5 ドメイン整合性可視化スクリプト（live-DB 必須・KEIBA_SKIP_DB_TESTS unset）.
+"""Phase 9 SC#5 ドメイン整合性可視化スクリプト（snapshot 読み込み・DB 不要・run_feature_build.py で事前生成が必要）.
 
-本スクリプトは live-DB で生成した speed_figure snapshot の過去集約値
+本スクリプトは ``scripts/run_feature_build.py`` が生成した Parquet snapshot を
+``load_feature_matrix(snapshot_id)`` で読み込み・その過去集約値
 ``rolling_speed_figure_mean_5`` 分布を Plotly HTML で可視化し・以下のドメイン整合性を
 目視確認する（D-08）:
 
@@ -12,27 +13,34 @@
   3. ``rolling_speed_figure_mean_5`` 全体ヒストグラム（極端な外れ値がないこと・
      Pitfall 4・0-100 程度に収まる）
 
-リーク防止上の制約: ``build_feature_matrix`` は target race の **過去走 (history)** にのみ
+**事前要件（producer/consumer 分離）:** 本スクリプトは DB にアクセスせず・既存の
+Parquet snapshot のみを読む（秒単位）。事前に producer 側で snapshot を生成しておくこと::
+
+    uv run python scripts/run_feature_build.py \\
+        --snapshot-id 20260625-1a-speedfigure-v1 \\
+        --label-version v1 --fa-version 0.4.0
+
+snapshot が未生成の場合は ``load_feature_matrix`` が ``FileNotFoundError`` を raise する
+（``run_feature_build.py`` を先に実行するよう明示的に表面化・silent fallback しない）。
+
+リーク防止上の制約（前修正 ee49e32 と同一・維持）: ``feature_matrix`` には生 ``speed_figure``
+列は **構造上存在しない**。snapshot producer（``scripts/run_feature_build.py`` 経由の
+feature 構築）は target race の **過去走 (history)** にのみ
 生 ``speed_figure``（= 当日レースの指数・予測時点では未来情報 = リーク）を付与し
 （src/features/builder.py Step 5b・compute_speed_figure_for_history）・``build_rolling_features``
 がそれを過去集約値 ``rolling_speed_figure_*`` (6 feature・P02 登録済み) に変換して
-``feature_matrix`` に merge する。したがって ``feature_matrix`` には生 ``speed_figure``
-列は **構造上存在しない**（未来情報が混入すると §13 PIT 不変量違反）。本スクリプトは
+``feature_matrix`` に merge する（未来情報が混入すると §13 PIT 不変量違反）。本スクリプトは
 ``rolling_speed_figure_mean_5``（過去5走平均・馬の最近能力軸）を domain-integrity proxy
 として可視化する（同一馬安定性・クラス単調性 D-08・外れ値/points_per_second 健全性は
 5走平均でも意味的に有効）。
 
-REVIEW M2: ``build_feature_matrix`` は DataFrame でなく **dict** を返す
-（``result["feature_matrix"]`` / ``result["snapshot_id"]`` / ``result["row_count"]`` 等・
-src/features/builder.py L407-411/L637-643）。したがって ``result = build_feature_matrix(...)`` で
-受け取り ``feature_matrix = result["feature_matrix"]`` で DataFrame を取り出す。
-
 cross-reference: .planning/phases/09-speed-figure-foundation/09-VALIDATION.md (SC#5・manual-only).
-cross-reference: scripts/run_evaluation.py (masked DSN・try/finally pool close idiom・L1315-1441).
+cross-reference: scripts/run_feature_build.py (snapshot producer・本スクリプトの前提).
+cross-reference: src/model/data.py load_feature_matrix (SC#1 聖域・DB 引数を持たない・H1-a).
 cross-reference: src/model/segment_eval.py (include_plotlyjs='directory' + div_id 固定 idiom・L444-452).
 
 SAFE-01: speed_figure は odds-free・本スクリプトも odds/ninki/fukuodds proxy を一切
-SELECT/特徴量化しない（診断層のみ・市場情報 proxy 除外）。出力 HTML/JSON に市場情報 proxy
+扱わない（診断層のみ・市場情報 proxy 除外）。出力 HTML/JSON に市場情報 proxy
 列は含まれない。
 """
 
@@ -55,9 +63,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 import pandas as pd  # noqa: E402
 
-from src.config.settings import Settings  # noqa: E402
-from src.db.connection import make_pool, readonly_cursor  # noqa: E402
-from src.features.builder import build_feature_matrix  # noqa: E402
+from src.model.data import load_feature_matrix  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -90,7 +96,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     --sample-horses: 同一馬推移プロットのサンプル馬数（default: 20）
     """
     parser = argparse.ArgumentParser(
-        description="SC#5 ドメイン整合性可視化（speed_figure distribution・D-08・live-DB）"
+        description="SC#5 ドメイン整合性可視化（speed_figure distribution・D-08・snapshot 読込）"
     )
     parser.add_argument(
         "--snapshot-id",
@@ -111,29 +117,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _fetch_feature_matrix(snapshot_id: str, readonly_pool: Any) -> pd.DataFrame:
-    """build_feature_matrix を呼出し feature_matrix DataFrame を取得（REVIEW M2 dict 戻り値対応）。
+def _fetch_feature_matrix(snapshot_id: str) -> pd.DataFrame:
+    """load_feature_matrix で Parquet snapshot を読込む（DB 不要・秒単位・SC#1 聖域）。
 
-    REVIEW M2: ``build_feature_matrix`` は dict を返す（``result["feature_matrix"]`` で
-    DataFrame を取得・src/features/builder.py L407-411/L637-643）。本関数は subscript で
-    DataFrame を取り出す。既存 Parquet から読込む場合は dict 抽出不要だが・live-DB 経路では
-    build_feature_matrix を呼ぶのが正道（最新 snapshot を生成して可視化）。
+    ``scripts/run_feature_build.py`` が生成した ``snapshots/feature_matrix_{snapshot_id}.parquet``
+    を ``src.model.data.load_feature_matrix(snapshot_id)`` で読込む。DB 接続は一切行わない
+    （live-DB 再構築を廃止・producer/consumer 分離）。snapshot が未生成の場合は
+    ``load_feature_matrix`` が ``FileNotFoundError`` を raise する（silent fallback 禁止・
+    producer 側 ``run_feature_build.py`` の事前実行を明示的に要求）。
 
-    注意: feature_matrix には生 ``speed_figure`` 列は存在しない（target race の指数は
-    予測時点で未来情報 = §13 PIT リーク防止で混入不可・builder Step 5b は history 側にのみ
-    付与し rolling_speed_figure_* 過去集約値のみ feature_matrix に残る）。本スクリプトは
-    ``_SPEED_FIGURE_PLOT_COL`` (rolling_speed_figure_mean_5) を可視化対象とする。
+    注意（前修正 ee49e32 と同一・維持）: feature_matrix には生 ``speed_figure`` 列は
+    存在しない（target race の指数は予測時点で未来情報 = §13 PIT リーク防止で混入不可・
+    builder Step 5b は history 側にのみ付与し rolling_speed_figure_* 過去集約値のみ
+    feature_matrix に残る）。本スクリプトは ``_SPEED_FIGURE_PLOT_COL``
+    (rolling_speed_figure_mean_5) を可視化対象とする。
     """
-    # REVIEW M2: dict 戻り値契約・result["feature_matrix"] で DataFrame を取り出す
-    result = build_feature_matrix(
-        readonly_pool,
-        snapshot_id=snapshot_id,
-        label_version="v1",
-        fa_version="0.4.0",
-    )
-    feature_matrix = result["feature_matrix"]
+    feature_matrix = load_feature_matrix(snapshot_id)
     logger.info(
-        "build_feature_matrix: snapshot_id=%s rows=%d cols=%d",
+        "load_feature_matrix: snapshot_id=%s rows=%d cols=%d",
         snapshot_id,
         len(feature_matrix),
         feature_matrix.shape[1],
@@ -386,66 +387,57 @@ def _write_stats_json(
 
 
 def main(argv: list[str] | None = None) -> int:
-    """SC#5 ドメイン整合性可視化のエントリポイント（live-DB 必須）。
+    """SC#5 ドメイン整合性可視化のエントリポイント（snapshot 読込・DB 不要）。
 
-    戻り: 0(成功) / 非0(失敗・RuntimeError 伝搬）。
+    戻り: 0(成功) / 非0(失敗・FileNotFoundError/RuntimeError 伝搬）。
     """
     args = parse_args(argv)
-    settings = Settings()
 
-    # masked DSN ログ（生 DSN 絶対禁止・T-06-15 踏襲）
-    logger.info("readonly DSN: %s", settings.dsn_masked)
     logger.info(
-        "config: snapshot_id=%s out_dir=%s sample_horses=%d",
+        "config: snapshot_id=%s out_dir=%s sample_horses=%d (DB-free・snapshot 読込)",
         args.snapshot_id,
         args.out_dir,
         args.sample_horses,
     )
 
-    # readonly pool を try/finally で close（scripts/run_evaluation.py L1316-1441 idiom）
-    readonly_pool = make_pool(settings, role="readonly")
-    try:
-        # MEMORY.md subagent-db-query-statement-timeout: 重クエリの孤立実行防止
-        with readonly_cursor(readonly_pool) as cur:
-            cur.execute("SET statement_timeout = '30s'")
-            logger.info("statement_timeout 設定: 30s (subagent-db-query-statement-timeout)")
+    # snapshot を load_feature_matrix で読込（DB 不要・SC#1 聖域・秒単位）。
+    # snapshot 未生成の場合は load_feature_matrix が FileNotFoundError を raise する
+    # （producer 側 run_feature_build.py の事前実行を明示的に要求・silent fallback 禁止）。
+    feature_matrix = _fetch_feature_matrix(args.snapshot_id)
 
-        # REVIEW M2: build_feature_matrix は dict 戻り値・result["feature_matrix"] で DataFrame を取得
-        feature_matrix = _fetch_feature_matrix(args.snapshot_id, readonly_pool)
+    # SAFE-01: speed_figure は odds-free・本スクリプトも odds-free を維持（診断層のみ）
+    # odds/ninki/fukuodds proxy 列は SELECT/特徴量化しない
+    logger.info("SAFE-01: speed_figure は odds-free・本スクリプトも odds-free を維持")
 
-        # SAFE-01: speed_figure は odds-free・本スクリプトも odds-free を維持（診断層のみ）
-        # odds/ninki/fukuodds proxy 列は SELECT/特徴量化しない
-        logger.info("SAFE-01: speed_figure は odds-free・本スクリプトも odds-free を維持")
+    out_dir = Path(args.out_dir)
+    html_path = out_dir / "09-speed-figure-domain.html"
+    json_path = out_dir / "09-speed-figure-domain.json"
 
-        out_dir = Path(args.out_dir)
-        html_path = out_dir / "09-speed-figure-domain.html"
-        json_path = out_dir / "09-speed-figure-domain.json"
+    # プロット構築
+    fig1 = _build_trajectory_plot(feature_matrix, args.sample_horses)
+    fig2 = _build_class_box_plot(feature_matrix)
+    fig3 = _build_histogram(feature_matrix)
 
-        # プロット構築
-        fig1 = _build_trajectory_plot(feature_matrix, args.sample_horses)
-        fig2 = _build_class_box_plot(feature_matrix)
-        fig3 = _build_histogram(feature_matrix)
+    # 統合 HTML 出力（M3: include_plotlyjs='directory' + div_id 固定・byte-reproducible）
+    _write_combined_html(
+        [fig1, fig2, fig3], html_path, div_id="speed-figure-domain"
+    )
 
-        # 統合 HTML 出力（M3: include_plotlyjs='directory' + div_id 固定・byte-reproducible）
-        _write_combined_html([fig1, fig2, fig3], html_path)
+    # 統計量 JSON 出力（HTML 本体とは別・byte-reproducible を保つため時刻は JSON のみ）
+    stats = _write_stats_json(feature_matrix, json_path, args.snapshot_id)
 
-        # 統計量 JSON 出力（HTML 本体とは別・byte-reproducible を保つため時刻は JSON のみ）
-        stats = _write_stats_json(feature_matrix, json_path, args.snapshot_id)
-
-        # stdout に目視確認手順を表示（manual-only verification・VALIDATION.md 参照）
-        print(
-            f"SC#5 ドメイン整合性: {html_path} を開いて目視確認 "
-            f"(同一馬安定・クラス単調・外れ値なし・target col={_SPEED_FIGURE_PLOT_COL})\n"
-            f"  stats: min={stats['rolling_speed_figure_mean_5_min']} "
-            f"max={stats['rolling_speed_figure_mean_5_max']} "
-            f"mean={stats['rolling_speed_figure_mean_5_mean']:.4f} "
-            f"std={stats['rolling_speed_figure_mean_5_std']:.4f} "
-            f"median={stats['rolling_speed_figure_mean_5_median']}\n"
-            f"  outlier_check: abs_max_below_1000={stats['outlier_check']['abs_max_below_1000']}"
-        )
-        return 0
-    finally:
-        readonly_pool.close()
+    # stdout に目視確認手順を表示（manual-only verification・VALIDATION.md 参照）
+    print(
+        f"SC#5 ドメイン整合性: {html_path} を開いて目視確認 "
+        f"(同一馬安定・クラス単調・外れ値なし・target col={_SPEED_FIGURE_PLOT_COL})\n"
+        f"  stats: min={stats['rolling_speed_figure_mean_5_min']} "
+        f"max={stats['rolling_speed_figure_mean_5_max']} "
+        f"mean={stats['rolling_speed_figure_mean_5_mean']:.4f} "
+        f"std={stats['rolling_speed_figure_mean_5_std']:.4f} "
+        f"median={stats['rolling_speed_figure_mean_5_median']}\n"
+        f"  outlier_check: abs_max_below_1000={stats['outlier_check']['abs_max_below_1000']}"
+    )
+    return 0
 
 
 if __name__ == "__main__":
