@@ -6,14 +6,14 @@ current_phase: 09
 current_phase_name: speed-figure-foundation
 status: executing
 stopped_at: "Phase 9 P03 完了: builder Step 5b 統合 + SC#1/SC#3 + REVIEW H1-a/H1-b/H1-c data.py/orchestrator snapshot parameterization（34 テスト GREEN）"
-last_updated: "2026-06-25T13:32:00.000Z"
+last_updated: "2026-06-25T13:50:00.700Z"
 last_activity: 2026-06-25
-last_activity_desc: "Phase 09 P03 完了 (builder 統合 + H1 横断的 parameterization)"
+last_activity_desc: "Phase 09 P03 完了 (builder Step 5b + REVIEW H1 横断的・SC#1/SC#3 GREEN)"
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 5
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 09 (speed-figure-foundation) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: P03 complete・P04 (audit/可視化) 待機
 Last activity: 2026-06-25 — Phase 09 P03 完了 (builder Step 5b + REVIEW H1 横断的・SC#1/SC#3 GREEN)
 
@@ -124,6 +124,7 @@ Last activity: 2026-06-25 — Phase 09 P03 完了 (builder Step 5b + REVIEW H1 �
 | Phase 09 P01 | 約35分 | 2 tasks | 4 files |
 | Phase 09 P02 | 約30分 | 3 tasks | 4 files |
 | Phase 09 P03 | 約12分 | 3 tasks | 7 files |
+| Phase 09 P04 | 約18分 | 2 tasks | 2 files |
 
 ### Decisions
 
@@ -256,6 +257,8 @@ Recent decisions affecting current work:
 - [Phase 09]: plan 09-03: REVIEW H1-a 解決 — load_feature_matrix(snapshot_id) を必須パラメータ化（acceptance から arity-0 escape `or list(sig.parameters)==[]` を削除・古い arity-0 関数を構造的に拒否）
 - [Phase 09]: plan 09-03: REVIEW H1-b 解決 — orchestrator.train_and_predict に snapshot_id 引数追加（feature_snapshot_id とは別・FEATURE_COLUMNS 選択用）・内部3箇所の make_X_y を snapshot_id=snapshot_id で明示伝播・grep/AST verify で予測経路の bare call 残存なしを保証
 - [Phase 09]: plan 09-03: 新 feature_snapshot_id 候補 = 20260625-1a-speedfigure-v1（v1.0 20260620-1a-postreview-v2 系統継承・make_model_version prefix 整合・P04/P05 が消費）
+- [Phase ?]: SC#4 SAFE-01 proxy 排除: AST Name/Attribute + H5 SQL 文字列 word-boundary で市場情報 proxy 0件を静的証明（Phase 9 横断聖域）
+- [Phase ?]: SC#5 script: build_feature_matrix dict 戻り値から result[feature_matrix] 抽出・include_plotlyjs=directory + div_id 固定で byte-reproducible・dsn_masked+statement_timeout で安全
 
 ### Pending Todos
 
@@ -289,7 +292,7 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-06-25:
 
 **Resume file:** .planning/phases/09-speed-figure-foundation/09-04-PLAN.md
 
-Last session: 2026-06-25T13:32:00.000Z
+Last session: 2026-06-25T13:49:48.466Z
 Stopped at: Phase 9 P03 完了 (builder Step 5b 統合 + REVIEW H1-a/H1-b/H1-c data.py/orchestrator snapshot parameterization・34 テスト GREEN)
 Resume: `/gsd-execute-phase 9`（P04: SC#4 SAFE-01 AST audit + SC#5 ドメイン整合性可視化・rolling_speed_figure_* 6 feature を含む完成 feature_matrix が必要・本 P03 で生成可能に）
 
