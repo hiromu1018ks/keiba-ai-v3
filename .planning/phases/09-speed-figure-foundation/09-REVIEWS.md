@@ -1,8 +1,8 @@
 ---
 phase: 09-speed-figure-foundation
-cycle: 2
+cycle: 3
 reviewers: [codex]
-reviewed_at: 2026-06-25T13:42:00Z
+reviewed_at: 2026-06-25T12:32:00Z
 plans_reviewed:
   - 09-01-PLAN.md
   - 09-02-PLAN.md
@@ -10,225 +10,204 @@ plans_reviewed:
   - 09-04-PLAN.md
   - 09-05-PLAN.md
 prior_cycle:
-  cycle: 1
-  high_count: 8
-  actionable_count: 4
-  revision_commit: 9bddc31
+  cycle: 2
+  high_count: 2
+  actionable_count: 2
+  revision_commit: 050c827
 ---
 
-# Cross-AI Plan Review — Phase 9 (Speed Figure Foundation) — CYCLE 2
+# Cross-AI Plan Review — Phase 9 (Speed Figure Foundation) — CYCLE 3 (final convergence)
 
-Reviewer: **Codex CLI**（`codex exec --ephemeral --dangerously-bypass-hook-trust --skip-git-repo-check`・codex-cli 0.142.1 default model）。
-Method: ソースコード（`src/features/rolling.py`, `availability.py`, `snapshot.py`, `builder.py`, `src/model/data.py`, `orchestrator.py`, `trainer.py`, `evaluator.py`, `segment_eval.py`, `src/ev/odds_snapshot.py`, `src/ev/ev_rank.py`）を実読し・改訂後 PLAN.md の claim を実コード契約と照合した source-grounded review。本 Cycle 2 の主眼は Cycle 1 の 8 HIGH + 4 actionable が「実行可能な PLAN 内容（task + acceptance_criteria + verify command）」として真正に解決されたかの検証。
+Reviewer: **Codex CLI**（`codex exec --ephemeral --dangerously-bypass-hook-trust --skip-git-repo-check`・codex-cli 0.142.1 default model）。起動プロンプト 1957 行・208KB・157,743 tokens 消費。
+Method: コミット 050c827（Cycle 2 replan）後の PLAN.md を実コード契約（`src/model/orchestrator.py`, `src/model/data.py`, `src/features/builder.py`, `src/features/rolling.py`）と照合した source-grounded review。本 Cycle 3 の主眼は Cycle 2 で PARTIALLY RESOLVED だった 6 サブアイテム（H1-a/b/c・H4・M1・M2）が真正に解決されたかの最終判定と・改訂で新規導入された懸念の走査。
 
-Cycle 2 全体所感: Cycle 1 の 8 HIGH のうち 6 は FULLY RESOLVED（H2/H3a/H3b/H5/H6/H7/H8・acceptance_criteria と verify command が実コード契約に合致）。しかし **H1（data.py parameterization）と H4（per-observation PIT）の 2 HIGH は PARTIALLY RESOLVED**・それぞれ実行可能記述に残存ギャップがある。さらに P03/P05 にまたがる新規懸念（orchestrator.train_and_predict が make_X_y に snapshot_id を伝播しない・obs_id 構築順序の builder↔speed_figure API 不整合）が浮上した。M1/M2 は実行基準は正しいが prose/verify に残滓。
+Cycle 3 全体所感: Cycle 2 の 4 PARTIALLY RESOLVED（H1・H4・M1・M2）の内訳 6 サブアイテムのうち **5 は FULLY RESOLVED**（H1-a・H1-b・H1-c・H4・M1・M2）。各修正は実コード契約の正確な file:line 引用と verify command を持ち・構造的にギャップを閉じている。ただし改訂自体が **P05 stop gate の `train_and_predict` 呼出に新規 HIGH を導入した**: P03 Task 3(k) で `train_and_predict` のシグネチャに追加された `snapshot_id` 引数（FEATURE_COLUMNS 選択用・feature_snapshot_id とは別）を P05 L138 の呼出例が明示的に渡していない。結果: speed_figure snapshot をロードしても orchestrator 内部の make_X_y が v1.0 FEATURE_COLUMNS を使い・stop gate が「v1.0 vs v1.0」の比較を静かに実施しうる。
 
 ---
 
-## Codex Review (Cycle 2)
+## Codex Review (Cycle 3)
 
-### 09-01-PLAN — H4 PARTIALLY RESOLVED（per-observation PIT 集約キーに obs_id が明示されず）
+### 09-01-PLAN — H4 FULLY RESOLVED（per-observation PIT・集約キーに obs_id 明示化）
 
 **Summary**
-H4 は acknowledge され must_haves/task/verify が存在するが・実行可能な集約記述がまだ PIT-safe でない完全性に達していない。`_compute_pit_par` の groupby キーが `jyocd×trackcd×kyori`（PLAN L105）・variant が `(source_race_date, jyocd, surface)`（L106）と記述されており・**obs_id が集約キーに含まれていない**。もし展開済みフレームが異なる cutoff を持つ複数 observation を含む場合・後続 observation で eligible な行が Earlier observation の par/variant median に漏れ込む（cross-observation leak）。
+H4（per-observation PIT）は PLAN レベルで完全解決。par/variant の集約キーに obs_id が必須化され・2-observation adversarial テストが cross-observation leak の構造的不能を証明する。
 
 **Strengths**
-- 既存 rolling PIT パターンの参照は正確: expand by observation → strict `<` → per-`obs_id` groupby（`src/features/rolling.py:236`, `:252`, `:260`）。
-- 5 段階 adversarial test の docstring/verify（PLAN L123, L180）は rolling と対称。
+- par 算出の groupby キーが `obs_id + jyocd + trackcd + kyori` に明示（09-01-PLAN L22・L106）・variant が `obs_id + source_race_date + jyocd + surface` に明示（L22・L107）。これは既存の PIT-safe idiom である rolling.py L204-215・L236-264 と対称。
+- 2-observation adversarial テスト `test_cross_observation_pit_no_leak`（L182-185）が・cutoff の異なる2 observation で later obs 専用の介入行が earlier obs の par/variant に漏れないことを実証し・さらに guard monkeypatch + obs_id groupby 外しで逆に混入が生じることを機械証明する（false-pass 回避）。これは H4 invariant が guard でなく集約キー仕様由来であることを実証する。
 
 **Concerns**
-- **HIGH（H4 未完）**: `_compute_pit_par` の groupby が `jyocd×trackcd×kyori`（PLAN L105）のみだと・展開済みフレーム上で observation 毎に独立した par 算出にならない。par fallback 階層も `obs_id + (jyocd×trackcd×kyori)` であるべき。variant も `obs_id + source_race_date + jyocd + surface` であるべき。現在の PLAN 記述では「展開済みフレーム上で算出」と言葉で書いてあるが・groupby キーの仕様として obs_id が明示されないため・実装者が observation 横断漏れを踏む余地が残る。
-- **MEDIUM（leave-one-out 近似の不正確さ）**: variant の「自レースを除く residual median」を `(group_median - (self_residual - group_median)/(n-1))` の一次近似（PLAN L106）で算出するのは mean ベースの公式であり・**真の leave-one-out median とは一致しない**（median は外れ値に頑健だが self の寄与は線形でない）。docstring に「近似」と明記されているが D-02 が要求する leave-one-race-out の厳密性に対して精度保証が薄い。
+- なし。par/variant の集約キー仕様が obs_id を含み・adversarial テストが構造的証明を持つ。
 
 **Suggestions**
-- par fallback group を `obs_id + keys`・variant group を `obs_id + source_race_date + jyocd + surface` と PLAN に明記し・acceptance_criteria に「2 つの observation で intervening race が片方にだけ legal な adversarial ケースで par/variant が変化する」テストを追加。
-- leave-one-out は真の median(`group.transform(lambda s: np.median(np.delete(s.values, s.index.get_loc(self_idx))))`) または近似の誤差上限を docstring/test で明示。
+- なし。
 
-**Risk Assessment:** **HIGH**（PIT 集約キーに obs_id が明示されない限り cross-observation leak の可能性が残る）。
+**Risk Assessment:** LOW（cross-observation leak メカニズムは構造的に対処され・adversarial テストが走査を証明する）。
 
-**Cycle 1 Resolution Status**
-- **H4: PARTIALLY RESOLVED** — must_haves（L22）+ task（L104）+ verify（L123, L180）は存在するが・実行可能な集約キー仕様に obs_id が含まれず・実装者が cross-observation leak を踏む余地が残る。
+**Cycle 2 Resolution Status**
+- **H4: FULLY RESOLVED** — par/variant 集約キーに obs_id を必須化（L22・L106・L107）+ 2-observation adversarial テスト（L182-185）+ 既存 rolling.py PIT idiom と対称。
 
 ---
 
-### 09-02-PLAN — H3a/H3b FULLY RESOLVED（残滓: prose の「7系統」表記）
+### 09-02-PLAN — M1 FULLY RESOLVED（prose「7系統」残滓の除去）
 
 **Summary**
-H3a/H3b は具象 task + acceptance_criteria + verify command で真正に解決。M1 は実行基準は正しい（8 系統）が objective/examples の prose に「既存7系統」の古い表記が残る。
+M1（7系統 prose 残滓）は完全解決。文書・docstring・test が正確に 8 系統を列挙し・lint verify が古い表記を reject する。
 
 **Strengths**
-- **H3b** は現リスクに正確に合致: `_RESERVED_NON_FEATURE_COLUMNS` が全 `rolling_{sys}_count_5` を自動展開（`src/features/availability.py:158`, `:179`）し・data.py がこれを FEATURE_COLUMNS から減算（`src/model/data.py:122`, `:171`）。PLAN Task 2 は L179 set comprehension を `if sys != "speed_figure"` で条件付きにし・verify（L207）で `rolling_speed_figure_count_5 not in _RESERVED_NON_FEATURE_COLUMNS` を assert。
-- **H3a** は現リスクに正確に合致: `_is_categorical_rolling_col` は現状 `_5` suffix のみ受理（`src/features/snapshot.py:115`, `:126`）。PLAN Task 3 は `_1/_3/_5` の可変 window に拡張し・verify（L232）で `rolling_speed_figure_last_1` が numeric(False) となることを assert。
+- 全 prose（L27・L41・L77・L137）が正確に 8 系統を明記。実コード `src/features/rolling.py:71-80` が 8 系統（kakuteijyuni/harontimel3/jyuni3c_jyuni4c/kyori/jyocd/days_since_prev/timediff/babacd）であることと一致。
+- lint verify（L287）が `grep -n '既存7系統\|7系統が維持\|既存7' | grep -v 'M1 対応\|7系統でない' | wc -l` == 0 で古い表記の残滓を構造的に reject する。
 
 **Concerns**
-- **LOW（M1 prose 残滓）**: objective（L41）・Task1 action（L77, L88, L98）に「既存7系統」表記が残る。acceptance_criteria（L137）・done（L144）は正確に 8 系統を列挙しているため実行には影響しないが・doc/test の誤カウントを残す。
+- なし。
 
 **Suggestions**
-- plan-lint acceptance check 追加: `rg -n '7系統' .planning/phases/09-speed-figure-foundation/09-02-PLAN.md` が無候補返却。
+- なし。
 
-**Risk Assessment:** **MEDIUM**（H3a/H3b は解決・M1 prose は実行無影響だが文書正確性に残滓）。
+**Risk Assessment:** LOW。
 
-**Cycle 1 Resolution Status**
-- **H3a: FULLY RESOLVED** — Task 3 の acceptance（L230）+ verify（L232, L248）が `_1/_3/_5` suffix を実コード契約と合致。
-- **H3b: FULLY RESOLVED** — Task 2 の action（L175, L177）+ verify（L207, L285）が reserved 除外を D-09 契約と合致。
-- **M1: PARTIALLY RESOLVED** — 実行基準（L137, L144）は 8 系統で正確だが・prose（L41, L77, L88, L98）に「7系統」残滓。
+**Cycle 2 Resolution Status**
+- **M1: FULLY RESOLVED** — 全 prose が正確に 8 系統を列挙（L27・L41・L77・L137）+ lint verify（L287）が残滓を reject。
 
 ---
 
-### 09-03-PLAN — H1 PARTIALLY RESOLVED（acceptance 弱体 + orchestrator 伝播未完 + obs_id 構築順序矛盾）★最重要
+### 09-03-PLAN — H1-a/H1-b/H1-c FULLY RESOLVED（P03 自スコープ内）
 
 **Summary**
-H1 への data.py parameterization task は存在するが・(a) acceptance が古い arity-0 関数を通過させてしまう・(b) orchestrator.train_and_predict が make_X_y に snapshot_id を伝播しない・(c) P03 Step 5b の observations=feature_matrix と P01 の observations[["obs_id",...]] 期待が builder の現 obs_id 構築タイミングと矛盾する。3 点とも HIGH。
+H1-a（acceptance escape 削除）・H1-b（orchestrator snapshot_id 伝播）・H1-c（obs_id 早期構築）は P03 自スコープ内で完全解決。各修正は実コード契約の file:line を持ち・verify command が現 arity-0 関数を構造的に reject する。
 
 **Strengths**
-- 現硬結合の正確な特定: `SNAPSHOT_PATH`/manifest は固定（`src/model/data.py:77`）・`_derive_feature_columns()` が固定 path を読む（`:149`, `:162`）・`load_feature_matrix()` は arity 0（`:211`）。PLAN はこれらを正しく parameter化する task を持つ。
+- **H1-a**: acceptance（L193）が `or list(sig.parameters)==[]` 逃げ道を削除し `'snapshot_id' in params` のみに厳格化。automated verify（L237）も `assert 'snapshot_id' in sig.parameters` のみで escape を許さない。現 arity-0 の `src/model/data.py:211-229` と一致し・古い関数が GREEN に通るのを構造的に拒否。
+- **H1-b**: P03 Task 3(k)（L226-231）が `train_and_predict` シグネチャに `snapshot_id` 引数を追加し・内部3箇所の `make_X_y(train_df/calib_df/test_df)`（現 `src/model/orchestrator.py:373-375` bare call）を `make_X_y(..., snapshot_id=snapshot_id)` に書換。verify（L197・L237）が `grep -nE 'make_X_y\(' | grep -v 'snapshot_id=' | grep -v '^\s*#' | wc -l` == 0 で予測経路の bare call 残存を禁止し・`test_make_X_y_uses_snapshot_feature_columns`（L199）が新 snapshot の rolling_speed_figure_* が実際消費されることを機能証明する。H1-b の P03 内閉塞は完璧。
+- **H1-c**: P03 Task 1(b)（L93・L102・L116）が Step 5b の直前に既存 idiom（race_nkey+kettonum or index+kettonum・現 Step 6 `src/features/builder.py:503-517` と同一）で `feature_matrix["obs_id"]` を早期構築。P01 API 契約（observations が obs_id を持つ）を充足し・Step 6 は再利用（"obs_id" in columns で skip）・Step 6b（`src/features/builder.py:560-564`）の drop は不変。
 
 **Concerns**
-- **HIGH（H1-a: acceptance の弱体）**: `assert 'snapshot_id' in sig.parameters or list(sig.parameters)==[]`（PLAN L185）は `or` の後節で古い arity-0 関数をそのまま通す。この acceptance では「何も変更しなくても GREEN」になり・H1 解決の証明にならない。
-- **HIGH（H1-b: orchestrator 伝播ギャップ・新規懸念）**: `orchestrator.train_and_predict` は現状 `make_X_y(train_df)` / `make_X_y(calib_df)` / `make_X_y(test_df)` を snapshot_id なしで呼ぶ（`src/model/orchestrator.py:372`）。P03 Task 3 は make_X_y/prepare_model_matrix に snapshot_id 引数を追加する（PLAN L205, L207）だけ・orchestrator 内部の make_X_y 呼出を snapshot_id 渡しに変更しない。P05 は `train_and_predict(..., feature_snapshot_id=...)`（PLAN L138）を呼ぶが・現 orchestrator では feature_snapshot_id は provenance/model_version 用であり feature column 選択には伝播しない。結果: speed_figure snapshot で学習しても orchestrator 内部の make_X_y が v1.0 FEATURE_COLUMNS を使う静かな失敗が残る。
-- **HIGH（H1-c: obs_id 構築順序矛盾・新規懸念）**: P03 Task 1 は Step 5 rolling の直前に `compute_speed_figure_for_history(history, observations=feature_matrix)`（PLAN L94, L102）を挿入するが・P01 は `observations[["obs_id","kettonum","feature_cutoff_datetime"]]`（09-01 L114）を期待する。現 builder は obs_id を rolling/Step 6 内部（`src/features/builder.py:457`, `:503`）で構築するため・Step 5b 挿入時点では feature_matrix に obs_id が無い可能性がある。P03 Task1 (d)（L108）は「compute_speed_figure_for_history 側が observations=None を許容し内部で obs_id を構成」を許すが・これは P01 の API 契約（observations は obs_id を持つ前提・L114）と矛盾。
+- P03 自スコープ内の concern はなし。下游 P05 caller のギャップは 09-05 に掲載（後述・新規 HIGH）。
 
 **Suggestions**
-- H1-a: acceptance を `'snapshot_id' in sig.parameters` のみ（`or` 後節削除）に厳格化。
-- H1-b: P03 Task 3 に orchestrator.train_and_predict の内部 make_X_y 呼出へ snapshot_id を伝播する変更を含めるか・P05 が orchestrator を経由せず直接 make_X_y(snapshot_id=...) + calibrated predict の helper を呼ぶよう分離。前者が望ましい（D-13 公平性の単一経路維持）。
-- H1-c: P03 Task 1 で Step 5b の前に obs_id を早期構築する既存 idiom（`builder.py:505-517` と同一ロジック）を明示的に実行するか・P01 の compute_speed_figure_for_history が observations なしでも内部で obs_id を構築する idiom（rolling `src/features/rolling.py:204-215` と対称）を持つよう PLAN を整合。
+- P05 stop-gate caller を P03 の新 `snapshot_id` API と整合させること（09-05 HIGH で対処）。
 
-**Risk Assessment:** **HIGH**（acceptance 弱体・orchestrator 伝播ギャップ・obs_id 矛盾の 3 点が揃うと「Parquet は正しく生成されたが学習は v1.0 のまま」の静かな失敗が再発しうる）。
+**Risk Assessment:** MEDIUM（P05 がこの新 API を正しく消費すれば LOW に下落）。
 
-**Cycle 1 Resolution Status**
-- **H1: PARTIALLY RESOLVED** — 具象 Task 3（L172）+ verify は存在するが・acceptance が古いコードを通過させ・orchestrator 伝播が閉じず・obs_id API 矛盾が残る。
+**Cycle 2 Resolution Status**
+- **H1-a: FULLY RESOLVED** — acceptance escape 削除（L193）+ inspect-only verify（L237）が arity-0 を構造的に拒否。現 arity-0 は `src/model/data.py:211`。
+- **H1-b: FULLY RESOLVED for orchestrator internals** — `train_and_predict` シグネチャに snapshot_id 追加 + 内部3箇所の bare `make_X_y` を snapshot_id 伝播に書換（L226-230）+ grep verify（L197・L237）+ test_make_X_y_uses_snapshot_feature_columns（L199）。現 bare call は `src/model/orchestrator.py:373-375`。※下游 P05 caller の新規ギャップは 09-05 HIGH として別計上。
+- **H1-c: FULLY RESOLVED** — Step 5b 前の obs_id 早期構築（L30・L93・L102・L116）が P01 API 契約を充足。現 obs_id 構築は Step 6 `src/features/builder.py:503-517`・drop は L560-564。
 
 ---
 
-### 09-04-PLAN — H5 FULLY RESOLVED / M3 FULLY RESOLVED / M2 PARTIALLY RESOLVED
+### 09-04-PLAN — M2 FULLY RESOLVED（verify 強化 + fallback mask 廃止）
 
 **Summary**
-H5（word-boundary SQL proxy 検出）と M3（div_id 固定）は FULLY RESOLVED。M2（dict 戻り値）は action/done に組み込まれたが verify が syntax parse のみで実機検証がない。
+M2（dict 戻り値と fallback mask）は完全解決。speed_figure snapshot 未生成時は v1.0 へ fallback せず AssertionError で FAIL し・`result["feature_matrix"]` の使用を AST/grep で検証する。
 
 **Strengths**
-- **H5** は `ast.Constant` の str リテラルを word-boundary 部分一致で走査（PLAN L86, L97）し・builder の実際の SQL 文字列サーフェス（`src/features/builder.py:101`, `:116`）に対する proxy 埋込み検出を真正に実装する。false-pass 回避テスト（test_false_pass_detection_power・L109）で SQL proxy 注入を検出力証明。
-- **M3** は既存の byte-reproducible Plotly idiom と正確に合致: `include_plotlyjs="directory"` + 固定 `div_id`（`src/model/segment_eval.py:444`, `:447`）。
+- fallback mask 廃止（L103）: speed_figure snapshot が未生成の場合は `pytest.skip` でも v1.0 fallback でもなく・明示的に AssertionError で FAIL する（Phase 9 feature 欠落を mask しない・P03 で snapshot 生成が前提・docstring 明記）。
+- dict 戻り値契約の遵守（L159）: `build_feature_matrix` が DataFrame でなく dict を返す現契約（`src/features/builder.py:590-596`・`result["feature_matrix"]`）に対応し・`result = build_feature_matrix(...); feature_matrix = result["feature_matrix"]` で取り出す。verify（L175-188）が AST で `ast.Subscript` + `node.slice.value == 'feature_matrix'` を検出し・subscript 使用を強制する。
 
 **Concerns**
-- **MEDIUM（新規・M2 検証不足）**: `test_feature_columns_contains_speed_figure_no_proxy`（L103）は speed_figure snapshot が存在しない場合 v1.0 に fallback し・Phase 9 feature 欠落を mask しうる（P03 で snapshot 生成前はテスト不能）。また M2（dict 戻り値）は action/done（L158, L179）に書かれたが automated verify（L173）は `ast.parse` のみで `result["feature_matrix"]` 使用を検証しない。
+- なし。
 
 **Suggestions**
-- P04 で speed snapshot が存在しない場合は fail にする（fallback で mask しない）。
-- `result["feature_matrix"]` の使用を AST/grep check で検証。
+- なし。
 
-**Risk Assessment:** **MEDIUM**（H5/M3 は堅牢・M2 の verify 弱体と snapshot fallback が残課題）。
+**Risk Assessment:** LOW。
 
-**Cycle 1 Resolution Status**
-- **H5: FULLY RESOLVED** — word-boundary 部分一致検出 + false-pass 回避テストで SQL proxy も検出。
-- **M2: PARTIALLY RESOLVED** — action/done に組み込み済みだが verify が syntax のみ。
-- **M3: FULLY RESOLVED** — `div_id="speed-figure-domain"` 固定 + `include_plotlyjs="directory"`。
+**Cycle 2 Resolution Status**
+- **M2: FULLY RESOLVED** — fallback mask を AssertionError に変更（L103）+ `result["feature_matrix"]` subscript 使用を AST verify で強制（L175-188）。現 dict 戻り値契約は `src/features/builder.py:590-596`。
 
 ---
 
-### 09-05-PLAN — H2/H6/H7/H8/M4 FULLY RESOLVED（ただし H1-b orchestrator 伝播に依存）
+### 09-05-PLAN — 新規 HIGH: P05 stop gate が train_and_predict に snapshot_id を渡さない
 
 **Summary**
-H2/H6/H7/H8/M4 は stopgate plan で実行可能な task + acceptance_criteria + verify command として真正に解決。ただし P03 の H1-b orchestrator 伝播ギャップが解決されない限り stopgate が v1.0 FEATURE_COLUMNS で学習する静かな失敗が残る。
+既存の H2/H6/H7/H8/M4 保護は堅牢だが・P03 Task 3(k) で `train_and_predict` のシグネチャに追加された新 `snapshot_id` 引数を P05 L138 の呼出例が明示的に渡していない。これにより stop gate が speed_figure snapshot をロードしても orchestrator 内部の make_X_y が v1.0 FEATURE_COLUMNS を使い・「v1.0 vs v1.0」の比較を静かに実施しうる。
 
 **Strengths**
-- **H2/H7/H8** は `train_and_predict` 経由を正確にルーティング（PLAN L111, L138）。ソース確認: orchestrator は later-disjoint calibration（`src/model/orchestrator.py:478`）・LightGBM categorical 準備（`:490`, `:516`）・CatBoost test 予測整列（`:525`, `:534`）を実施。生 trainer 直接呼出は AST テスト（test_orchestrator_path_not_raw_trainer・L220）で禁止。
-- **H6** は実 odds 列を使用: `fuku_odds_lower`/`fuku_odds_upper`（`src/ev/odds_snapshot.py:210`, `:323`）・EV コードと合致（`src/ev/ev_rank.py:87`, `:109`）。
-- **M4** は strict JSON + sanitizer（PLAN L121, L162）で single-class AUC NaN（`src/model/evaluator.py:210`）と segment_eval sanitizer pattern（`:94`）に対処。
+- 既存の H2/H7/H8 保護は強固: orchestrator 経由を AST で強制（L26・L111-119）・生 trainer（train_lightgbm/train_catboost/align_predictions/_prepare_catboost_pool）の直接呼出を禁止。
+- H6: `fuku_odds_lower` 使用を grep/AST で検証（L28・L113-114）・誤列名 `fukuodds` を禁止。
+- M4: `_sanitize_for_json` で NaN/Inf を処理し `allow_nan=False` で安全な JSON 出力（L121・L218）。
 
 **Concerns**
-- **HIGH（H1-b 伝播ギャップへの依存）**: stopgate は P03 の H1 parameterization を前提とするが・orchestrator が内部 make_X_y に snapshot_id を渡さない限り（`src/model/orchestrator.py:372`）・speed_figure snapshot で学習しても v1.0 FEATURE_COLUMNS が使われる。P05 単体ではこのギャップを閉じられない。
+- **HIGH（新規・P05 caller gap）**: P05 が `train_and_predict(...)` を呼ぶ際（L138）・`feature_snapshot_id=<snapshot_id>` と `category_map=load_frozen_maps(snapshot_id=<snapshot_id>)` は渡すが・P03 Task 3(k)（09-03-PLAN L227-228）で新設された `snapshot_id` 引数（FEATURE_COLUMNS 選択用・feature_snapshot_id とは別・デフォルト None は v1.0）を明示的に渡していない。現状では P03 の verify（09-03 L197・L237）で orchestrator 内部の bare `make_X_y` は排除されるが・P05 caller が `snapshot_id=None` を渡す（省略時デフォルト）と orchestrator 内部で `make_X_y(test_df, snapshot_id=None)` となり・speed_figure snapshot をロードしても v1.0 FEATURE_COLUMNS が選択される（H1-b の「機能証明」test_make_X_y_uses_snapshot_feature_columns は P03 スコープ内で通るが・P05 で実際に snapshot_id を渡さないと end-to-end で同じ静かな失敗が残る）。
+  - 根拠: P03 09-03-PLAN L227-228（`snapshot_id` は `feature_snapshot_id` とは別・FEATURE_COLUMNS 選択用・デフォルト None は v1.0）+ L222（None は v1.0 デフォルト・後方互換）+ 09-05-PLAN L138（呼出例が `snapshot_id=` を欠く）。現実コードでも `feature_snapshot_id` は `src/model/orchestrator.py:238` に既存だが FEATURE_COLUMNS 選択には無関係・make_X_y は現在 bare（`src/model/orchestrator.py:373-375`）。
 
 **Suggestions**
-- stopgate smoke テストで make_X_y を monkeypatch/inspect し speed snapshot path が `rolling_speed_figure_*` を選択することを assert。
+- P05 を更新し・両 snapshot（baseline と speed_figure）の `train_and_predict` 呼出に `snapshot_id=<対応する snapshot_id>` を明示的に渡す。
+- AST テストを追加し・`scripts/run_speed_figure_stopgate.py` の全 `train_and_predict` 呼出が `snapshot_id=` keyword を持つことを検証。
 
-**Risk Assessment:** **MEDIUM, rising to HIGH** — H1-b（P03 orchestrator 伝播）が解決されれば LOW に下落。
+**Risk Assessment:** HIGH（未修正のままでは stop gate が「v1.0 vs v1.0」の比較を静かに実施しうる・H1-b の cycle 2 指摘と同じ静かな失敗メカニズムが P05 呼出側で再生）。
 
-**Cycle 1 Resolution Status**
-- **H2: FULLY RESOLVED** — orchestrator.train_and_predict 経由・生 trainer 直接呼出 AST で禁止。
-- **H6: FULLY RESOLVED** — `fuku_odds_lower` 使用・`fukuodds` 禁止を grep/AST で検証。
-- **H7/H8: FULLY RESOLVED** — orchestrator 経由で `sorted_test_idx` と `_prepare_lightgbm_train_eval` を再利用。
-- **M4: FULLY RESOLVED** — `_sanitize_for_json` + `allow_nan=False` で NaN/Inf 処理。
+**Cycle 2 Resolution Status**
+- **(新規) P05 snapshot_id 伝播ギャップ**: PARTIALLY RESOLVED → 要対応。P03 で `train_and_predict` に `snapshot_id` 引数が追加されたが・P05 呼出例がそれを渡していない。
 
 ---
 
-## Consensus Summary (Cycle 2)
+## Cycle 2 → Cycle 3 Resolution Table
 
-### Agreed Strengths（Cycle 1 → Cycle 2 で真正解決した HIGH 群）
-- **H2/H3a/H3b/H5/H6/H7/H8/M3/M4 は FULLY RESOLVED**: それぞれ具象 task + acceptance_criteria + verify command を持ち・実コード契約（`src/features/availability.py:179`, `src/features/snapshot.py:126`, `src/model/orchestrator.py:478-538`, `src/ev/odds_snapshot.py:210-215`, `src/model/segment_eval.py:444-447` 等）と合致。
-- H1（data.py parameterization）と H4（per-observation PIT）は方向性は正しいが実行可能記述に残存ギャップ。
+| Sub-item | Cycle 2 Status | Cycle 3 Status | Evidence（PLAN line + real code line） |
+|----------|----------------:|----------------:|----------------------------------------|
+| H1-a acceptance escape | PARTIALLY | **FULLY RESOLVED** | 09-03 L193・L237 が `snapshot_id` を必須化（escape 削除）・現 arity-0 は `src/model/data.py:211` |
+| H1-b orchestrator snapshot 伝播 | PARTIALLY | **FULLY RESOLVED for orchestrator internals**・P05 caller gap は新規 HIGH として別計上 | 09-03 L197・L226-230・L237 がシグネチャ + 内部伝播を要求・現 bare call は `src/model/orchestrator.py:373-375` |
+| H1-c obs_id 構築タイミング | PARTIALLY | **FULLY RESOLVED** | 09-03 L30・L93・L102・L116 が早期 obs_id 構築を追加・現 Step 6 構築は `src/features/builder.py:503-517`・drop は L560-564 |
+| H4 per-observation PIT | PARTIALLY | **FULLY RESOLVED** | 09-01 L22・L106-107・L182-185 が obs_id 必須 + adversarial・rolling 先例は `src/features/rolling.py:204-215`・L236-264 |
+| M1 7系統 prose 残滓 | PARTIALLY | **FULLY RESOLVED** | 09-02 L27・L41・L77・L137・L287・実コードは `src/features/rolling.py:71-80` で 8 系統 |
+| M2 verify 弱体 + fallback mask | PARTIALLY | **FULLY RESOLVED** | 09-04 L103（AssertionError）・L159・L175-188（AST subscript verify）・現 dict 戻り値は `src/features/builder.py:590-596` |
 
-### Agreed Concerns（最優先・未解決）
+---
 
-1. **H1（data.py parameterization）PARTIALLY RESOLVED・3 つの実行ギャップ**:
-   - (a) acceptance の `or` 後節で古い arity-0 関数が通過（09-03 L185）。
-   - (b) **新規**: orchestrator.train_and_predict が内部 make_X_y 呼出に snapshot_id を伝播しない（`src/model/orchestrator.py:372`）。P03 Task 3 が make_X_y に引数を追加するだけでは閉じない。
-   - (c) **新規**: P03 Step 5b の observations=feature_matrix と P01 の observations[["obs_id",...]] 期待が builder 現 obs_id 構築タイミング（`src/features/builder.py:503`）と矛盾。
-   - **要対応**: P03 Task 3 の acceptance 厳格化 + orchestrator.train_and_predict 内部の make_X_y 呼出の snapshot_id 伝播 + P03 Step 5b 前の obs_id 早期構築（または P01 API の observations=None 内部構築許容）。
+## Consensus Summary (Cycle 3)
 
-2. **H4（per-observation PIT）PARTIALLY RESOLVED・集約キーに obs_id が明示されず**:
-   - par の groupby が `jyocd×trackcd×kyori`（09-01 L105）のみで obs_id 抜き・variant も `obs_id` 抜き（L106）。展開済みフレーム上で算出すると書いても groupby キー仕様に obs_id がないため cross-observation leak の余地。
-   - **要対応**: par fallback group を `obs_id + keys`・variant group を `obs_id + source_race_date + jyocd + surface` と PLAN に明示 + 2-observation adversarial テスト。
+### 達成（Cycle 2 → Cycle 3 で真正解決）
+- **H1-a・H1-b・H1-c・H4・M1・M2 は FULLY RESOLVED**: 6 サブアイテム全てが concrete task + acceptance_criteria + verify command を持ち・実コード契約の file:line と合致。Cycle 2 の PARTIALLY RESOLVED 4 項目は・改訂（050c827）で構造的に閉じた。
+  - H1-a: acceptance から `or list(sig.parameters)==[]` 逃げ道を削除（09-03 L193・L237）。
+  - H1-b: P03 Task 3(k) で `train_and_predict` に `snapshot_id` 引数を追加し内部3箇所の bare `make_X_y` を伝播に書換 + grep/AST verify + test_make_X_y_uses_snapshot_feature_columns（09-03 L197・L226-230・L237・L199）。
+  - H1-c: Step 5b 前の obs_id 早期構築を既存 idiom で追加（09-03 L30・L93・L102・L116）。
+  - H4: par/variant groupby キーに obs_id を必須化 + 2-observation adversarial テスト（09-01 L22・L106-107・L182-185）。
+  - M1: prose 全体を 8 系統に訂正 + lint verify（09-02 L27・L41・L77・L137・L287）。
+  - M2: fallback を AssertionError に変更 + `result["feature_matrix"]` subscript 使用を AST verify で強制（09-04 L103・L159・L175-188）。
 
-### 新規懸念（Cycle 2 で浮上・Cycle 1 にはなかった）
-- **H1-b（orchestrator 伝播ギャップ）**: P03 Task 3 が make_X_y を parameterize しても orchestrator.train_and_predict が snapshot_id を make_X_y に渡さないと・stop gate が v1.0 FEATURE_COLUMNS で学習する。P03 Task 3 のスコープ拡張または P05 での orchestrator ラッパー分離が必要。
-- **H1-c（obs_id 構築順序矛盾）**: builder Step 5b 挿入位置と P01 API 契約の整合。P03 Task 1 (d)（L108）で言及されているが・「compute_speed_figure_for_history 側が observations=None を許容」は P01 L114 の「observations は obs_id を持つ前提」と整合しない。P01 側で observations=None 時の obs_id 内部構築を明示する idiom（rolling `src/features/rolling.py:204-215` と対称）を持つべき。
-- **P04 fallback mask**: speed snapshot 未生成時に v1.0 へ fallback すると Phase 9 feature 欠落が mask される（09-04 L103）。
+### 残存（最優先・未解決）
+
+1. **(新規 HIGH) P05 stop gate の `train_and_predict` 呼出が `snapshot_id=` を欠く**:
+   - 09-05-PLAN L138 の呼出例が `feature_snapshot_id=<snapshot_id>` と `category_map=load_frozen_maps(snapshot_id=<snapshot_id>)` は渡すが・P03 で新設された `snapshot_id` 引数（FEATURE_COLUMNS 選択用・09-03 L227-228）を明示的に渡していない。
+   - 結果: speed_figure snapshot をロード（09-05 L137）しても orchestrator 内部で `make_X_y(test_df, snapshot_id=None)` となり v1.0 FEATURE_COLUMNS が選択され・stop gate が「v1.0 vs v1.0」を比較しうる（H1-b と同じ静かな失敗メカニズムが P05 呼出側で再生）。
+   - **要対応**: P05 L138 の両 snapshot 呼出に `snapshot_id=<対応する snapshot_id>` を明示的に追加 + `scripts/run_speed_figure_stopgate.py` の全 `train_and_predict` 呼出が `snapshot_id=` keyword を持つことを検証する AST テストを P05 Task2 に追加。
 
 ### Divergent Views / Open Questions
-- 本 review は単 reviewer（Codex）・Cycle 1 と同一。別視点（Gemini 等）を求める場合は `--gemini` 追加で再実行可能。
-- H1-b（orchestrator 伝播）は Cycle 1 時点では個別 trainer API 問題として捉えられていたが・Cycle 2 で parameterization の「伝播の閉じ具合」として再構造化された。これは plan の階層的な問題で・P03 Task 3 を拡張すれば解決する（P05 単体では不可能）。
-
----
-
-## Cycle 1 → Cycle 2 Resolution Table
-
-| Finding | Cycle 1 Severity | Cycle 2 Status | 根拠 |
-|---------|------------------|----------------|------|
-| H1 | HIGH | **PARTIALLY RESOLVED** | P03 Task 3 存在するが acceptance 弱体 + orchestrator 伝播ギャップ(H1-b 新規) + obs_id 矛盾(H1-c 新規) |
-| H2 | HIGH | FULLY RESOLVED | orchestrator.train_and_predict 経由 + 生 trainer AST 禁止（09-05 L111, L138, L220） |
-| H3a | HIGH | FULLY RESOLVED | snapshot.py `_1/_3/_5` suffix 拡張 + verify（09-02 Task3 L230, L232） |
-| H3b | HIGH | FULLY RESOLVED | reserved 条件付き除外 + verify（09-02 Task2 L175, L207） |
-| H4 | HIGH | **PARTIALLY RESOLVED** | must_haves/task/verify 存するが par/variant groupby キーに obs_id 未明示（09-01 L105, L106） |
-| H5 | HIGH | FULLY RESOLVED | word-boundary 部分一致 + false-pass 回避（09-04 L86, L97, L109） |
-| H6 | HIGH | FULLY RESOLVED | fuku_odds_lower 使用 + fukuodds 禁止（09-05 L113, L114, L216） |
-| H7/H8 | HIGH | FULLY RESOLVED | orchestrator 経由 sorted_test_idx + _prepare_lightgbm_train_eval（09-05 L111, L119） |
-| M1 | LOW | **PARTIALLY RESOLVED** | 実行基準は 8 系統で正確だが prose（L41/L77/L88/L98）に「7系統」残滓 |
-| M2 | MEDIUM | **PARTIALLY RESOLVED** | action/done に組み込み済み・verify が syntax parse のみ（09-04 L173） |
-| M3 | MEDIUM | FULLY RESOLVED | div_id 固定 + include_plotlyjs='directory'（09-04 L165） |
-| M4 | MEDIUM | FULLY RESOLVED | _sanitize_for_json + allow_nan=False（09-05 L162, L218） |
+- 本 review は単 reviewer（Codex）・Cycle 1/2 と同一。別視点（Gemini 等）を求める場合は `--gemini` 追加で再実行可能。
+- H1-b は Cycle 2 で「P03 Task 3 を拡張すれば解決する」と予見されていたが・Cycle 3 で P03 内は完璧に閉じた一方・P05 caller が新 API を正しく消費していないという下游ギャップが浮上した。これは plan の階層的連鎖で・P05 L138 の呼出例を更新すれば閉じる（P05 の local 修正）。
 
 ---
 
 ## CYCLE_SUMMARY
 
-- **current_high**: 2（H1・H4 とも PARTIALLY RESOLVED）
-  - **H1**: data.py parameterization の実行ギャップ（acceptance 弱体・orchestrator 伝播 H1-b 新規・obs_id 矛盾 H1-c 新規）
-  - **H4**: par/variant per-observation PIT の groupby キーに obs_id 未明示・cross-observation leak 余地
-- **current_actionable**: 2
-  - **M1（LOW）**: 09-02 prose の「7系統」表記を 8 系統に訂正（実行基準は既に正確）
-  - **M2（MEDIUM）**: 09-04 Task2 の verify が `ast.parse` のみ・`result["feature_matrix"]` 使用を AST/grep 検証に強化 + speed snapshot 未生成時の v1.0 fallback を fail に変更
+- **current_high**: 1（P05 stop gate の `snapshot_id` 伝播ギャップ・新規）
+  - **(新規) P05 snapshot_id 伝播ギャップ**: 09-05-PLAN L138 の `train_and_predict` 呼出例が `snapshot_id=` を欠く。P03 Task 3(k) で追加された `snapshot_id` 引数（FEATURE_COLUMNS 選択用・09-03 L227-228）を渡さないと speed_figure snapshot をロードしても orchestrator 内部で v1.0 FEATURE_COLUMNS が選択され・stop gate が「v1.0 vs v1.0」を比較しうる（H1-b と同じ静かな失敗メカニズム）。要対応: P05 L138 の両 snapshot 呼出に `snapshot_id=<対応する snapshot_id>` を追加 + AST テストで `snapshot_id=` keyword を検証。
+- **current_actionable**: 0
 
-（注: H2/H3a/H3b/H5/H6/H7/H8/M3/M4 は FULLY RESOLVED につき count から除外。H1-b/H1-c は H1 の PARTIALLY RESOLVED の内訳として扱い・H1 のみ count。新規懸念 P04 fallback mask は M2 の fallback 指摘と重なるため M2 に集約。）
+（注: H1-a・H1-b・H1-c・H4・M1・M2 は FULLY RESOLVED につき count から除外。H1-b は P03 内部は FULLY RESOLVED・P05 caller の新規ギャップを新 HIGH として別計上。）
 
 ---
 
-## Verification Coverage（Cycle 2 source-grounding 監査）
+## Verification Coverage（Cycle 3 source-grounding 監査）
 
-本 review が根拠として引用した実ソース（file:line・Codex が実読）:
-- `src/features/rolling.py:204-215, 236, 252, 260`（obs_id expand idiom・H4 参照）
-- `src/features/availability.py:158, 179`（_RESERVED_NON_FEATURE_COLUMNS 自動展開・H3b）
-- `src/features/snapshot.py:115, 126`（_is_categorical_rolling_col `_5` 固定・H3a）
-- `src/features/builder.py:101, 116, 457, 503`（SQL 文字列・obs_id 構築タイミング・H1-c）
-- `src/model/data.py:77, 122, 149, 162, 171, 211`（SNAPSHOT_PATH 硬結合・FEATURE_COLUMNS 減算・H1）
-- `src/model/orchestrator.py:372, 478, 490, 516, 525, 534`（make_X_y snapshot_id 伝播ギャップ・H1-b・calibration・CatBoost sorted_test_idx・H7・LightGBM categorical・H8）
-- `src/model/evaluator.py:210`（single-class AUC NaN・M4）
-- `src/model/segment_eval.py:94, 444, 447`（sanitizer pattern・M4・div_id idiom・M3）
-- `src/ev/odds_snapshot.py:210, 323`（fuku_odds_lower/upper・H6）
-- `src/ev/ev_rank.py:87, 109`（EV コード odds 列消費・H6）
+本 review が根拠として引用した実ソース（file:line・Codex 実読）:
+- `src/model/orchestrator.py:234`（train_and_predict シグネチャ・現状 feature_snapshot_id のみで snapshot_id 未追加）
+- `src/model/orchestrator.py:238`（feature_snapshot_id 引数・provenance/model_version 用・FEATURE_COLUMNS 選択とは無関係）
+- `src/model/orchestrator.py:373-375`（bare `make_X_y(train_df/calib_df/test_df)`・H1-b が書換対象）
+- `src/model/data.py:211-229`（load_feature_matrix 現 arity-0・H1-a が parameter化）
+- `src/model/data.py:405`（make_X_y 現 arity-1・H1-b が snapshot_id 追加）
+- `src/features/builder.py:503-517`（obs_id 現構築箇所・Step 6 内・H1-c が Step 5b 前に早期構築）
+- `src/features/builder.py:560-564`（obs_id drop・Step 6b・契約不変）
+- `src/features/builder.py:590-596`（build_feature_matrix の dict 戻り値・M2 対応）
+- `src/features/rolling.py:71-80`（_ROLLING_SYSTEMS 8 系統・M1 訂正の根拠）
+- `src/features/rolling.py:204-215`（obs_id expand idiom・H4 参照）
+- `src/features/rolling.py:236-264`（per-observation PIT groupby idiom・H4 参照）
 
-PLAN.md line 引用（改訂後）:
-- `09-01-PLAN.md:22, 104, 105, 106, 114, 123, 180`（H4 task/verify・par/variant groupby・observations API）
-- `09-02-PLAN.md:41, 77, 88, 98, 137, 144, 175, 177, 207, 230, 232, 248`（H3a/H3b task/verify・M1 prose）
-- `09-03-PLAN.md:94, 102, 108, 172, 185, 205, 207`（H1 task3・acceptance 弱体・Step 5b・obs_id 矛盾）
-- `09-04-PLAN.md:86, 97, 103, 109, 158, 165, 173, 179`（H5 word-boundary・M2 dict・M3 div_id・fallback mask）
-- `09-05-PLAN.md:111, 113, 114, 119, 121, 138, 162, 216, 218, 220`（H2/H6/H7/H8/M4 task/verify）
+PLAN.md line 引用（改訂後 050c827）:
+- `09-01-PLAN.md:22, 106, 107, 182-185`（H4 集約キー obs_id 必須 + 2-observation adversarial）
+- `09-02-PLAN.md:27, 41, 77, 137, 287`（M1 8 系統訂正 + lint verify）
+- `09-03-PLAN.md:30, 93, 102, 116, 193, 197, 199, 222, 226-230, 237`（H1-a/b/c task + acceptance + verify）
+- `09-04-PLAN.md:103, 159, 175-188`（M2 AssertionError + AST subscript verify）
+- `09-05-PLAN.md:26, 28, 111-119, 113-114, 121, 137, 138, 218`（H2/H6/H7/H8/M4 + 新規 HIGH L138 snapshot_id 欠落）
