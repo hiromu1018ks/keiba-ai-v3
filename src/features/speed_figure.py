@@ -59,8 +59,31 @@ POINTS_PER_SECOND_BY_DISTANCE_M: dict[int, float] = {
     1800: 8.8,    # 9f 相当
     2000: 8.0,    # 10f 相当
     2400: 6.6,    # 12f 相当（長距離・1秒の重み最小）
-    3000: 5.3,    # 1.5mile+ 相当
-    3200: 5.0,    # 長距離障害含む
+    3000: 5.3,    # 1.5mile+ 相当（平地のみ・障害除外は別途）
+    3200: 5.0,    # 長距離平地
+}
+
+# ---------------------------------------------------------------------------
+# D-05補完: 距離別 time 物理妥持範囲（秒・[lo, hi]・live-DB SC#5 outerlier 根本対策）
+#
+# 本テーブルは **物理的妥持範囲**（performance band ではない）。各距離の JRA レコード + 余裕を持って
+# **全ての正規完走** を含む下限/上限。この範囲外の time>0 は **データ品質障害**（落馬/故障/記録ミス・
+# 例: 1000m time=1176 (117.6s) は物理不可能・JRA 1000m record ~56s）であり・性能の高低でない。
+# よって par median 計算前に NaN 化し par 汚染と speed_figure 外れ値生成を両方防ぐ。
+#
+# Source: JRA record times + 充分な margin（live-DB SC#5 で物理異常値と正常値の境界を実証）。
+# 障害レース（trackcd 51-59）は別途 surface=='obstacle' で除外し・ここには含めない。
+# ---------------------------------------------------------------------------
+_TIME_RANGE_BY_KYORI_SEC: dict[int, tuple[float, float]] = {
+    1000: (53.0, 85.0),
+    1200: (65.0, 95.0),
+    1400: (78.0, 110.0),
+    1600: (92.0, 125.0),
+    1800: (105.0, 150.0),
+    2000: (118.0, 170.0),
+    2400: (145.0, 210.0),
+    3000: (180.0, 260.0),
+    3200: (195.0, 280.0),
 }
 
 # ---------------------------------------------------------------------------
@@ -105,14 +128,78 @@ def _time_to_seconds(time_real: float | None) -> float:
     return float(time_real) / 10.0
 
 
-def _time_to_seconds_series(time_series: pd.Series) -> pd.Series:
+def _time_to_seconds_series(
+    time_series: pd.Series,
+    kyori_series: pd.Series | None = None,
+    surface_series: pd.Series | None = None,
+) -> pd.Series:
     """``_time_to_seconds`` の vectorized 版（pandas Series 向け）。
 
     ``pd.to_numeric(errors="coerce")`` で非数値を NaN 化後・``> 0`` のみ ``/10.0`` で秒換算。
     ``time <= 0`` (取消/競走中止・live-DB で4882件) は NaN になる。
+
+    Parameters
+    ----------
+    time_series : pd.Series
+        ``time`` (decisecond)。
+    kyori_series : pd.Series, optional
+        距離（メートル）。与えられた場合・``_TIME_RANGE_BY_KYORI_SEC`` で物理妥持範囲外の time を NaN 化
+        （落馬/故障/記録ミス等のデータ品質障害を落とす・live-DB SC#5 outerlier 根本対策）。
+        未定義 kyori は近傍定義距離でクランプ。未知（NaN kyori 等）は範囲チェックを skip。
+    surface_series : pd.Series, optional
+        ``_derive_surface`` 出力。``"obstacle"`` の行は time を NaN 化（障害は Beyer 平地モデル不適合・
+        par/variant/speed_figure の全てから除外）。
     """
     numeric = pd.to_numeric(time_series, errors="coerce")
-    return numeric.where(numeric > 0, np.nan) / 10.0
+    seconds = numeric.where(numeric > 0, np.nan) / 10.0
+
+    # 障害除外: surface=='obstacle' は time_sec NaN（Beyer 平地モデル不適合・pps テーブルが平地専用）
+    if surface_series is not None:
+        obstacle_mask = (
+            surface_series.astype(str) == "obstacle"
+        )
+        seconds = seconds.where(~obstacle_mask, other=np.nan)
+
+    # 距離別物理妥持範囲チェック（落馬/故障/記録ミス等のデータ品質障害）
+    if kyori_series is not None:
+        kyori_num = pd.to_numeric(kyori_series, errors="coerce")
+        # 各行の (lo, hi) を lookup・未定義 kyori は近傍定義距離でクランプ
+        lo = kyori_num.map(lambda k: _time_range_for_kyori(k)[0])
+        hi = kyori_num.map(lambda k: _time_range_for_kyori(k)[1])
+        # NaN kyori は範囲チェック skip（lo/hi が NaN → マスク False 扱い）
+        in_range = (seconds >= lo) & (seconds <= hi)
+        seconds = seconds.where(in_range.fillna(False), other=np.nan)
+
+    return seconds
+
+
+def _time_range_for_kyori(kyori: float) -> tuple[float, float]:
+    """``_TIME_RANGE_BY_KYORI_SEC`` の lookup・未定義 kyori は近傍定義距離でクランプ。
+
+    NaN kyori は (NaN, NaN) を返し・呼出側で skip される。未定義の平地距離（例: 1700m）は
+    定義済み近傍距離の範囲を採用（線形補間でなく区間の厳しい方=狭い方ではなく・安全側に
+    広い方の範囲を採用する設計）。
+    """
+    import math
+
+    if kyori is None or (isinstance(kyori, float) and math.isnan(kyori)):
+        return (float("nan"), float("nan"))
+    distances = sorted(_TIME_RANGE_BY_KYORI_SEC.keys())
+    k = int(kyori)
+    if k in _TIME_RANGE_BY_KYORI_SEC:
+        return _TIME_RANGE_BY_KYORI_SEC[k]
+    if k <= distances[0]:
+        return _TIME_RANGE_BY_KYORI_SEC[distances[0]]
+    if k >= distances[-1]:
+        return _TIME_RANGE_BY_KYORI_SEC[distances[-1]]
+    # 近傍2距離の広い方の範囲を採用（安全側: 異常値を過剰に落とさない）
+    for i in range(len(distances) - 1):
+        if distances[i] < k < distances[i + 1]:
+            r_lo = _TIME_RANGE_BY_KYORI_SEC[distances[i]]
+            r_hi = _TIME_RANGE_BY_KYORI_SEC[distances[i + 1]]
+            return (min(r_lo[0], r_hi[0]), max(r_lo[1], r_hi[1]))
+    # 到達不能
+    return (float("nan"), float("nan"))
 
 
 def _derive_surface(trackcd: pd.Series) -> pd.Series:
@@ -190,8 +277,10 @@ def _compute_pit_par(expanded_filtered: pd.DataFrame) -> pd.DataFrame:
     """
     out = expanded_filtered.copy()
     # time_sec が無ければ算出（_pit_cutoff_prefilter 済みフレームには無い場合がある）
+    # 障害除外 + 距離別物理妥持範囲外 NaN は time_sec 算出段階で反映する（par 汚染防止）
     if "time_sec" not in out.columns:
-        out["time_sec"] = _time_to_seconds_series(out["time"])
+        surf = out["surface"] if "surface" in out.columns else None
+        out["time_sec"] = _time_to_seconds_series(out["time"], out.get("kyori"), surf)
     # 集約キー素材の正規化（jyocd/trackcd/kyori は文字列混入対策で文字列化・groupby 安定化）
     out["_jyocd"] = out["jyocd"].astype(str)
     out["_trackcd"] = out["trackcd"].astype(str)
@@ -286,7 +375,8 @@ def _compute_leave_one_out_variant(expanded_with_par: pd.DataFrame) -> pd.DataFr
     out = expanded_with_par.copy()
     # residual = time_sec - par_sec（time_sec が無ければ算出）
     if "time_sec" not in out.columns:
-        out["time_sec"] = _time_to_seconds_series(out["time"])
+        surf = out["surface"] if "surface" in out.columns else None
+        out["time_sec"] = _time_to_seconds_series(out["time"], out.get("kyori"), surf)
     out["residual"] = out["time_sec"] - out["par_sec"]
     # source_race_date 導出（race_date が datetime/date 文字列を想定）
     if "source_race_date" not in out.columns:
@@ -412,8 +502,9 @@ def compute_speed_figure_for_history(
 
     # --- Step 2: 派生列の追加（copy-not-rename） ---
     out = history.copy()
-    out["time_sec"] = _time_to_seconds_series(out["time"])
     out["surface"] = _derive_surface(out["trackcd"])
+    # time_sec 算出は障害(surface=='obstacle')と距離別物理妥持範囲外を NaN 化（par 汚染防止）
+    out["time_sec"] = _time_to_seconds_series(out["time"], out["kyori"], out["surface"])
     out["source_race_date"] = pd.to_datetime(out["race_date"]).dt.date
 
     # --- Step 3: par/variant 算出 ---

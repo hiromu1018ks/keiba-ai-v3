@@ -200,24 +200,30 @@ def _build_speed_figure_history_rows(
     """1頭の馬 × 1つの target observation に対する adversarial speed_figure history。
 
     戻り DataFrame は8行（5行 adversarial + 3行 eligible）。各 row の ``time`` は区別可能な値
-    （adversarial=9990/9980/...・eligible=1100/1110/1120）を持ち・``speed_figure`` 算出が
+    （adversarial=1240/1230/...・eligible=1100/1110/1120）を持ち・``speed_figure`` 算出が
     eligible 3行のみで行われることを機械的に検証する（rolling 用
     ``_build_adversarial_rolling_rows`` と同様の idiom・ただし kakuteijyuni でなく time を識別値に
     する・speed_figure が time 由来のため）。
 
-    target race 当日(time=9990)・同日別(9980)・同日午後(9970)・前日==cutoff midnight(9960)・
-    未来(9950) は全て strict ``< feature_cutoff_datetime`` で除外される。
+    target race 当日(time=1240)・同日別(1230)・同日午後(1220)・前日==cutoff midnight(1210)・
+    未来(1200) は全て strict ``< feature_cutoff_datetime`` で除外される。
     eligible 3行(time=1100/1110/1120・jyocd="05"・trackcd="24"・kyori=1600) のみが par/variant 算出に
     使用される。
+
+    ※ Phase 9 SC#5 fix: adversarial time は旧来 9990/9980/...(999.0/998.0s) だったが・これらは
+    1600m 物理妥持範囲(92-125s) 外のため新規 ``_time_to_seconds_series`` の範囲チェックで NaN 化され
+    SC#2 adversarial テストの leak 検出力が失われた。値を物理妥持範囲内の識別値(124.0-120.0s)に更新
+    （PIT 除外は値に無関係に strict < で効くため intent 不変）。eligible 3行(110,111,112) median=111.0
+    に対し previous_day=121.0 混入で median が (111+112)/2=111.5 に変化し leak が機械検出される。
     """
     obs_rd = pd.to_datetime(obs_race_date)
     rows = [
         # (label, race_date offset from obs_rd, time deciseconds, kakuteijyuni)
-        ("target",         pd.Timedelta(days=0),  9990, 1),   # 当日・必ず除外
-        ("same_day_prior", pd.Timedelta(days=0),  9980, 1),   # 同日別レース・必ず除外
-        ("same_day_later", pd.Timedelta(days=0),  9970, 1),   # 同日午後・必ず除外
-        ("previous_day",   pd.Timedelta(days=-1), 9960, 1),   # 前日==cutoff midnight・strict < で除外
-        ("future",         pd.Timedelta(days=2),  9950, 1),   # 未来・必ず除外
+        ("target",         pd.Timedelta(days=0),  1240, 1),   # 当日・必ず除外（124.0s・1600m 範囲内）
+        ("same_day_prior", pd.Timedelta(days=0),  1230, 1),   # 同日別レース・必ず除外（123.0s）
+        ("same_day_later", pd.Timedelta(days=0),  1220, 1),   # 同日午後・必ず除外（122.0s）
+        ("previous_day",   pd.Timedelta(days=-1), 1210, 1),   # 前日==cutoff midnight・strict < で除外（121.0s）
+        ("future",         pd.Timedelta(days=2),  1200, 1),   # 未来・必ず除外（120.0s）
         # eligible 3行（par/variant 算出に含まれるべき正当な過去走）
         ("eligible",       pd.Timedelta(days=-2), 1100, 1),
         ("eligible",       pd.Timedelta(days=-3), 1110, 1),

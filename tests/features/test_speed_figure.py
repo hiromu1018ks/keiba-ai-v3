@@ -39,7 +39,7 @@ def test_time_decisecond_conversion() -> None:
     assert _time_to_seconds(0) != _time_to_seconds(0), "time=0 は NaN"
     assert _time_to_seconds(-5.0) != _time_to_seconds(-5.0), "time<0 は NaN"
     assert _time_to_seconds(None) != _time_to_seconds(None), "time=None は NaN"
-    # vectorized 版
+    # vectorized 版（kyori/surface 引数無し: 従来挙動・範囲チェック無し）
     s = pd.Series([1108.0, 0.0, -1.0, 9990.0, None])
     out = _time_to_seconds_series(s)
     assert abs(out.iloc[0] - 110.8) < 1e-9, "iloc[0]: 1108.0 ds → 110.8 s"
@@ -47,6 +47,35 @@ def test_time_decisecond_conversion() -> None:
     assert pd.isna(out.iloc[2]), "iloc[2]: time=-1 → NaN"
     assert abs(out.iloc[3] - 999.0) < 1e-9, "iloc[3]: 9990.0 ds → 999.0 s"
     assert pd.isna(out.iloc[4]), "iloc[4]: None → NaN"
+
+
+def test_time_to_seconds_obstacle_and_physical_range_exclusion() -> None:
+    """Phase 9 SC#5 外れ値根本対策: 障害除外 + 距離別物理妥持範囲外 NaN。
+
+    live-DB SC#5 で rolling_speed_figure_mean_5 が min=-1748/max=4591 になった根本原因:
+      (a) 障害レース(trackcd 51-59)は pps テーブルが平地専用なのに speed_figure 算出されていた
+      (b) 1000m time=1176 (117.6s) 等・物理不可能な time>0（落馬/故障/記録ミス）が time<=0 チェック
+          のみで生き残り par median を汚染していた
+
+    本テストは ``_time_to_seconds_series(time, kyori, surface)`` が両者を NaN 化することを実証。
+    """
+    # 1000m・平地: 700 ds (70.0s・範囲 53-85) は保持・1176 ds (117.6s・範囲外) は NaN
+    time = pd.Series([700.0, 1176.0, 1100.0, 700.0])
+    kyori = pd.Series([1000, 1000, 1600, 1000])
+    surface = pd.Series(["turf", "turf", "dirt", "obstacle"])
+    out = _time_to_seconds_series(time, kyori, surface)
+    # 1000m 70.0s → 保持
+    assert abs(out.iloc[0] - 70.0) < 1e-9, "1000m 70.0s は範囲内(53-85) → 保持"
+    # 1000m 117.6s → NaN（物理妥持範囲外・落馬/故障/記録ミス）
+    assert pd.isna(out.iloc[1]), (
+        "1000m 117.6s は物理妥持範囲外(53-85) → NaN（JRA 1000m record ~56s・正常完走は ~58-75s）"
+    )
+    # 1600m 110.0s → 保持
+    assert abs(out.iloc[2] - 110.0) < 1e-9, "1600m 110.0s は範囲内(92-125) → 保持"
+    # 1000m 70.0s だが obstacle → NaN（障害は Beyer 平地モデル不適合）
+    assert pd.isna(out.iloc[3]), (
+        "surface=='obstacle' は time_sec を NaN 化（pps テーブルが平地専用・SC#5 外れ値根本原因）"
+    )
 
 
 def test_surface_derivation() -> None:
@@ -62,6 +91,109 @@ def test_surface_derivation() -> None:
     assert s.iloc[6] == "obstacle", "trackcd=54 → obstacle"
     assert s.iloc[7] == "unknown", "trackcd=99 → unknown"
     assert s.iloc[8] == "unknown", "trackcd=None → unknown"
+
+
+def test_obstacle_race_excluded_from_speed_figure() -> None:
+    """Phase 9 SC#5 外れ値根本対策: 障害レース(trackcd 51-59) は speed_figure が NaN。
+
+    障害レースの走破タイムは Beyer 平地モデル（POINTS_PER_SECOND_BY_DISTANCE_M は
+    1000-3200m 平地専用・障害 3000m avg ~169s は平地 3000m ~180s と大きく異なる stamina profile）
+    に適合しないため・speed_figure feature から除外する（落馬/故障でなく・意味的に不適合）。
+    """
+    # 障害(trackcd=52, kyori=3000) の過去走を持つ馬
+    rows = [
+        _build_se_history_row(
+            kettonum=5001,
+            race_date="2023-05-01",
+            as_of_datetime=pd.to_datetime("2023-05-01"),
+            time=1690.0,   # 169.0s・障害 3000m 典型
+            trackcd="52",  # 障害
+            kyori=3000,
+            jyocd="05",
+            kakuteijyuni=1,
+            row_label="obstacle_past",
+        ),
+    ]
+    history = pd.DataFrame(rows)
+    obs = pd.DataFrame(
+        [_build_race_obs_row("2023A0610-R1", 5001, "2023-06-04", obs_id="OBS_OBS")]
+    )
+    result = compute_speed_figure_for_history(history, observations=obs)
+    # 障害行の time_sec/speed_figure は NaN
+    obstacle_rows = result[result["trackcd"].astype(str) == "52"]
+    assert len(obstacle_rows) > 0, "テスト前提: 障害行が含まれる"
+    assert obstacle_rows["time_sec"].isna().all(), (
+        "障害 trackcd=52 の time_sec は NaN（surface=='obstacle' で除外）"
+    )
+    assert obstacle_rows["speed_figure"].isna().all(), (
+        "障害 trackcd=52 の speed_figure は NaN（Beyer 平地モデル不適合・SC#5 外れ値根本対策）"
+    )
+
+
+def test_physical_outlier_does_not_pollute_par_median() -> None:
+    """Phase 9 SC#5 外れ値根本対策: 物理異常値 time は par median を汚染しない。
+
+    同一 jyocd×trackcd×kyori group 内の1行が 117.6s (1000m 物理不可能・落馬/故障/記録ミス) でも・
+    物理妥持範囲外のため time_sec が NaN 化され・par median は正常行のみで算出される。
+    もし範囲外チェックが無ければ・par median が異常値に引っ張られ速度指数が ±1000 超の外れ値になる
+    （live-DB SC#5 min=-1748/max=4591 の再現）。
+    """
+    # 観測対象馬 6001 の過去走 30件: 29件は正常(60-67s)・1件は 117.6s(物理異常)
+    # 同一 jyocd×trackcd×kyori group で物理異常値が par median を汚染しないことを検証
+    rows = []
+    for i in range(29):
+        rows.append(_build_se_history_row(
+            kettonum=6001,
+            race_date=f"2023-04-{(i % 28) + 1:02d}",
+            as_of_datetime=pd.to_datetime(f"2023-04-{(i % 28) + 1:02d}"),
+            time=600.0 + (i % 8) * 10,   # 60.0-67.0s（1000m 正常完走範囲 53-85 内）
+            trackcd="10",
+            kyori=1000,
+            jyocd="05",
+            kakuteijyuni=1,
+            row_label=f"normal_{i}",
+        ))
+    # 物理異常行: 1000m 117.6s（live-DB SC#5 で観測された外れ値）
+    rows.append(_build_se_history_row(
+        kettonum=6001,
+        race_date="2023-03-15",
+        as_of_datetime=pd.to_datetime("2023-03-15"),
+        time=1176.0,   # 117.6s・物理不可能
+        trackcd="10",
+        kyori=1000,
+        jyocd="05",
+        kakuteijyuni=1,
+        row_label="physical_outlier",
+    ))
+    history = pd.DataFrame(rows)
+    obs = pd.DataFrame(
+        [_build_race_obs_row("2023A0610-R1", 6001, "2023-06-04", obs_id="OBS_POLLUTION")]
+    )
+    result = compute_speed_figure_for_history(history, observations=obs)
+
+    # 物理異常行の time_sec は NaN（範囲外チェック）
+    outlier_rows = result[result["row_label"] == "physical_outlier"]
+    assert len(outlier_rows) > 0, "テスト前提: physical_outlier 行が存在"
+    assert outlier_rows["time_sec"].isna().all(), (
+        "1000m 117.6s は物理妥持範囲外 → time_sec NaN（落馬/故障/記録ミス）"
+    )
+    assert outlier_rows["speed_figure"].isna().all(), (
+        "物理異常値行の speed_figure は NaN（外れ値生成を根源防止）"
+    )
+
+    # 正常行の par_sec は異常値に汚染されていない
+    # 異常値 117.6s が混入すると par median は ~63.5（正常29行 median）から跳ね上がり
+    # 正常行の speed_figure も外れる。範囲外除外により par median ~63.5 が維持される。
+    # 全行同一 (obs_id, jyocd, trackcd, kyori) group なので par_sec は全行同値
+    par_vals = result["par_sec"].dropna()
+    if len(par_vals) > 0:
+        par_median = float(par_vals.iloc[0])
+        # 正常29行の time_sec median は ~63.5（60-67s の中央値）
+        # 異常値 117.6s が混入すると par median が ~66-67 に跳ね上がる
+        assert par_median < 80.0, (
+            f"par_sec={par_median}: 物理異常値 117.6s が par median に混入した疑い"
+            f"（正常行のみの median は ~63.5 のはず）"
+        )
 
 
 def test_points_per_second_interpolation() -> None:
@@ -100,7 +232,7 @@ def test_par_pit_expanding() -> None:
     assert len(par_vals) == 1, f"eligible 3行の par_sec は全て同値(同一 observation の par)・実際: {par_vals}"
     assert abs(float(par_vals[0]) - 111.0) < 1e-9, (
         f"par_sec は eligible 3行の median=111.0・実際: {par_vals[0]}・"
-        f"target 当日 999.0秒が混入すると median が跳ね上がる"
+        f"target 当日 124.0秒が混入すると median が跳ね上がる"
     )
 
 

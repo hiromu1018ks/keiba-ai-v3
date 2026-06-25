@@ -68,12 +68,12 @@ def test_lookahead_injection_detected_and_fails() -> None:
     # eligible 3行: time=1100,1110,1120(ds) → 110.0, 111.0, 112.0 秒 → median 111.0
     assert abs(baseline_par - 111.0) < 1e-9, (
         f"guard 有効なベースライン par_sec が 111.0 でない (actual={baseline_par:.6f}・"
-        f"eligible 3行のみ含むべき・previous_day time=996.0 が混入すると跳ね上がる)"
+        f"eligible 3行のみ含むべき・previous_day time=121.0 が混入すると跳ね上がる)"
     )
 
     # --- (3) 意図的 T+1 リーク注入: PIT guard を monkeypatch で無効化(strict < を <= に緩める) ---
     # src/features/speed_figure.py の _pit_cutoff_prefilter を <= 版に差し替え・
-    # cutoff 同日(previous_day: as_of == cutoff・time=996.0秒)が混入する経路を真正に作る。
+    # cutoff 同日(previous_day: as_of == cutoff・time=121.0秒・1600m 物理妥持範囲内)が混入する経路を真正に作る。
     import src.features.speed_figure as sf_mod
 
     def _leaky_prefilter(expanded: pd.DataFrame) -> pd.DataFrame:
@@ -104,8 +104,8 @@ def test_lookahead_injection_detected_and_fails() -> None:
     )
 
     # --- (5) guard 無効（T+1 真正注入）なら混入する → 検証力証明（false-pass 回避） ---
-    # previous_day (time=9960 ds → 996.0 秒) が par 算出に混入すると・median が 111.0 から外れる。
-    # eligible 3行(110,111,112) + previous_day(996.0) の median = (111+112)/2 = 111.5 (4件の中央値)
+    # previous_day (time=1210 ds → 121.0 秒) が par 算出に混入すると・median が 111.0 から外れる。
+    # eligible 3行(110,111,112) + previous_day(121.0) の median = (111+112)/2 = 111.5 (4件の中央値)
     # leak された result は行数が多く（target 等も含む）・eligible_mask を再計算する
     eligible_mask_leaked = result_leaked["row_label"] == "eligible"
     par_leaked_vals: Any = result_leaked.loc[eligible_mask_leaked, "par_sec"].dropna().unique()
