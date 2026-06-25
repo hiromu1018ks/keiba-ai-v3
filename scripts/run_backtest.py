@@ -703,6 +703,45 @@ def _run_main_model_backtest(
     if write_cur is not None and not no_write_db:
         checksum = load_backtest(write_cur, full_candidate_with_provenance, reader_role=reader_role)
 
+    # --- DEBUG: full_candidate parquet dump (fukusho-recovery-070・診断専用・閾値変更なし・聖域安全) ---
+    # セッション .planning/debug/fukusho-recovery-070.md 用。本計装は report/集計値のみを
+    # 変更し・閾値(FUKUSHO_EV_V1_THRESHOLDS)・投票ロジック(select_bets)・metrics を一切変更しない。
+    # 環境変数 FUKUSHO_DEBUG_DUMP_DIR が設定されている場合のみ出力（本番 backtest には影響しない）。
+    import os
+    debug_dump_dir = os.environ.get("FUKUSHO_DEBUG_DUMP_DIR")
+    if debug_dump_dir:
+        try:
+            debug_path = Path(debug_dump_dir)
+            debug_path.mkdir(parents=True, exist_ok=True)
+            # 投票馬診断に必要な列のみ抽出（メモリ抑制・PII なし・race_key/umaban は既に provenance）
+            diag_cols = [
+                c for c in [
+                    "backtest_id", "race_key", "umaban", "race_date",
+                    "model_type", "odds_snapshot_policy",
+                    "p_fukusho_hit", "fuku_odds_lower", "fuku_odds_upper",
+                    "EV_lower", "EV_upper", "recommend_rank",
+                    "selected_flag", "stake", "effective_stake",
+                    "payout", "refund", "profit",
+                    "fukusho_hit_validated", "is_scratch_cancel", "is_race_excluded",
+                    "is_race_cancelled", "is_dead_loss", "is_fukusho_sale_available",
+                    "fukusho_payout_places", "odds_missing_reason",
+                    "train_period_start", "train_period_end",
+                    "test_period_start", "test_period_end",
+                ] if c in full_candidate_with_provenance.columns
+            ]
+            diag_df = full_candidate_with_provenance[diag_cols].copy()
+            dump_file = debug_path / f"full_candidate_{backtest_id}.parquet"
+            diag_df.to_parquet(dump_file, index=False)
+            logger.info(
+                "DEBUG dump: %s rows=%d cols=%d selected=%d -> %s",
+                backtest_id, len(diag_df), len(diag_cols),
+                int(diag_df["selected_flag"].fillna(False).astype(bool).sum())
+                if "selected_flag" in diag_df.columns else -1,
+                dump_file,
+            )
+        except Exception as e:  # noqa: BLE001 — 診断 dump 失敗は本番 backtest に影響させない
+            logger.warning("DEBUG dump failed for %s (skip): %s", backtest_id, e)
+
     # --- report 行構築 ---
     selected_count = int(metrics.get("selected_count", 0))
     effective_bet = int(metrics.get("effective_bet_count", 0))

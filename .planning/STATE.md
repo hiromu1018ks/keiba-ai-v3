@@ -245,9 +245,12 @@ None yet.
 
 ## Deferred Items
 
+Items acknowledged and deferred at v1.0 milestone close on 2026-06-25:
+
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| *(none)* | | | |
+| debug | fukusho-recovery-070 | diagnosed — 回収率0.65-0.70天井の構造的限界（ROOT CAUSE 確定・3層構造: 市場情報不足→中高オッズ域過大予測→EV演算増幅→複勝控除率天井）。戦略判断（A受容/B 1-A改善/C Phase 1-B）は別計画フェーズ・ユーザー承認済(2026-06-24)・要件未達でなく正直な結論 | 2026-06-25 |
+| verification | phase-07-human-needed | human_needed — 36/36 truths verified・残り2件はライブブラウザ描画振る舞い（grep/AST 不可視）・07-03 checkpoint:human-verify で RESOLVED 済・回帰監視として残存 | 2026-06-25 |
 
 ## Session Continuity
 

@@ -427,6 +427,10 @@ def _canonicalize_as_of_datetime(as_of_datetime: Any) -> datetime:
     ``tzinfo`` が付いている場合は UTC に正規化せずそのまま返す（DB 側の格納値が
     naive ``timestamp`` の場合は UTC 解釈されるため・呼出側が DB 格納値と同じ表現で
     渡すのが基本。本関数は timezone 正規化でなく表現の canonical 化のみ担当）。
+
+    ※ WR-05（tz-aware の強制 naive 化）は却下: Z 付き ISO8601 で WHERE 不一致になる場合は
+    set_primary_model の REVIEW HIGH#7 post-condition（0 行 UPDATE → RuntimeError）が
+    fail-loud で検出するため・silent no-op にはならない。本番は naive で運用され問題なし。
     """
     if isinstance(as_of_datetime, datetime):
         return as_of_datetime
