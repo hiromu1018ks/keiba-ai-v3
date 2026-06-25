@@ -272,9 +272,14 @@ def generate_audit_report(*, output_dir: str | Path = "reports") -> tuple[Path, 
         md_lines.append(f"- {lim}\n")
     md_lines.append("\n")
     md_lines.append("## フルスイート GREEN 証明 (D-04)\n\n")
+    # REVIEW WR-01 開示: 下記 "499 passed / 1 skipped" は static checkpoint snapshot
+    # (Plan 08-03 承認時点)・report 生成時に pytest を動的実行して数値を検証しているわけではない。
+    # test 数が drift しても silent に古い数値を再生するリスクがあるため・呼出元は
+    # full_suite_result.md_payload の数値を過信せず 08-03-SUMMARY.md と突合すること。
     md_lines.append(
         "KEIBA_SKIP_DB_TESTS unset で全 requires_db テストを実行（conftest.py fail-by-default policy 確証）。"
-        "checkpoint 08-03 実績: 499 passed / 1 skipped (test_evaluator.py:490・reports/04-eval.json の "
+        "checkpoint 08-03 実績（static snapshot・report 生成時に再検証せず・数値は 08-03-SUMMARY.md と突合前提）: "
+        "499 passed / 1 skipped (test_evaluator.py:490・reports/04-eval.json の "
         "calibration_max_dev_guarded 列欠損・Phase 6 C6 stale 既知・Plan 06-05 委譲・非 KEIBA_SKIP_DB_TESTS 由来) "
         "/ failed 0・人間承認済み (approved)。詳細は 08-03-SUMMARY.md 参照。\n"
     )
@@ -289,8 +294,13 @@ def generate_audit_report(*, output_dir: str | Path = "reports") -> tuple[Path, 
             "known_limitations": KNOWN_LIMITATIONS,
             "sc_correspondence": SC_CORRESPONDENCE,
             "full_suite_result": {
+                # REVIEW WR-01 開示: 下記数値は static checkpoint snapshot (Plan 08-03 承認時点)。
+                # generate_audit_report 呼出時に pytest を動的実行して検証しておらず・test 数が
+                # drift しても silent に再生される。呼出元は 08-03-SUMMARY.md と突合すること。
                 "d04_checkpoint": "Plan 08-03 で承認済み (approved)",
                 "detail_ref": "08-03-SUMMARY.md",
+                "is_static_snapshot": True,
+                "verified_at_runtime": False,
                 "failed": 0,
                 "passed": 499,
                 "skip_reason": "test_evaluator.py:490・reports/04-eval.json calibration_max_dev_guarded 列欠損 (Phase 6 C6 stale・Plan 06-05 委譲・非 KEIBA_SKIP_DB_TESTS)",
@@ -305,9 +315,14 @@ def generate_audit_report(*, output_dir: str | Path = "reports") -> tuple[Path, 
     # --- presence assert (LOW-05 analog・md ヘッダと json キーが AUDIT_SURFACE_COLUMNS と 1:1) ---
     # md のサーフェステーブルヘッダ行 (最初の "| surface | sc_id | ..." 行) に全 column 名が
     # 含まれること。md 先頭行はレポートタイトル ("# Phase 8 ...") のため・表ヘッダを明示的に抽出。
+    # REVIEW WR-02: 部分文字列検索 (AUDIT_SURFACE_COLUMNS[0] in line) は・将来 evidence 列に
+    # "surface" という語が現れた際に誤って evidence 行を拾うリスクがあった。代わりに
+    # _format_surface_table_md が生成するヘッダ行と完全一致する先頭パターン ("| surface |" +
+    # 区切り "|") で anchor し・column 配置に依存して一意に識別する。
+    header_anchor = "| " + AUDIT_SURFACE_COLUMNS[0] + " |"
     header_line = ""
     for line in md_payload.splitlines():
-        if line.startswith("| ") and AUDIT_SURFACE_COLUMNS[0] in line:
+        if line.startswith(header_anchor):
             header_line = line
             break
     assert header_line, "md にサーフェステーブルヘッダ行が見つからない (LOW-05 違反)"
