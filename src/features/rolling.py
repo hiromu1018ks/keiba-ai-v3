@@ -101,6 +101,21 @@ _SYSTEM_SOURCE: dict[str, tuple[str, ...]] = {
 # を表現）。latest は「直近の競馬場」で意味論的に妥当なので保持・mean/sd は廃止。
 _CATEGORICAL_SYSTEMS: frozenset[str] = frozenset({"jyocd"})
 
+def _pit_cutoff_prefilter(expanded: pd.DataFrame) -> pd.DataFrame:
+    """defense-in-depth pre-filter: ``as_of_datetime < feature_cutoff_datetime`` (HIGH #1/#2).
+
+    本 helper に切り出した意図: adversarial test (``tests/audit/test_audit_features.py``) が
+    ``monkeypatch`` で本関数を ``<=`` 版に差し替え・guard 無効化で T+1 データ混入を検証できる
+    ようにするため。filter 式は byte-identical (``<`` strict) で振舞は不変。
+
+    ``src/etl/label_reconcile.py`` 等・他モジュールから参照される公开 API ではなく・本 module 内の
+    ``build_rolling_features`` 専用の private helper。
+    """
+    return expanded[
+        expanded["as_of_datetime"] < expanded["feature_cutoff_datetime"]
+    ].copy()
+
+
 # 系統毎の出力 axis セット（mean/latest/sd/count または mode/latest/count）。
 def _axes_for(system: str) -> tuple[str, ...]:
     """系統が出力すべき axis タプルを返す（categorical は mode/latest/count）。"""
@@ -232,9 +247,9 @@ def build_rolling_features(
 
     # --- Step 2: defense-in-depth pre-filter（HIGH #1/#2: strict < feature_cutoff_datetime） ---
     # CUTOFF_SEMANTICS["pit_filter"]: history.as_of_datetime < observation.feature_cutoff_datetime
-    history_filtered = expanded[
-        expanded["as_of_datetime"] < expanded["feature_cutoff_datetime"]
-    ].copy()
+    # 本 filter は module-private helper に切り出し・adversarial test (tests/audit/test_audit_features.py)
+    # が monkeypatch で guard を無効化（``<`` → ``<=``）して T+1 データ混入を検証できるようにする。
+    history_filtered = _pit_cutoff_prefilter(expanded)
 
     if len(history_filtered) == 0:
         return result

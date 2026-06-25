@@ -67,33 +67,25 @@ def test_lookahead_injection_detected_and_fails() -> None:
     )
 
     # --- (3) 意図的 T+1 リーク注入: PIT guard を monkeypatch で無効化（strict < を <= に緩める）---
-    # src/features/rolling.py の Step 2 pre-filter `expanded["as_of_datetime"] < expanded["feature_cutoff_datetime"]`
-    # を `<=` に緩めると・cutoff 同日（previous_day: as_of == cutoff・kakuteijyuni=66）が混入する。
+    # src/features/rolling.py の Step 2 pre-filter ``_pit_cutoff_prefilter`` を ``<=`` 版に差し替え・
+    # cutoff 同日（previous_day: as_of == cutoff・kakuteijyuni=66）が混入する経路を真正に作る。
+    # これにより「guard そのものを破壊しないと混入しない」真の adversarial 経路になる (CR-01)。
     import src.features.rolling as rolling_mod
 
-    original_build = rolling_mod.build_rolling_features
+    def _leaky_prefilter(expanded: pd.DataFrame) -> pd.DataFrame:
+        """guard 無効化版: ``<`` を ``<=`` に緩めて previous_day (as_of == cutoff) を混入させる。"""
+        return expanded[
+            expanded["as_of_datetime"] <= expanded["feature_cutoff_datetime"]
+        ].copy()
 
-    def _leaky_build_rolling_features(  # type: ignore[no-untyped-def]
-        observations: pd.DataFrame,
-        history: pd.DataFrame,
-        *,
-        lookback: int = 5,
-    ) -> pd.DataFrame:
-        """guard 無効化版: ``<`` を ``<=`` に緩めて previous_day を混入させる（注入・T-08-01）。"""
-        # runtime patch: 元関数のソースを書き換えるのではなく・演算子を緩めた複製を実行するのは
-        # 困難なため・代わりに「history の previous_day 行の as_of を cutoff の1秒前に偽装」して
-        # strict < でも素通りする（= T+1 データ偽装注入）経路で leak を再現する。
-        previous_day_mask = history.get("row_label") == "previous_day"
-        if previous_day_mask.any():
-            hist_leaked = history.copy()
-            # previous_day 行の as_of を cutoff 直前（1秒前）に偽装して strict < を素通りさせる
-            obs_cutoff = observations["feature_cutoff_datetime"].iloc[0]
-            hist_leaked.loc[previous_day_mask, "as_of_datetime"] = obs_cutoff - pd.Timedelta(seconds=1)
-            hist_leaked.loc[previous_day_mask, "race_start_datetime"] = (
-                obs_cutoff - pd.Timedelta(seconds=1) + pd.Timedelta(hours=12)
-            )
-            return original_build(observations, hist_leaked, lookback=lookback)
-        return original_build(observations, history, lookback=lookback)
+    original_prefilter = rolling_mod._pit_cutoff_prefilter
+    rolling_mod._pit_cutoff_prefilter = _leaky_prefilter  # type: ignore[assignment]
+    try:
+        result_leaked = rolling_mod.build_rolling_features(obs, history_clean)
+    finally:
+        # monkeypatch を確実に戻す（test session の他テストに影響しないよう finally で復元）
+        rolling_mod._pit_cutoff_prefilter = original_prefilter  # type: ignore[assignment]
+    mean_leaked_pre: Any = result_leaked.iloc[0]["rolling_kakuteijyuni_mean_5"]
 
     # --- (4) guard 有効なら混入検出 → 正しい結果（baseline と一致・機能テストと同じ契約）---
     # build_rolling_features 自体は strict < なので previous_day (as_of == cutoff) は除外される。
@@ -105,11 +97,10 @@ def test_lookahead_injection_detected_and_fails() -> None:
         "(SC#2 adversarial fail・previous_day が混入した可能性)"
     )
 
-    # --- (5) guard 無効（T+1 偽装注入）なら混入する → 検証力証明（false-pass 回避）---
+    # --- (5) guard 無効（T+1 真正注入）なら混入する → 検証力証明（false-pass 回避）---
     # previous_day (kakuteijyuni=66) が window に混入すると・mean = (1+2+3+66)/4 = 18.0 に変化する。
     # eligible 3行 + previous_day 1行 = 4行（lookback=5 以下）。mean が baseline (2.0) から外れる。
-    result_leaked = _leaky_build_rolling_features(obs, history_clean)
-    mean_leaked: Any = result_leaked.iloc[0]["rolling_kakuteijyuni_mean_5"]
+    mean_leaked: Any = mean_leaked_pre
     # 混入を厳密に検証: mean_leaked は eligible-only (2.0) と異なる値になる
     assert not pd.isna(mean_leaked), (
         "T+1 注入で mean が NaN になった・検証力証明が不能（SC#2 adversarial fail）"
