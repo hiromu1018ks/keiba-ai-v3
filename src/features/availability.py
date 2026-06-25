@@ -149,6 +149,10 @@ _ROLLING_SYSTEMS_FOR_RESERVED: tuple[str, ...] = (
     "days_since_prev",
     "timediff",
     "babacd",
+    # NEW Phase 9 (rolling.py::_ROLLING_SYSTEMS と同一順序・二重定義の危険を下げるため
+    # 再定義・循環依存回避)。speed_figure は D-09 が count_5 を feature(信頼度) と定義するため
+    # L179 の reserved 自動展開からは除外（REVIEW H3b）。
+    "speed_figure",
 )
 
 # ---------------------------------------------------------------------------
@@ -176,7 +180,13 @@ _RESERVED_NON_FEATURE_COLUMNS: frozenset[str] = frozenset({
     # （PyArrow が tuple を直列化不能・実データ検証で write_snapshot ArrowTypeError を発見）。
     # reserved から除外し、誤って残存した場合は assert_matrix_columns_registered が
     # unregistered column として検出する二重防御とする。
-}) | {f"rolling_{sys}_count_5" for sys in _ROLLING_SYSTEMS_FOR_RESERVED}
+    # REVIEW H3b: speed_figure の count_5 は D-09 が feature(信頼度) と定義するため
+    # reserved 自動展開から除外。他系統の count_5 は従来通り reserved（回帰なし）。
+}) | {
+    f"rolling_{sys}_count_5"
+    for sys in _ROLLING_SYSTEMS_FOR_RESERVED
+    if sys != "speed_figure"
+}
 
 
 # ---------------------------------------------------------------------------
