@@ -1,10 +1,14 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.1
-milestone_name: Ability Feature v2 and Conditional Calibration
+milestone_name: Ability Feature v2 & Conditional Calibration
+current_phase: 09
+current_phase_name: Not started — ROADMAP 作成済・plan 未作成
 status: planning
-last_updated: "2026-06-25T07:04:21.000Z"
+stopped_at: Phase 9 Speed Figure Foundation context gathered（スピード指数設計4領域決定・CONTEXT.md 作成済）
+last_updated: "2026-06-25T10:10:39.801Z"
 last_activity: 2026-06-25
+last_activity_desc: ROADMAP created for v1.1 (4 phases・Phases 9-12)
 progress:
   total_phases: 4
   completed_phases: 0
@@ -36,6 +40,7 @@ Last activity: 2026-06-25 — ROADMAP created for v1.1 (4 phases・Phases 9-12)
 **成功基準（正直・黒字化でない）:** 市場残差能力の定量測定 + 投票層の過大予測是正。現実回収率 0.78-0.92 見込（外部2AI 一致）。
 
 **Phase 構成（依存関係 DAG）:**
+
 - Phase 9: FEAT-01 スピード指数基盤（FEAT-02/03 の前提）
 - Phase 10: FEAT-02 相手強度 + FEAT-03 レース内相対（FEAT-01 に依存）
 - Phase 11: MODEL-01 レース内相対確率モデル（FEAT-01/02/03 完成後）
@@ -270,10 +275,10 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-06-25:
 
 ## Session Continuity
 
-**Resume file:** None
+**Resume file:** .planning/phases/09-speed-figure-foundation/09-CONTEXT.md
 
-Last session: 2026-06-25T07:04:21Z
-Stopped at: ROADMAP created for v1.1 (4 phases・Phases 9-12・8/8 要件マッピング済・STATE.md/REQUIREMENTS.md 更新済)
+Last session: 2026-06-25T10:10:39.795Z
+Stopped at: Phase 9 Speed Figure Foundation context gathered（スピード指数設計4領域決定・CONTEXT.md 作成済）
 Resume: `/gsd-plan-phase 9`（Phase 9 Speed Figure Foundation の計画作成へ）
 
 ## Operator Next Steps
