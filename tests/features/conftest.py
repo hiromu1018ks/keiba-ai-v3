@@ -188,6 +188,60 @@ def _build_two_observation_rolling_rows(
 
 
 # ---------------------------------------------------------------------------
+# Phase 9 speed_figure 用 builder（SC#2 adversarial・speed_figure は time 識別値で混入を機械検出）
+# 5段階 adversarial(target/same_day_prior/same_day_later/previous_day/future) + eligible 3行の8行。
+# 各 row の time は区別値（adversarial=9990 等・eligible=1100/1110/1120 等）を持ち・
+# speed_figure 算出が eligible 3行のみで行われることを機械的に検証する。
+# ---------------------------------------------------------------------------
+def _build_speed_figure_history_rows(
+    obs_race_date: str = "2023-06-04",
+    kettonum: int = 1001,
+) -> pd.DataFrame:
+    """1頭の馬 × 1つの target observation に対する adversarial speed_figure history。
+
+    戻り DataFrame は8行（5行 adversarial + 3行 eligible）。各 row の ``time`` は区別可能な値
+    （adversarial=9990/9980/...・eligible=1100/1110/1120）を持ち・``speed_figure`` 算出が
+    eligible 3行のみで行われることを機械的に検証する（rolling 用
+    ``_build_adversarial_rolling_rows`` と同様の idiom・ただし kakuteijyuni でなく time を識別値に
+    する・speed_figure が time 由来のため）。
+
+    target race 当日(time=9990)・同日別(9980)・同日午後(9970)・前日==cutoff midnight(9960)・
+    未来(9950) は全て strict ``< feature_cutoff_datetime`` で除外される。
+    eligible 3行(time=1100/1110/1120・jyocd="05"・trackcd="24"・kyori=1600) のみが par/variant 算出に
+    使用される。
+    """
+    obs_rd = pd.to_datetime(obs_race_date)
+    rows = [
+        # (label, race_date offset from obs_rd, time deciseconds, kakuteijyuni)
+        ("target",         pd.Timedelta(days=0),  9990, 1),   # 当日・必ず除外
+        ("same_day_prior", pd.Timedelta(days=0),  9980, 1),   # 同日別レース・必ず除外
+        ("same_day_later", pd.Timedelta(days=0),  9970, 1),   # 同日午後・必ず除外
+        ("previous_day",   pd.Timedelta(days=-1), 9960, 1),   # 前日==cutoff midnight・strict < で除外
+        ("future",         pd.Timedelta(days=2),  9950, 1),   # 未来・必ず除外
+        # eligible 3行（par/variant 算出に含まれるべき正当な過去走）
+        ("eligible",       pd.Timedelta(days=-2), 1100, 1),
+        ("eligible",       pd.Timedelta(days=-3), 1110, 1),
+        ("eligible",       pd.Timedelta(days=-4), 1120, 1),
+    ]
+    history = []
+    for label, offset, time_ds, kakuteijyuni in rows:
+        as_of = obs_rd + offset
+        row = _build_se_history_row(
+            kettonum=kettonum,
+            race_date=as_of.strftime("%Y-%m-%d"),
+            as_of_datetime=as_of,
+            kakuteijyuni=kakuteijyuni,
+            # speed_figure 用追加素材
+            time=float(time_ds),       # 0.1秒単位・decisecond
+            trackcd="24",              # ダート・1600m
+            kyori=1600,
+        )
+        row["row_label"] = label
+        history.append(row)
+    return pd.DataFrame(history)
+
+
+# ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 @pytest.fixture
