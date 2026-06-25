@@ -7,7 +7,7 @@ status: completed
 stopped_at: Completed 08-03-PLAN.md (live-DB full-suite GREEN・checkpoint approved・Phase 8 全 plan 完了)
 last_updated: "2026-06-25T00:58:53.058Z"
 last_activity: 2026-06-25
-last_activity_desc: Phase 08 complete
+last_activity_desc: Quick 260625-h1g complete (label race_date NULL fail-loud・根本原因=race_key 型不整合を特定)
 progress:
   total_phases: 9
   completed_phases: 9
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 Phase: 08
 Plan: Not started
 Status: Plan 08-01 complete (tests/audit/ 9 adversarial テスト GREEN)
-Last activity: 2026-06-25 — Phase 08 complete
+Last activity: 2026-06-25 — Completed quick task 260625-h1g: label race_date NULL fail-loud diagnostic guard（根本原因 race_key 型不整合を特定・別タスクで根本修正予定）
 
 Progress: [██████████] 100%
 
@@ -232,6 +232,12 @@ None yet.
 - Phase 2 research flag: `sales_start_entry_count` restoration logic and payout-table schema cannot be specified without inspecting actual EveryDB2/JRA-VAN columns — likely needs `/gsd-plan-phase --research-phase 2`
 - Phase 3 research flag: `available_from_timing` mapping depends on exact JRA-VAN data-availability timings — likely needs `/gsd-plan-phase --research-phase 3`
 - Phase 5 sub-spike: odds-snapshot timing granularity in EveryDB2 gates the candidate `odds_snapshot_policy` set
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260625-h1g | label race_date NULL 再発の原因特定可能化 fail-loud guard | 2026-06-25 | 0695787 | [260625-h1g-label-race-date-null-fail-loud-diagnosti](./quick/260625-h1g-label-race-date-null-fail-loud-diagnosti/) |
 
 ### Roadmap Evolution
 
