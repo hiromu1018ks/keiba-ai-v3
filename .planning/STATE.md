@@ -5,15 +5,15 @@ milestone_name: Ability Feature v2 & Conditional Calibration
 current_phase: 09
 current_phase_name: speed-figure-foundation
 status: executing
-stopped_at: "Phase 9 P01 完了: speed_figure.py 新規実装 + SC#1/SC#2 計13テスト GREEN（byte-reproducible/PIT-correct/odds-free 達成）"
-last_updated: "2026-06-25T13:16:58.834Z"
+stopped_at: "Phase 9 P03 完了: builder Step 5b 統合 + SC#1/SC#3 + REVIEW H1-a/H1-b/H1-c data.py/orchestrator snapshot parameterization（34 テスト GREEN）"
+last_updated: "2026-06-25T13:32:00.000Z"
 last_activity: 2026-06-25
-last_activity_desc: "Phase 09 P01 完了 (speed_figure.py 新規・SC#1/SC#2 GREEN)"
+last_activity_desc: "Phase 09 P03 完了 (builder 統合 + H1 横断的 parameterization)"
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 5
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -30,8 +30,8 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 
 Phase: 09 (speed-figure-foundation) — EXECUTING
 Plan: 3 of 5
-Status: P01 complete・P02 (rolling 拡張) 待機
-Last activity: 2026-06-25 — Phase 09 P01 完了 (speed_figure.py 新規・SC#1/SC#2 GREEN)
+Status: P03 complete・P04 (audit/可視化) 待機
+Last activity: 2026-06-25 — Phase 09 P03 完了 (builder Step 5b + REVIEW H1 横断的・SC#1/SC#3 GREEN)
 
 ## v1.1 Milestone Context
 
@@ -122,6 +122,8 @@ Last activity: 2026-06-25 — Phase 09 P01 完了 (speed_figure.py 新規・SC#1
 | Phase 08 P02 | 3min | 2 tasks | 5 files |
 | Phase 08 P03 | 35min | 1 tasks | 3 files |
 | Phase 09 P01 | 約35分 | 2 tasks | 4 files |
+| Phase 09 P02 | 約30分 | 3 tasks | 4 files |
+| Phase 09 P03 | 約12分 | 3 tasks | 7 files |
 
 ### Decisions
 
@@ -249,6 +251,11 @@ Recent decisions affecting current work:
 - [Phase 09]: plan 09-01: leave-one-race-out variant は一次近似(A3) group_median - (self_residual - group_median)/(n-1) を採用・厳密ループでなく docstring/test で精度上限明示
 - [Phase 09]: plan 09-01: REVIEW H4 対応 — par group = obs_id + jyocd×trackcd×kyori・variant group = obs_id + source_race_date×jyocd×surface (obs_id 必須・cross-obs leak 構造的不能・sample_count 変化で false-pass 回避を機械証明)
 - [Phase 09]: plan 09-01: odds-free 文書化と禁止トークン grep==0 の両立のため docstring の直接トークン名(odds/ninki/..)を一般化表現に置換・P04 AST audit で完全証明予定
+- [Phase 09]: plan 09-03: builder Step 5b 挿入位置 = WR-01 fail-loud history 空チェック後・CR-01 merge 前（Step 5 rolling の直前）。history["speed_figure"] を copy-not-rename で付与
+- [Phase 09]: plan 09-03: REVIEW H1-c 解決 — Step 5b 直前に feature_matrix["obs_id"] を早期構築（既存 Step 6 L505-517 と完全同一 idiom・Step 6 で再利用・Step 6b で drop・P01 API 契約充足）
+- [Phase 09]: plan 09-03: REVIEW H1-a 解決 — load_feature_matrix(snapshot_id) を必須パラメータ化（acceptance から arity-0 escape `or list(sig.parameters)==[]` を削除・古い arity-0 関数を構造的に拒否）
+- [Phase 09]: plan 09-03: REVIEW H1-b 解決 — orchestrator.train_and_predict に snapshot_id 引数追加（feature_snapshot_id とは別・FEATURE_COLUMNS 選択用）・内部3箇所の make_X_y を snapshot_id=snapshot_id で明示伝播・grep/AST verify で予測経路の bare call 残存なしを保証
+- [Phase 09]: plan 09-03: 新 feature_snapshot_id 候補 = 20260625-1a-speedfigure-v1（v1.0 20260620-1a-postreview-v2 系統継承・make_model_version prefix 整合・P04/P05 が消費）
 
 ### Pending Todos
 
@@ -280,11 +287,11 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-06-25:
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/09-speed-figure-foundation/09-02-PLAN.md
+**Resume file:** .planning/phases/09-speed-figure-foundation/09-04-PLAN.md
 
-Last session: 2026-06-25T13:16:40.709Z
-Stopped at: Phase 9 P01 完了 (speed_figure.py 新規実装・SC#1/SC#2 GREEN・計13テスト)
-Resume: `/gsd-execute-phase 9`（P02: rolling.py 拡張・_ROLLING_SYSTEMS に "speed_figure" 追加・6 axis 集約）
+Last session: 2026-06-25T13:32:00.000Z
+Stopped at: Phase 9 P03 完了 (builder Step 5b 統合 + REVIEW H1-a/H1-b/H1-c data.py/orchestrator snapshot parameterization・34 テスト GREEN)
+Resume: `/gsd-execute-phase 9`（P04: SC#4 SAFE-01 AST audit + SC#5 ドメイン整合性可視化・rolling_speed_figure_* 6 feature を含む完成 feature_matrix が必要・本 P03 で生成可能に）
 
 ## Operator Next Steps
 
