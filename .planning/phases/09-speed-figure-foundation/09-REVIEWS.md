@@ -211,3 +211,80 @@ PLAN.md line 引用（改訂後 050c827）:
 - `09-03-PLAN.md:30, 93, 102, 116, 193, 197, 199, 222, 226-230, 237`（H1-a/b/c task + acceptance + verify）
 - `09-04-PLAN.md:103, 159, 175-188`（M2 AssertionError + AST subscript verify）
 - `09-05-PLAN.md:26, 28, 111-119, 113-114, 121, 137, 138, 218`（H2/H6/H7/H8/M4 + 新規 HIGH L138 snapshot_id 欠落）
+
+---
+
+# Cross-AI Plan Review — Phase 9 (Speed Figure Foundation) — CYCLE 4 (final convergence)
+
+Date: 2026-06-25
+Reviewer: Codex CLI（via /gsd-review --phase 9 --codex）
+Method: コミット c8da288（Cycle 3 replan・H-new 閉塞）後の PLAN.md を実コード契約（`src/model/orchestrator.py`, `src/model/data.py`, `src/features/builder.py`, `src/features/rolling.py`）と再照合した source-grounded final review。Cycle 3 で唯一残存した新規 HIGH（H-new: P05 stop gate の `train_and_predict` 呼出が `snapshot_id=` を欠く）が真正に解決されたか、および改訂が新規懸念を導入していないかを検証。
+
+Cycle 4 全体所感: **H-new は FULLY RESOLVED**。c8da288 は 09-05-PLAN.md のみを修正（14 insertions, 4 deletions）し・H-new を閉塞に必要な7箇所（must_haves.truths / acceptance_criteria / action / done / threat_model T-09-31 / verify / artifacts list）へ的確に反映。改訂は実コード契約の file:line と正確に合致し・silent-failure クラス（リーク防止の最優先事項）を構造的に閉じている。Cycle 1/2 の 12 件（H1-a/b/c・H2・H4・H6・H7・H8・M1・M2・M4・他）は非触犯で FULLY RESOLVED 維持。**新規 HIGH / 新規 actionable なし。ループ収束。**
+
+## H-new FULLY RESOLVED 判定（実コード契約との合致）
+
+### 原因メカニズムの正確性（実コード検証済み）
+- `src/model/orchestrator.py:373-375`（bare `make_X_y(train_df/calib_df/test_df)`）・`src/model/data.py:405`（`make_X_y(frame)` arity-1・snapshot_id 受け取らず）・`src/model/data.py:176`（`FEATURE_COLUMNS: list[str] = _derive_feature_columns()` v1.0 固定）。
+- P03 Task 3(k)（09-03-PLAN L226-231）が `train_and_predict` シグネチャに `snapshot_id` を追加し内部3箇所の `make_X_y` を `snapshot_id=snapshot_id` で書換えても・P05 caller が `snapshot_id=` を渡さないと orchestrator 内部で `snapshot_id=None`（デフォルト）→ v1.0 FEATURE_COLUMNS が選択され stop gate が「v1.0 vs v1.0」を比較する。この論理は実コード行と正確に合致（H1-b と同じ静かな失敗メカニズムが P05 caller 側で再生）。
+
+### 修正内容（c8da288・09-05-PLAN.md のみ）
+- **Task 1(g) L140**: 両 snapshot の `train_and_predict` 呼出例が `snapshot_id=<対応する snapshot_id>` を明示渡し（baseline: `snapshot_id="20260620-1a-postreview-v2"`・+speed_figure: `snapshot_id="20260625-1a-speedfigure-v1"`）。省略時デフォルト None → v1.0 FEATURE_COLUMNS が選択される silent-failure を caller 側で閉塞。
+- **Task 1 acceptance_criteria L121**: AST verify command 追加。`ast.parse` で `func.id == 'train_and_predict'` の全 Call ノードを走査し `snapshot_id=` keyword の存在を強制。
+- **Task 2(h) L225**: 新テスト `test_train_and_predict_calls_pass_snapshot_id` 追加。AST guard で全 `train_and_predict(` Call の `snapshot_id=` keyword を強制。**bad fixture で false-pass 回避**（keyword 無し呼出を混ぜた仮想ソースで FAIL することを証明）— 09-03 L199/237 の `test_make_X_y_uses_snapshot_feature_columns`（H1-b 機能証明）と対称な caller 側 API 消費契約証明。
+- **threat_model T-09-31 L292**: silent-failure path + AST guard を脅威モデルに明記。
+- **must_haves.truths L28 / done L238 / verify L303 / artifacts L343・L354**: H-new を7箇所で一貫反映。
+
+### 多層防御の完備
+PLAN は (a) 呼出例での明示渡し（Task 1g）+ (b) AST grep verify（acceptance L121）+ (c) ユニットテスト AST guard（Task 2h）+ (d) threat model（T-09-31）+ (e) artifacts 登録の5層で H-new を閉塞。省略経路が構造的に存在し得ない。実行時に「`snapshot_id=` を忘れる」ことが構造的に不可能。
+
+## 新規懸念スキャン（c8da288 の副作用確認）
+
+- c8da288 の diff は `09-05-PLAN.md` のみ（14 insertions, 4 deletions）。他 PLAN（01-04）・実コード・テストには非触犯。
+- Cycle 1/2 の 12 件の FULLY RESOLVED 判定に影響を与える変更は無し（H1-a/b/c・H2・H4・H6・H7・H8・M1・M2・M4 は維持）。
+- H-new 閉塞に必要な最小限の追記のみで・過剰な仕様膨張や新規依存関係の導入なし。
+- **新規 HIGH / 新規 actionable MEDIUM-LOW: 検出されず。**
+
+## Cycle 3 → Cycle 4 Resolution Table
+
+| Concern | Cycle 3 status | Cycle 4 status | 根拠 |
+|---------|---------------|----------------|------|
+| H-new: P05 `train_and_predict` が `snapshot_id=` を欠く | PARTIALLY RESOLVED（新規 HIGH） | **FULLY RESOLVED** | 09-05 L140（両呼出で snapshot_id= 明示）・L121（AST verify）・L225（test_train_and_predict_calls_pass_snapshot_id・bad fixture で false-pass 回避）・T-09-31（threat）・L303（verify）・実コード orchestrator.py:373-375 / data.py:405,176 と合致 |
+
+## Consensus Summary (Cycle 4)
+
+### 達成（Cycle 3 → Cycle 4 で真正解決）
+- **H-new は FULLY RESOLVED**: concrete task（Task 1g 呼出例 + Task 2h AST guard テスト）+ acceptance_criteria（L121 AST verify command）+ verify command + threat model（T-09-31）+ artifacts 登録。実コード契約（orchestrator.py L373-375 の bare call・data.py L405 の arity・L176 の v1.0 固定 FEATURE_COLUMNS）と正確に合致。silent-failure クラス（リーク防止の最優先事項）を構造的に閉塞。
+
+### 残存（最優先・未解決）
+- **なし**。Cycle 1/2/3 の全懸念（H1-a/b/c・H2・H4・H6・H7・H8・H-new・M1・M2・M4・他）は FULLY RESOLVED。
+
+### Divergent Views / Open Questions
+- なし。実行フェーズ（/gsd-execute-phase）移行に向けた PLAN の完全性は確認済み。
+
+## CYCLE_SUMMARY
+
+- **current_high**: 0
+- **current_actionable**: 0
+
+（H1-a/b/c・H2・H4・H6・H7・H8・H-new・M1・M2・M4 は全て FULLY RESOLVED につき count から除外。ループ収束。）
+
+---
+
+## Verification Coverage（Cycle 4 source-grounding 監査）
+
+本 review が根拠として引用した実ソース（file:line・Codex 実読・Cycle 3 と同一の実コード契約を再確認）:
+- `src/model/orchestrator.py:234-246`（train_and_predict シグネチャ・現状 `feature_snapshot_id` のみで `snapshot_id` 未追加・P03 Task 3(k) が追加）
+- `src/model/orchestrator.py:373-375`（bare `make_X_y(train_df/calib_df/test_df)`・H1-b/H-new が書換対象）
+- `src/model/data.py:176`（`FEATURE_COLUMNS: list[str] = _derive_feature_columns()` v1.0 固定・H1-b/H-new の根拠）
+- `src/model/data.py:211`（`load_feature_matrix()` arity-0・H1-a が parameter化）
+- `src/model/data.py:405`（`make_X_y(frame)` arity-1・H1-b が snapshot_id 追加）
+
+PLAN.md line 引用（改訂後 c8da288）:
+- `09-03-PLAN.md:226-231`（P03 Task 3(k)・train_and_predict シグネチャに snapshot_id 追加 + 内部3箇所 make_X_y 伝播）
+- `09-03-PLAN.md:199, 237`（test_make_X_y_uses_snapshot_feature_columns・H1-b 機能証明・H-new AST guard と対称）
+- `09-05-PLAN.md:28`（must_haves.truths に H-new 反映）
+- `09-05-PLAN.md:121`（acceptance_criteria・AST verify command for snapshot_id= keyword）
+- `09-05-PLAN.md:140`（Task 1(g)・両 snapshot 呼出で snapshot_id= 明示渡し）
+- `09-05-PLAN.md:225`（Task 2(h)・test_train_and_predict_calls_pass_snapshot_id・bad fixture false-pass 回避）
+- `09-05-PLAN.md:238, 292, 303, 343, 354`（done / threat T-09-31 / verify / artifacts に H-new 反映）
