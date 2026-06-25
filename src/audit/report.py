@@ -273,8 +273,10 @@ def generate_audit_report(*, output_dir: str | Path = "reports") -> tuple[Path, 
     md_lines.append("\n")
     md_lines.append("## フルスイート GREEN 証明 (D-04)\n\n")
     md_lines.append(
-        "KEIBA_SKIP_DB_TESTS unset 全実行・全 requires_db 含む・0 skipped。"
-        "詳細は checkpoint 08-03 (Plan 08-03) で実施。\n"
+        "KEIBA_SKIP_DB_TESTS unset で全 requires_db テストを実行（conftest.py fail-by-default policy 確証）。"
+        "checkpoint 08-03 実績: 499 passed / 1 skipped (test_evaluator.py:490・reports/04-eval.json の "
+        "calibration_max_dev_guarded 列欠損・Phase 6 C6 stale 既知・Plan 06-05 委譲・非 KEIBA_SKIP_DB_TESTS 由来) "
+        "/ failed 0・人間承認済み (approved)。詳細は 08-03-SUMMARY.md 参照。\n"
     )
     md_payload = "".join(md_lines)
     _atomic_write_text(md_path, md_payload)
@@ -286,7 +288,14 @@ def generate_audit_report(*, output_dir: str | Path = "reports") -> tuple[Path, 
             "constants": {"AUDIT_SURFACE_COLUMNS": list(AUDIT_SURFACE_COLUMNS)},
             "known_limitations": KNOWN_LIMITATIONS,
             "sc_correspondence": SC_CORRESPONDENCE,
-            "full_suite_result": {"d04_checkpoint": "Plan 08-03 で実施"},
+            "full_suite_result": {
+                "d04_checkpoint": "Plan 08-03 で承認済み (approved)",
+                "detail_ref": "08-03-SUMMARY.md",
+                "failed": 0,
+                "passed": 499,
+                "skip_reason": "test_evaluator.py:490・reports/04-eval.json calibration_max_dev_guarded 列欠損 (Phase 6 C6 stale・Plan 06-05 委譲・非 KEIBA_SKIP_DB_TESTS)",
+                "skipped": 1,
+            },
         },
         sort_keys=True,
         ensure_ascii=False,

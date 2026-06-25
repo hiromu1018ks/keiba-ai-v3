@@ -21,7 +21,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 5: EV & Backtest** - EV/rank module + race_id-grouped virtual-purchase simulator with fixed odds policy (自動化部分 completed 2026-06-21・実データ backtest BT期間 2019-2025 は JODDS 取得完了後の manual-only 検証として分離)
 - [x] **Phase 6: Evaluation & Calibration Gates** - Acceptance criteria (Brier/LogLoss/calibration/sum(p)/stability) (completed 2026-06-23)
 - [x] **Phase 7: Presentation** - Streamlit minimal UI + prediction/backtest CSV export (completed 2026-06-24)
-- [ ] **Phase 8: Adversarial Audit Suite** - Cross-cutting leakage-prevention test set spanning all critical surfaces
+- [x] **Phase 8: Adversarial Audit Suite** - Cross-cutting leakage-prevention test set spanning all critical surfaces (completed 2026-06-25)
 
 ## Phase Details
 
@@ -284,7 +284,7 @@ Plans:
   2. The suite includes adversarial audit tests that catch what functional tests cannot: a synthetic-lookahead injection (a feature value at T using data from T+1) is detected and fails; a payout-table-positive horse missing from labels is detected; a fold whose train/test share a race_id is detected
   3. The test suite is wired into the reproducibility smoke-test path — running it confirms the full pipeline reproduces identical predictions/backtest numbers from stamped snapshots under fixed seeds
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans complete
 
 Plans:
 **Wave 1**（基盤・先行）
@@ -297,7 +297,7 @@ Plans:
 
 **Wave 3**（Plan 01/02 完了後・出荷ゲート証憑）
 
-- [ ] 08-03-PLAN.md — Wave 3 KEIBA_SKIP_DB_TESTS unset live-DB フル GREEN 証明（checkpoint:human-verify・38+ requires_db 全実行・0 skipped・SC#3 smoke GREEN・reports/08-audit 整合確認）— TEST-01
+- [x] 08-03-PLAN.md — Wave 3 KEIBA_SKIP_DB_TESTS unset live-DB フル GREEN 証明（checkpoint:human-verify・38+ requires_db 全実行・0 skipped・SC#3 smoke GREEN・reports/08-audit 整合確認）— TEST-01
 
 ## Progress
 
@@ -314,4 +314,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 5. EV & Backtest | 6/6 | Complete    | 2026-06-21 |
 | 6. Evaluation & Calibration Gates | 5/5 | Complete    | 2026-06-23 |
 | 7. Presentation | 3/3 | Complete    | 2026-06-24 |
-| 8. Adversarial Audit Suite | 2/3 | In Progress|  |
+| 8. Adversarial Audit Suite | 3/3 | Complete   | 2026-06-25 |

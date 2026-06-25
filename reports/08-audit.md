@@ -32,4 +32,4 @@
 
 ## フルスイート GREEN 証明 (D-04)
 
-KEIBA_SKIP_DB_TESTS unset 全実行・全 requires_db 含む・0 skipped。詳細は checkpoint 08-03 (Plan 08-03) で実施。
+KEIBA_SKIP_DB_TESTS unset で全 requires_db テストを実行（conftest.py fail-by-default policy 確証）。checkpoint 08-03 実績: 499 passed / 1 skipped (test_evaluator.py:490・reports/04-eval.json の calibration_max_dev_guarded 列欠損・Phase 6 C6 stale 既知・Plan 06-05 委譲・非 KEIBA_SKIP_DB_TESTS 由来) / failed 0・人間承認済み (approved)。詳細は 08-03-SUMMARY.md 参照。
