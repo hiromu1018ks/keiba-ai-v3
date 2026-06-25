@@ -55,14 +55,14 @@
   5. スピード指数の分布がドメイン整合性を持つ（同一馬の連続走で指数が大きく安定し・クラス昇降で有意に変動する・極端な外れ値がないことを live-DB で可視化確認）
   6. 【**stop gate**・Phase 9 終了時】スピード指数を追加した単体モデル（v1.0 特徴量＋スピード指数）で、odds_band × p_bin の過大予測（v1.0 の中高オッズ域4倍過大）が改善するか、または falsification の暫定 market residual が残るかを確認する。**両方とも改善/residual が見られなければ「特徴量不足でなく構造的限界寄り」と判断**し、Phase 10-12 に進む前にマイルストーン継続の可否を評価する（マイルストーン目的＝市場残差能力の定量測定・鑑別に合致・早期撤退判断）。
 
-**Plans**: 1/5 plans executed
+**Plans**: 2/5 plans executed
 **Wave 1**
 
 - [x] 09-01-PLAN.md — speed_figure.py 新規(par/variant/PIT/float) + SC#1/SC#2 単体/adversarial テスト(FEAT-01/SAFE-01)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 09-02-PLAN.md — rolling.py/availability.py/feature_availability.yaml 拡張(speed_figure 6 feature + course_kubun bug 修正)(FEAT-01)
+- [x] 09-02-PLAN.md — rolling.py/availability.py/feature_availability.yaml 拡張(speed_figure 6 feature + course_kubun bug 修正)(FEAT-01)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -134,7 +134,7 @@
 | 6. Evaluation & Calibration Gates | v1.0 | 5/5 | Complete | 2026-06-23 |
 | 7. Presentation | v1.0 | 3/3 | Complete | 2026-06-24 |
 | 8. Adversarial Audit Suite | v1.0 | 3/3 | Complete | 2026-06-25 |
-| 9. Speed Figure Foundation | v1.1 | 1/5 | In Progress|  |
+| 9. Speed Figure Foundation | v1.1 | 2/5 | In Progress|  |
 | 10. Opponent Strength & Race-Relative Features | v1.1 | 0/? | Not started | - |
 | 11. Race-Relative Probability Model | v1.1 | 0/? | Not started | - |
 | 12. p_lower EV & Falsification Evaluation | v1.1 | 0/? | Not started | - |
