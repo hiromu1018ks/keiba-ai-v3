@@ -1360,3 +1360,58 @@ def test_run_label_etl_has_race_date_post_condition() -> None:
     assert "RuntimeError" in src, (
         "run_label_etl に race_date NULL 検出時の RuntimeError raise が無い"
     )
+
+
+# ---------------------------------------------------------------------------
+# regression: race_key 型不整合（int4 kaiji/racenum vs varchar 2桁ゼロ埋め）
+# ---------------------------------------------------------------------------
+# 2026-06-23/06-24 に label.fukusho_label.race_date 全行 NULL が2回再発した真因。
+# 実DB で race_df（normalized.n_race）の kaiji/racenum は integer（1）・
+# SE/HR（public.n_*）は varchar 2桁ゼロ埋め（'01'）。compute_fukusho_labels の
+# race_df merge で astype(str) のみだと int4 '1' vs varchar '01' で一致せず
+# left join が全行 miss し race_date が全行 NULL になる。zfill(2) 正規化で
+# 両者を2桁ゼロ埋めに揃えて一致させる fix の回帰テスト。
+# ===========================================================================
+
+
+def test_compute_fukusho_labels_race_key_int4_zfill_normalization() -> None:
+    """regression: race_df の kaiji/racenum が int4 でも race_date が伝播する（zfill 正規化）。
+
+    実DB の型不整合（race_df=normalized.n_race の kaiji/racenum が integer・SE/HR=
+    public.n_* が varchar 2桁ゼロ埋め）を合成データで再現し、compute_fukusho_labels が
+    zfill(2) 正規化で両者を一致させて race_date を正常伝播することを検証する。
+
+    このテストが無いと fix 前の astype(str) のみ実装に戻った際に silent corruption
+    （race_date 全行 NULL）が再発するが unit test では検知できない（既存合成データは
+    全て2桁ゼロ埋め varchar で型不整合が起きないため）。
+    """
+    import datetime as dt  # noqa: PLC0415
+
+    mod = _get_fukusho_label_module()
+    spec = _load_label_spec()
+    hr_df, se_df, race_df = _build_label_input_df(8)
+
+    # 実DB の型を再現: race_df（normalized.n_race 相当）の kaiji/racenum を int4 にする。
+    # SE/HR 側は既に2桁ゼロ埋め varchar（'01'）。astype(str) のみだと
+    # int4 '1' vs varchar '01' で不一致 → left join 全行 miss → race_date 全行 NULL。
+    race_df = race_df.copy()
+    race_df["kaiji"] = 1  # integer（実DB normalized.n_race.kaiji の型）
+    race_df["racenum"] = 1  # integer（実DB normalized.n_race.racenum の型）
+    expected_date = dt.date(2023, 1, 1)
+    race_df["race_date"] = expected_date
+
+    out = mod.compute_fukusho_labels(hr_df, se_df, race_df, spec=spec)
+
+    # zfill(2) 正規化により race_date が全行 non-NULL で伝播する（fix が無いと
+    # fail-loud RuntimeError が raise されるか race_date が全行 NULL になる）
+    assert "race_date" in out.columns, "出力に race_date 列が無い（伝播漏れ・zfill 正規化未実装？）"
+    assert len(out) == 8
+    assert out["race_date"].notna().all(), (
+        f"int4 kaiji/racenum で race_date に NULL が {int(out['race_date'].isna().sum())} 件ある"
+        "（zfill(2) 正規化が未実装または不十分・2026-06-23/24 silent corruption 再発）"
+    )
+    unique_dates = pd.Series(out["race_date"].unique()).dropna()
+    assert len(unique_dates) == 1
+    assert pd.Timestamp(unique_dates.iloc[0]) == pd.Timestamp(expected_date), (
+        "race_date が race_df の値と一致しない（伝播不正）"
+    )

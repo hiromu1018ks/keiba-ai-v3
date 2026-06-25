@@ -522,6 +522,12 @@ def compute_is_model_eligible(row: pd.Series, *, spec: dict) -> tuple[bool, str 
 # ---------------------------------------------------------------------------
 _PAYOUT_COLS = [f"payfukusyoumaban{i}" for i in range(1, 6)]
 _RACE_KEY = ["year", "jyocd", "kaiji", "nichiji", "racenum"]
+# race_key 正規化: kaiji/racenum は実DB で型不整合を起こす（race_df=normalized.n_race 側は
+# integer・SE/HR=public.n_* 側は 2桁ゼロ埋め varchar）。astype(str) のみだと int4 "1" vs
+# varchar "01" で一致せず left join が全行 miss し race_date が全行 NULL になる（2026-06-23/24
+# silent corruption の根本原因）。両者を str.zfill(2) で2桁ゼロ埋めに正規化して一致させる。
+# year(4桁)/jyocd/nichiji は astype(str) のみで一致するため zfill 対象外。
+_RACE_KEY_ZFILL_COLS = ["kaiji", "racenum"]
 
 
 def compute_fukusho_labels(
@@ -631,8 +637,12 @@ def compute_fukusho_labels(
     # --- merge: + race_df（syubetucd / class_level_numeric / race_date）---
     # race_date は実DB（normalized.n_race）には存在するが、合成 DataFrame（unit test）には
     # 含まれない場合があるため、存在する列のみ merge する（deterministic・両対応）。
-    # 実DB では race 側の _RACE_KEY は int4（normalized.n_race）、SE/HR 側は varchar
-    # （public.n_*）のため、merge 前に両者を str に揃える（Pitfall: str vs int64 merge error）。
+    # 実DB では race 側の _RACE_KEY は int4（normalized.n_race の kaiji/racenum）、SE/HR 側は
+    # varchar（public.n_*）のため、merge 前に両者を str に揃える（Pitfall: str vs int64 merge error）。
+    # さらに kaiji/racenum は実DB で int4(1) vs varchar('01') のゼロ埋めフォーマット差があり、
+    # astype(str) のみだと "1" vs "01" で一致せず left join が全行 miss する（2026-06-23/24 の
+    # race_date 全行 NULL silent corruption の根本原因）。両者を zfill(2) で2桁ゼロ埋めに
+    # 正規化して一致させる。year(4桁)/jyocd/nichiji は astype(str) のみで一致する。
     race_extra_cols = [
         c for c in ("syubetucd", "class_level_numeric", "race_date") if c in race_df.columns
     ]
@@ -642,6 +652,12 @@ def compute_fukusho_labels(
             merged[k] = merged[k].astype(str)
         if k in race_merge.columns:
             race_merge[k] = race_merge[k].astype(str)
+    # kaiji/racenum のゼロ埋め正規化（int4 "1" ↔ varchar "01" の不一致を吸収）
+    for k in _RACE_KEY_ZFILL_COLS:
+        if k in merged.columns:
+            merged[k] = merged[k].str.zfill(2)
+        if k in race_merge.columns:
+            race_merge[k] = race_merge[k].str.zfill(2)
     merged = merged.merge(race_merge, on=_RACE_KEY, how="left")
 
     # --- race_date 伝播 fail-loud（silent corruption 再発防止・2026-06-23/06-24 事故対応）---
