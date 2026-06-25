@@ -692,6 +692,12 @@ def _attach_market_data(pred_df: pd.DataFrame, *, cur_pool: Any) -> pd.DataFrame
         len(pred_df),
         len(snapshot),
     )
+    # umaban 型統一 (Phase 5 idiom・run_backtest.py L788-794): JODDS snapshot は raw varchar・
+    # pred_df は Int64 で merge key 型不一致 → 両者を Int64 に正規化してから merge
+    snapshot = snapshot.copy()
+    snapshot["umaban"] = pd.to_numeric(snapshot["umaban"], errors="coerce").astype("Int64")
+    pred_df = pred_df.copy()
+    pred_df["umaban"] = pd.to_numeric(pred_df["umaban"], errors="coerce").astype("Int64")
     merged = pred_df.merge(
         snapshot[["race_key", "umaban", "fuku_odds_lower", "fuku_odds_upper"]],
         on=["race_key", "umaban"],
