@@ -25,10 +25,12 @@ JRA競馬データを用いて、各出走馬の**複勝払戻対象確率 `p_fu
 
 ### Active
 
-<!-- 現在のスコープ。要件定義書の Phase 1 を中心とする。すべて出荷検証まで仮説。 -->
+**v1.0 shipped 2026-06-25（Leak-Free Fukusho Pipeline・監査 passed・GAP-INT-01 解消）。** 出馬表確定後モデル（Phase 1-A）による `p_fukusho_hit` 算出・固定ルール仮想購入 backtest ともに Validated（Phase 4-6 で主モデル LightGBM 確定・Phase 5 で25 backtest 行レベル DB 永続化・返還/中止 honest 会計）。
 
-- [ ] 出馬表・馬番・枠番確定後モデル（Phase 1-A）による `p_fukusho_hit` 算出
-- [ ] 固定ルール仮想購入バックテスト（race_id単位・時系列順、返還・競走中止の扱いを含む回収率再現）— Phase 5 で構造的ブロック GREEN（BACK-01..04・race_id grouping・返還/中止 honest 会計・回収率計算・合成データ 25 backtest・フル suite 350 passed）・**実データ backtest は JODDS 取得完了後 manual-only**（回収率「再現」の実データ検証は未実行・VERIFICATION.md Manual-Only）
+次マールストーンは `/gsd-new-milestone` で定義。候補:
+- **回収率0.65-0.70天井の戦略判断**（debug fukusho-recovery-070・ROOT CAUSE 確定）: A 受容=検出品質（AUC/precision/recall）で評価リフレーム / B 1-A 枠内改善=過去人気 proxy 特徴量・キャリブ改善（上限 ~0.75-0.80） / C Phase 1-B=直前予測・オッズ特徴量使用（要件変更 + PIT 再設計）
+- ワイド・三連複モデル（要件定義書 Phase 2/3）
+- 発走直前オッズ対応・三連複期待値（Phase 3）
 
 ### Out of Scope
 
@@ -112,4 +114,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 - **Phase 8: Adversarial Audit Suite — Complete (2026-06-25).** v1 マイルストーン最終フェーズ・TEST-01（リーク防止の対抗的監査テストを含む）の出荷ゲート確立。3 plans（08-01 tests/audit/ adversarial 4ファイル[SC#2 3ケース+D-06 UI/CSV]・08-02 scripts/run_reproducibility_smoke.py + src/audit/report.py + reports/08-audit.{md,json}・08-03 checkpoint:human-verify で live-DB フルスイート GREEN 証明）。**SC#1** フルスイート 499 passed / 1 skipped（test_evaluator.py:490・Phase 6 C6 stale・非 KEIBA_SKIP_DB_TESTS 由来）/ failed 0・KEIBA_SKIP_DB_TESTS unset で requires_db 全実行（conftest fail-by-default policy 確証）。**SC#2** tests/audit/ 9テスト GREEN（lookahead/payout正欠損/fold race_id共有 の注入型メタ検証 + D-06 AST read-only 保証/再現性スタンプ欠落検出・5段階鋳型・docstring cross-reference）。**SC#3** 合成層（run_reproducibility_smoke.py・calibrator bit-identical + tests/audit/）+ live-DB CLI 層（run_train_predict/run_backtest --check-reproduce・bit-identical PASS）両 GREEN。reports/08-audit.{md,json}：サーフェス別カバレッジマップ（SC#1 8サーフェス+evaluation_metrics）+ SC#1/#2/#3 対応表 + Known Limitations 3項目（回収率天井 ~0.65・Calibration BL 劣位・odds JODDS 再検証 subject）の honest 開示・byte-reproducible。verification passed 11/11 must-haves。**留意点（ギャップではない）**: 1 skipped は Phase 6 C6 stale（Plan 06-05 委譲）・label.fukusho_label.race_date の3度目の再発を run_label_race_date_backfill.py で都度復元（idempotent・raw 不変・554267 non-NULL）して SC#3 backtest を GREEN 化・根本調査は別 /gsd-debug 推奨。memory fukusho-recovery-070-structural-ceiling 整合。
 
-*Last updated: 2026-06-25 after Phase 8 complete (Adversarial Audit Suite — TEST-01 SC#1/#2/#3 verified・tests/audit/ adversarial + reports/08-audit + live-DB フルスイート GREEN[499 passed/1 skipped Phase6既知]・verification 11/11・label race_date backfill 復元)・Phase 1-7 の内容は上記 Progress 参照*
+*Last updated: 2026-06-25 after **v1.0 milestone shipped** (Leak-Free Fukusho Pipeline・Phase 1-8 + 3.1 全完了・gsd-audit-milestone passed[25/25 requirements・integration/flows 7/7]・GAP-INT-01 解消[実データ backtest 25 backtest 行レベルDB永続化 1,184,052行]・449 commits・39,658 Python LOC・9日間)・Phase 1-8 の詳細は上記 Progress と .planning/milestones/v1.0-ROADMAP.md 参照*

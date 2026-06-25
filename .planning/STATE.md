@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 08
-status: completed
+current_phase: 0
+status: Awaiting next milestone
 stopped_at: Completed 08-03-PLAN.md (live-DB full-suite GREEN・checkpoint approved・Phase 8 全 plan 完了)
-last_updated: "2026-06-25T00:58:53.058Z"
+last_updated: "2026-06-25T05:01:14.554Z"
 last_activity: 2026-06-25
-last_activity_desc: Quick 260625-h1g complete (label race_date NULL fail-loud・根本原因=race_key 型不整合を特定)
+last_activity_desc: Milestone v1.0 completed and archived
 progress:
   total_phases: 9
   completed_phases: 9
@@ -28,12 +28,10 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 
 ## Current Position
 
-Phase: 08
-Plan: Not started
-Status: Plan 08-01 complete (tests/audit/ 9 adversarial テスト GREEN)
-Last activity: 2026-06-25 — Completed quick task 260625-h1g: label race_date NULL fail-loud diagnostic guard（根本原因 race_key 型不整合を特定・別タスクで根本修正予定）
-
-Progress: [██████████] 100%
+Phase: Milestone v1.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-25 — Milestone v1.0 completed and archived
 
 ## Performance Metrics
 
@@ -259,3 +257,7 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-06-25:
 Last session: 2026-06-25T00:52:52.737Z
 Stopped at: Completed 08-03-PLAN.md (live-DB full-suite GREEN・checkpoint approved・Phase 8 全 plan 完了)
 Resume: /gsd-execute-phase 6
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone
