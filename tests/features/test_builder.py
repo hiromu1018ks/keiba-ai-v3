@@ -150,6 +150,10 @@ def test_no_registered_feature_column_all_nan_end_to_end():
                 "kakuteijyuni": val, "harontimel3": 36.0 + val,
                 "jyuni3c": val, "jyuni4c": val, "jyuni1c": 0,
                 "kyori": 1600,
+                # Phase 9: ur.time（0.1秒単位・real）を追加。speed_figure.py が走破タイムを
+                # 消費（Step 5b・time<=0 は NaN・実DB で完走馬のみ有効値）。
+                # val(着順)=1 が最速想定 → time を着順に反比例させる（val=1→960.0ds=96.0秒 等）。
+                "time": 1000.0 - val * 40.0,  # val=1→960.0ds=96.0秒・val=4→840.0ds=84.0秒
                 # Phase 3.1: timediff_raw/baba3 を追加（_construct_derived_columns で派生される）
                 "timediff_raw": f"+{val * 10:03d}",  # 例 "+010" → 1.0秒・NNN/10
                 "hist_sibababacd": "1",              # 芝・良馬場（trackcd 第1桁1→芝→babacd=1）
@@ -371,6 +375,9 @@ def test_wr01_prime_raises_on_missing_as_of_datetime():
         "kakuteijyuni": 1, "harontimel3": 36.0, "jyuni3c": 1, "jyuni4c": 1, "jyuni1c": 0,
         "kyori": 1600, "timediff_raw": "+010",
         "hist_sibababacd": "1", "hist_dirtbabacd": "0", "trackcd": "10",
+        # Phase 9: ur.time（0.1秒単位）。Step 5b speed_figure が走破タイムを消費。
+        # as_of_datetime チェックに進む前に time チェックで止まらないよう追加。
+        "time": 960.0,
         # race_start_datetime / as_of_datetime を意図的に欠損
     }])
     # with_days_since_prev=True だが race_start_datetime 無し → as_of_datetime は派生されない
@@ -473,6 +480,8 @@ def test_cr01_rolling_aligned_by_canonical_key_across_distinct_cutoffs():
                 "kakuteijyuni": v, "harontimel3": 36.0 + v,
                 "jyuni3c": v, "jyuni4c": v, "jyuni1c": 0,
                 "kyori": 1600,
+                # Phase 9: ur.time（0.1秒単位）。speed_figure.py が走破タイムを消費。
+                "time": 1000.0 - v * 40.0,
                 "timediff_raw": f"+{v * 10:03d}",
                 "hist_sibababacd": "1", "hist_dirtbabacd": "0", "trackcd": "10",
             })

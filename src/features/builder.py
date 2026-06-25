@@ -118,6 +118,10 @@ _HISTORY_DB_SELECT_COLUMNS: tuple[str, ...] = (
     "nr.sibababacd AS hist_sibababacd",
     "nr.dirtbabacd AS hist_dirtbabacd",
     "nr.trackcd AS trackcd",
+    # Phase 9: speed_figure.py が history の走破タイム（0.1秒単位・real）を消費。
+    # ur.time は derived でなく raw DB カラム・TARGET_OBS_BANNED_COLUMNS とは
+    # disjoint（L320-322 assert で機械保証・T-09-12 mitigate）。
+    "ur.time AS time",
 )
 _HISTORY_SELECT_COLUMN_NAMES: tuple[str, ...] = tuple(
     c.split(" AS ")[1] for c in _HISTORY_DB_SELECT_COLUMNS
@@ -370,6 +374,12 @@ def build_feature_matrix(
     4b. **CYCLE-2 HIGH #5 (COPY-NOT-RENAME)**: 抽象名 ``horse_id``/``jockey_id``/``trainer_id``/
         ``sire_id``/``bms_id`` を copy で追加（``kettonum``/``kisyucode`` 等の元列は保持）。
     5. rolling features 統合（``build_rolling_features`` 経由・per-observation latest-K・HIGH #1）。
+    5b. **Step 5b: speed_figure 計算**（Phase 9・``compute_speed_figure_for_history``・history に
+        ``speed_figure`` 列を copy-not-rename で追加）。PIT 保証は ``speed_figure.py`` 側の
+        ``_pit_cutoff_prefilter`` (strict ``<``) で適用（rolling と対称）。Step 5 rolling が
+        ``history["speed_figure"]`` を numeric 系統として自動集約し ``rolling_speed_figure_*``
+        6 feature を出力（P02 拡張済み）。**REVIEW H1-c**: Step 5b の直前に ``feature_matrix["obs_id"]``
+        を早期構築（Step 6 で再利用・Step 6b で drop・P01 API 契約充足）。
     6. 推定脚質（``estimate_running_style``・過去走 jyuni3c/jyuni4c のみ・**cutoff 以前の過去走のみ**
        （rolling と同一 PIT pre-filter・``as_of_datetime < feature_cutoff_datetime``・strict ``<``）・
        当日不使用・D-05・WR-01 fix）。
@@ -472,6 +482,43 @@ def build_feature_matrix(
             "history fetch が空結果を返した・DB例外/0行結果の silent empty を検知 "
             "(WR-01 fail-loud・advisory hardening・全馬新馬扱いの silent data loss 回避)"
         )
+
+    # --- REVIEW H1-c: obs_id 早期構築（Phase 9・Step 5b 前に feature_matrix に obs_id が必要） ---
+    # 旧来 obs_id は Step 6 推定脚質（L505-517）で初出していたが・Step 5b speed_figure 計算が
+    # P01 compute_speed_figure_for_history(history, observations=feature_matrix) API 契約で
+    # observations が obs_id を持つことを期待する（P01 PLAN L114・rolling.py L207-215 と対称）。
+    # よって Step 5b の直前で既存 idiom（Step 6 L505-517 と完全同一ロジック）により
+    # feature_matrix["obs_id"] を早期構築する。Step 6 は "obs_id" in columns で skip して再利用
+    # （再生成でない・回帰なし）・Step 6b（L560-564）で引き続き drop される（PyArrow 直列化不能・
+    # 契約不変）。本早期構築がないと P01 が observations から obs_id を取れず cross-observation
+    # leak を起こす（T-09-27 mitigate）。
+    if "obs_id" not in feature_matrix.columns and len(feature_matrix) > 0:
+        if "race_nkey" in feature_matrix.columns:
+            feature_matrix["obs_id"] = list(zip(
+                feature_matrix["race_nkey"].tolist(),
+                feature_matrix["kettonum"].tolist(),
+                strict=False,
+            ))
+        else:
+            feature_matrix["obs_id"] = list(zip(
+                feature_matrix.index.tolist(),
+                feature_matrix["kettonum"].tolist(),
+                strict=False,
+            ))
+
+    # --- Step 5b: speed_figure 計算（Phase 9・Beyer 型・history に speed_figure 列を付与） ---
+    # history に time/trackcd/jyocd/kyori/race_date/as_of_datetime が揃った段階で
+    # src.features.speed_figure を呼出。PIT 保証は speed_figure.py 内の _pit_cutoff_prefilter
+    # （strict < feature_cutoff_datetime・availability.CUTOFF_SEMANTICS と同一不変量）で適用
+    # （rolling と対称）。copy-not-rename: history に "speed_figure" 列を追加（既存列は破壊しない・
+    # HIGH #5 踏襲・T-09-10 mitigate）。available_at = race_date を付与（rolling の PIT 集約で使用）。
+    # REVIEW H1-c: feature_matrix を observations として渡す（obs_id は上記で早期構築済み）。
+    # 位置は CR-01 merge（Step 5 rolling）の前・build_rolling_features が history["speed_figure"]
+    # を numeric 系統として自動集約し rolling_speed_figure_* 6 feature を出力（P02 拡張済み）。
+    from src.features.speed_figure import compute_speed_figure_for_history
+
+    history = compute_speed_figure_for_history(history, observations=feature_matrix)
+
     if len(history) > 0 and len(feature_matrix) > 0:
         rolling_df = build_rolling_features(feature_matrix, history)
         rolling_cols = [
