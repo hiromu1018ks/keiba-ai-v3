@@ -106,6 +106,12 @@ SELECTED_ODDS_LOWER: float = 4.9
 SELECTED_P_LOWER: float = 0.15
 SELECTED_P_UPPER: float = 0.20
 
+# D-14 指標2 selector: EV_lower = p_fukusho_hit * fuku_odds_lower >= 1.0
+# (複勝期待値 EV>=1.0 で購入判定・src/ev/purchase_simulator select_bets の事前 filter 閾値と同一).
+# _attach_stopgate_accounting (live-DB 会計) と _compute_selected_roi (近似フォールバック) が
+# 同一閾値を共有するため定数化 (selector 不一致防止・silent ROI 歪み回避).
+SELECTED_EV_THRESHOLD: float = 1.0
+
 
 # ---------------------------------------------------------------------------
 # REVIEW M4: JSON sanitizer (NaN/Inf → None/"NaN"/"Infinity")
@@ -159,7 +165,11 @@ def _compute_selected_calibration(
     pred_df : pd.DataFrame
         ``p_fukusho_hit`` / ``fuku_odds_lower`` / ``fukusho_hit_validated`` 列を持つ予測 DataFrame.
     """
-    if p_col not in pred_df.columns or odds_lower_col not in pred_df.columns or y_col not in pred_df.columns:
+    if (
+        p_col not in pred_df.columns
+        or odds_lower_col not in pred_df.columns
+        or y_col not in pred_df.columns
+    ):
         return float("nan")
     mask = (
         (pred_df[odds_lower_col] >= SELECTED_ODDS_LOWER)
@@ -181,19 +191,42 @@ def _compute_selected_roi(
     odds_lower_col: str = "fuku_odds_lower",
     odds_upper_col: str = "fuku_odds_upper",
     y_col: str = "fukusho_hit_validated",
-    ev_lower_threshold: float = 1.0,
+    ev_lower_threshold: float = SELECTED_EV_THRESHOLD,
 ) -> dict[str, float]:
     """D-14 指標2: selected-only 実現 ROI/EV 改善 (selector: EV_lower>=閾値で選択).
 
-    選ばれた馬の回収率 (payout/stake) を算出する。src/ev/metrics.py profit_loss の
-    集計式 ``sum(payout) / sum(stake)`` に準拠 (refund 払戻対象/競走中止の effective_stake
-    処理は live-DB の market_df JOIN で行う前提・本ヘルパーは単純化版)。
+    **accounted 優先・近似フォールバック (Phase 5 idiom 準拠):**
+      - ``payout`` / ``effective_stake`` / ``selected_flag`` 列が揃う場合 (live-DB・
+        ``_attach_stopgate_accounting`` で ``determine_stake_payout`` 会計済み) は
+        ``sum(payout) / sum(effective_stake)`` を算出 (src/ev/metrics.py profit_loss 集計式・
+        refund 払戻対象/競走中止の effective_stake 処理込みで honest)。
+      - 揃わない場合 (合成テスト・market JOIN 前) は ``hits * fuku_odds_lower`` の単位 stake
+        近似で試算する後方互換フォールバック (テスト契約維持)。
+
+    selector 閾値は ``SELECTED_EV_THRESHOLD`` (=1.0) で ``_attach_stopgate_accounting`` と
+    共有する (selector 不一致による silent ROI 歪み回避)。
 
     Returns
     -------
     dict
         ``{"roi": float, "n_selected": int, "hit_rate": float}``. サンプル不足時は NaN.
     """
+    # --- accounted 版 (live-DB): determine_stake_payout 由来の会計列で集計 ---
+    accounting_cols = {"payout", "effective_stake", "selected_flag"}
+    if accounting_cols <= set(pred_df.columns):
+        sub = pred_df[pred_df["selected_flag"] == True]  # noqa: E712
+        n = int(len(sub))
+        if n == 0:
+            return {"roi": float("nan"), "n_selected": 0, "hit_rate": float("nan")}
+        total_payout = float(pd.to_numeric(sub["payout"], errors="coerce").fillna(0).sum())
+        total_effective_stake = float(
+            pd.to_numeric(sub["effective_stake"], errors="coerce").fillna(0).sum()
+        )
+        roi = total_payout / total_effective_stake if total_effective_stake > 0 else float("nan")
+        hit_rate = float(sub[y_col].astype(float).mean()) if y_col in sub.columns else float("nan")
+        return {"roi": roi, "n_selected": n, "hit_rate": hit_rate}
+
+    # --- 近似フォールバック (合成テスト・market JOIN 前): hits * odds_lower で試算 ---
     if odds_lower_col not in pred_df.columns or p_col not in pred_df.columns:
         return {"roi": float("nan"), "n_selected": 0, "hit_rate": float("nan")}
     ev = pred_df[p_col] * pred_df[odds_lower_col]
@@ -301,9 +334,7 @@ def _compute_residual_proxy(
         df["_market_bin"] = pd.qcut(
             df["_market_implied"], q=n_bins, labels=False, duplicates="drop"
         )
-        df["_model_bin"] = pd.qcut(
-            df["_model_p"], q=n_bins, labels=False, duplicates="drop"
-        )
+        df["_model_bin"] = pd.qcut(df["_model_p"], q=n_bins, labels=False, duplicates="drop")
     except ValueError:
         # 全同一値等で分位化不能
         return {"buckets": [], "signal_present": False, "n_valid_cells": 0}
@@ -402,9 +433,7 @@ def _write_reports(
 
     # REVIEW M4: NaN/Inf を sanitizer で安全化してから allow_nan=False で dumps
     sanitized = _sanitize_for_json(result)
-    json_text = json.dumps(
-        sanitized, sort_keys=True, ensure_ascii=False, allow_nan=False, indent=2
-    )
+    json_text = json.dumps(sanitized, sort_keys=True, ensure_ascii=False, allow_nan=False, indent=2)
     md_text = _format_markdown_report(result)
 
     json_path.write_text(json_text, encoding="utf-8")
@@ -455,7 +484,9 @@ def _format_markdown_report(result: dict[str, Any]) -> str:
     lines.append("- Phase 11 SC#2 事前登録マージンと同一スケール前提 (cross-reference)")
     lines.append("")
     lines.append("## SAFE-01 (EVAL-02)")
-    lines.append("- market_implied (1.0 / fuku_odds_lower) は診断層のみ使用・FEATURE_COLUMNS に混入なし")
+    lines.append(
+        "- market_implied (1.0 / fuku_odds_lower) は診断層のみ使用・FEATURE_COLUMNS に混入なし"
+    )
     lines.append("")
     return "\n".join(lines)
 
@@ -565,6 +596,15 @@ def main(argv: list[str] | None = None) -> int:
             baseline_cat_map = load_frozen_maps(snapshot_id=args.baseline_snapshot_id)
             speedfig_cat_map = load_frozen_maps(snapshot_id=args.speed_figure_snapshot_id)
 
+            # HARAI race-level 払戻 slot を test 窓 (BT-1 = 2023) のみ取得 (Phase 5 idiom)。
+            # refund_accounting.determine_stake_payout が payfukusyoumaban*/payfukusyopay*
+            # /fuseirituflag2/tokubaraiflag2 を消費する (HIGH-C cycle-2・todo 260626 step 2)。
+            test_years = [BT1_PERIODS["test"][0][:4]]  # "2023"
+            harai_race_df = _fetch_harai_race_level(cur, years=test_years)
+            logger.info(
+                "HARAI race-level 取得 (years=%s): %d races", test_years, len(harai_race_df)
+            )
+
         # REVIEW H2/H7/H8: orchestrator.train_and_predict 経由で calibration 済み予測を取得
         # REVIEW H-new: snapshot_id= keyword を両呼出で明示的に渡す (silent-failure 閉塞)
         # baseline 呼出: snapshot_id=args.baseline_snapshot_id (v1.0 FEATURE_COLUMNS を明示選択)
@@ -595,10 +635,47 @@ def main(argv: list[str] | None = None) -> int:
         logger.info("baseline model_version: %s", baseline_model_version)
         logger.info("speed_figure model_version: %s", speedfig_model_version)
 
+        # label_df を pred_df JOIN 用に前処理 (race_key 付与 + test 期間 filter・Phase 5 idiom)。
+        # orchestrator.train_and_predict の pred_df は label (fukusho_hit_validated) を保持しないため・
+        # 本 JOIN が必須 (_evaluate_and_decide L721 KeyError 根因・todo 260626 step 1)。
+        label_df_test = _prepare_label_for_join(
+            label_df,
+            test_start=BT1_PERIODS["test"][0],
+            test_end=BT1_PERIODS["test"][1],
+        )
+        logger.info(
+            "label JOIN 用前処理 (test %s..%s): %d rows",
+            BT1_PERIODS["test"][0],
+            BT1_PERIODS["test"][1],
+            len(label_df_test),
+        )
+
         # market データ (fuku_odds_lower/upper) を JODDS snapshot から取得し pred_df に JOIN
         # (live-DB・本 stop gate の公平性は同一 odds_snapshot_policy で保証・D-13/T-09-19)
         baseline_pred = _attach_market_data(baseline_result["pred_df"], cur_pool=readonly_pool)
         speedfig_pred = _attach_market_data(speedfig_result["pred_df"], cur_pool=readonly_pool)
+
+        # Phase 5 idiom: pred_df に label (fukusho_hit_validated + refund フラグ群) と HARAI
+        # (payfukusyoumaban*/payfukusyopay*/fuseirituflag2/tokubaraiflag2) を JOIN し・
+        # determine_stake_payout で会計 (payout/effective_stake) を付与する。
+        # orchestrator.train_and_predict の pred_df は label を保持しないため・本 JOIN が必須
+        # (_evaluate_and_decide の fukusho_hit_validated KeyError 根因・todo 260626 step 1-3)。
+        baseline_pred = _attach_label_and_harai(
+            baseline_pred, label_df=label_df_test, harai_race_df=harai_race_df
+        )
+        speedfig_pred = _attach_label_and_harai(
+            speedfig_pred, label_df=label_df_test, harai_race_df=harai_race_df
+        )
+        baseline_pred = _attach_stopgate_accounting(baseline_pred)
+        speedfig_pred = _attach_stopgate_accounting(speedfig_pred)
+        logger.info(
+            "pred_df 完全化 (label+HARAI+accounting): baseline rows=%d selected=%d / "
+            "speedfig rows=%d selected=%d",
+            len(baseline_pred),
+            int(baseline_pred["selected_flag"].sum()),
+            len(speedfig_pred),
+            int(speedfig_pred["selected_flag"].sum()),
+        )
 
         result = _evaluate_and_decide(
             baseline_pred=baseline_pred,
@@ -707,6 +784,203 @@ def _attach_market_data(pred_df: pd.DataFrame, *, cur_pool: Any) -> pd.DataFrame
     return merged
 
 
+def _fetch_harai_race_level(
+    readonly_cur: Any,
+    *,
+    years: list[str],
+) -> pd.DataFrame:
+    """``raw_everydb2.n_harai`` から race-level 払戻 slot を SELECT する (HIGH-C cycle-2).
+
+    Phase 5 ``scripts/run_backtest.py::L1333-1359 _fetch_harai_race_level`` と同一ロジック・
+    こちらは scripts 間 import 依存を避けるため inline で再実装 (cross-ref: run_backtest L1333)。
+    ``year IN (...)`` filter 付きで test 窓のみ取得する (``statement_timeout='30s'`` 安全・
+    全期間 SELECT の回避)。
+
+    HARAI は race-level slot レコード (``PayFukusyoUmaban1..5`` + ``PayFukusyoPay1..5``) で・
+    umaban 列を持たない。``refund_accounting.determine_stake_payout`` が消費する
+    ``fuseirituflag2`` / ``tokubaraiflag2`` / ``payfukusyoumaban1..5`` / ``payfukusyopay1..5`` を供給する。
+    """
+    from src.model.data import make_race_key
+
+    placeholders = ",".join(["%s"] * len(years))
+    query = f"""
+        SELECT
+            year, jyocd, kaiji, nichiji, racenum,
+            fuseirituflag2, henkanflag2, tokubaraiflag2,
+            payfukusyoumaban1, payfukusyoumaban2, payfukusyoumaban3,
+            payfukusyoumaban4, payfukusyoumaban5,
+            payfukusyopay1, payfukusyopay2, payfukusyopay3,
+            payfukusyopay4, payfukusyopay5
+        FROM raw_everydb2.n_harai
+        WHERE year IN ({placeholders})
+    """
+    readonly_cur.execute(query, years)
+    cols = [d.name for d in readonly_cur.description]
+    rows = readonly_cur.fetchall()
+    df = pd.DataFrame(rows, columns=cols)
+    # race_key 構築 (CR-01): make_race_key 正準形式 (fetch_jodds / label と同一 source of truth)
+    df["race_key"] = make_race_key(df).to_numpy()
+    return df
+
+
+def _prepare_label_for_join(
+    label_df: pd.DataFrame,
+    *,
+    test_start: str,
+    test_end: str,
+) -> pd.DataFrame:
+    """``label_df`` に ``race_key`` を付与し test 期間で filter する (Phase 5 idiom).
+
+    Phase 5 ``run_backtest.py`` L1162-1169 (``make_race_key`` 付与) + L1189
+    (``_filter_label_by_period``) と同一ロジック・inline 再実装 (scripts 間 import 依存回避)。
+    ``load_labels`` は ``race_key`` を SELECT しないため ``make_race_key`` で正準形式を付与し・
+    BT窓 test 期間 (BT-1 = 2023) で filter する (test 窓外 label の silent leak 防止・§19.1 聖域)。
+
+    empty fallback は禁止 (Phase 5 ``_filter_label_by_period`` WR-05 と同一・fail-loud)。
+    """
+    from src.model.data import make_race_key
+
+    out = label_df.copy()
+    if "race_key" not in out.columns:
+        out["race_key"] = make_race_key(out).to_numpy()
+    if "race_date" not in out.columns:
+        return out
+    out["race_date"] = pd.to_datetime(out["race_date"], errors="coerce")
+    mask = out["race_date"].between(pd.to_datetime(test_start), pd.to_datetime(test_end))
+    filtered = out.loc[mask].copy()
+    if len(filtered) == 0:
+        raise ValueError(
+            f"_prepare_label_for_join: test 期間 ({test_start}..{test_end}) に該当する label 行が0件 "
+            "(silent フォールバック禁止・race_date 型または BT窓区間を確認・§19.1 聖域)"
+        )
+    return filtered
+
+
+def _attach_label_and_harai(
+    pred_df: pd.DataFrame,
+    *,
+    label_df: pd.DataFrame,
+    harai_race_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """pred_df に label (馬単位) と HARAI (race-level) を JOIN する (Phase 5 idiom).
+
+    Phase 5 ``run_backtest.py::L601-650`` (HARAI race-level merge + label 馬単位 merge +
+    ``_label`` suffix 衝突解決) と同一ロジック・inline 再実装。
+    ``refund_accounting.determine_stake_payout`` が消費する全列を供給する:
+      - label: ``fukusho_hit_validated`` / ``is_fukusho_sale_available`` /
+        ``is_scratch_cancel`` / ``is_race_excluded`` / ``is_race_cancelled`` / ``is_dead_loss`` /
+        ``fukusho_payout_places``
+      - HARAI: ``fuseirituflag2`` / ``tokubaraiflag2`` / ``payfukusyoumaban1..5`` /
+        ``payfukusyopay1..5``
+    """
+    # umaban 型統一 (Phase 5 idiom・run_backtest.py L576-582): pred_df (object 揺れ) /
+    # label_df (DB int) で merge key 型不一致 ("str and Int64") → pd.to_numeric で Int64 正規化
+    pred_df = pred_df.copy()
+    label_df = label_df.copy()
+    pred_df["umaban"] = pd.to_numeric(pred_df["umaban"], errors="coerce").astype("Int64")
+    label_df["umaban"] = pd.to_numeric(label_df["umaban"], errors="coerce").astype("Int64")
+
+    # --- label 馬単位 merge (on=['race_key','umaban']・CR-06 suffix 衝突解決) ---
+    label_cols = [c for c in label_df.columns if c not in {"race_key", "umaban"}]
+    merged = pred_df.merge(
+        label_df[["race_key", "umaban"] + label_cols],
+        on=["race_key", "umaban"],
+        how="left",
+        suffixes=("_left", "_label"),
+    )
+    if len(merged) != len(pred_df):
+        raise RuntimeError(
+            f"_attach_label_and_harai: label merge 行数不変違反 "
+            f"len(before)={len(pred_df)} != len(after)={len(merged)} "
+            "(label が馬単位でない・race_key+umaban 重複)"
+        )
+    # CR-06: label 系列の同名列衝突時は _label を正とする (Phase 5 idiom・silent leak 防止)
+    for col in label_cols:
+        left_col = f"{col}_left"
+        label_col = f"{col}_label"
+        if left_col in merged.columns and label_col in merged.columns:
+            merged[col] = merged[label_col]
+            merged = merged.drop(columns=[left_col, label_col])
+        elif label_col in merged.columns:
+            merged[col] = merged[label_col]
+            merged = merged.drop(columns=[label_col])
+
+    # --- HARAI race-level merge (on=['race_key']・validate='many_to_one') ---
+    if harai_race_df is not None and len(harai_race_df) > 0:
+        harai_cols = [c for c in harai_race_df.columns if c != "race_key"]
+        merged = merged.merge(
+            harai_race_df[["race_key"] + harai_cols],
+            on=["race_key"],
+            how="left",
+            validate="many_to_one",
+        )
+        if len(merged) != len(pred_df):
+            raise RuntimeError(
+                f"_attach_label_and_harai: HARAI broadcast 膨張検出 "
+                f"len(before)={len(pred_df)} != len(after)={len(merged)} "
+                "(HARAI race_key 単位の重複行が存在する・validate='many_to_one' 違反)"
+            )
+    return merged
+
+
+def _attach_stopgate_accounting(
+    pred_df: pd.DataFrame,
+    *,
+    ev_threshold: float = SELECTED_EV_THRESHOLD,
+) -> pd.DataFrame:
+    """selector (EV_lower = p * fuku_odds_lower >= 閾値) で ``selected_flag`` を設定し・
+    ``determine_stake_payout`` で会計列 (stake/refund/payout/profit/effective_stake) を付与する.
+
+    Phase 5 ``run_backtest.py`` L660-667 (selected_flag 設定) + L487-520 (``_attach_accounting``)
+    + L523-547 (``_zero_out_non_selected_accounting``) と同一ロジック・inline 再実装。
+    ``_compute_selected_roi`` の accounted 版が本会計列を消費する (sum(payout)/sum(effective_stake))。
+
+    selector は ``select_bets`` (purchase_simulator) ではなく stop gate 単体の EV>=閾値。
+    ``is_fukusho_sale_available`` / ``fuku_odds_lower`` 欠損行は safe 側 (selected=False) に倒す
+    (Phase 5 ``select_bets`` 事前 filter と整合・複勝発売なし/オッズ欠損の silent ROI 歪み回避)。
+    non-selected 行は会計ゼロ化 (購入されない馬の stake/effective_stake が残らないよう)。
+    """
+    from src.ev.refund_accounting import determine_stake_payout
+
+    out = pred_df.copy()
+    # --- selector: EV_lower = p_fukusho_hit * fuku_odds_lower >= ev_threshold ---
+    # is_fukusho_sale_available (label) と fuku_odds_lower (market) が揃う行のみ selected。
+    has_p = "p_fukusho_hit" in out.columns
+    has_odds = "fuku_odds_lower" in out.columns
+    if has_p and has_odds:
+        ev = out["p_fukusho_hit"].astype(float) * out["fuku_odds_lower"].astype(float)
+        odds_ok = out["fuku_odds_lower"].notna()
+        sale_ok = (
+            out["is_fukusho_sale_available"].fillna(False).astype(bool)
+            if "is_fukusho_sale_available" in out.columns
+            else pd.Series(True, index=out.index)
+        )
+        out["selected_flag"] = (ev >= ev_threshold).fillna(False) & odds_ok & sale_ok
+    else:
+        out["selected_flag"] = False
+
+    # --- accounting (selected_flag=True の行のみ determine_stake_payout 適用・Phase 5 idiom) ---
+    # 性能最適化: 全行 apply は実データ規模で非現実的 (WR-10/12)・selected のみ apply する。
+    accounting_cols = ["stake", "refund", "payout", "profit", "effective_stake"]
+    base = out.drop(columns=[c for c in accounting_cols if c in out.columns], errors="ignore")
+    selected_mask = base.get("selected_flag", False) == True  # noqa: E712
+    accounting = pd.DataFrame(0, index=base.index, columns=accounting_cols)
+    if selected_mask.any():
+        sel = base[selected_mask].apply(determine_stake_payout, axis=1, result_type="expand")
+        sel.columns = accounting_cols
+        accounting.loc[selected_mask] = sel.to_numpy()
+    out = pd.concat([base, accounting], axis=1)
+
+    # --- non-selected 会計ゼロ化 (Phase 5 _zero_out_non_selected_accounting idiom) ---
+    # determine_stake_payout は selected_flag 分岐を持たないため・non-selected normal 馬にも
+    # stake=100 が付与される。永続化(ROI 集計)前に non-selected をゼロ化する。
+    non_selected_mask = out["selected_flag"].fillna(False).astype(bool) == False  # noqa: E712
+    zero_cols = [c for c in accounting_cols if c in out.columns]
+    if non_selected_mask.any():
+        out.loc[non_selected_mask, zero_cols] = 0
+    return out
+
+
 def _evaluate_and_decide(
     *,
     baseline_pred: pd.DataFrame,
@@ -733,9 +1007,8 @@ def _evaluate_and_decide(
     # 指標1: selected/high-EV 層 calibration 改善
     baseline_sel_calib = _compute_selected_calibration(baseline_pred)
     speedfig_sel_calib = _compute_selected_calibration(speedfig_pred)
-    sel_calib_improved = (
-        not math.isnan(speedfig_sel_calib)
-        and (math.isnan(baseline_sel_calib) or speedfig_sel_calib < baseline_sel_calib)
+    sel_calib_improved = not math.isnan(speedfig_sel_calib) and (
+        math.isnan(baseline_sel_calib) or speedfig_sel_calib < baseline_sel_calib
     )
 
     # 指標2: selected-only ROI 改善
