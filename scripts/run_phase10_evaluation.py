@@ -416,10 +416,26 @@ def main(argv: list[str] | None = None) -> int:
         logger.info("baseline model_version: %s", baseline_model_version)
         logger.info("Phase 10 model_version: %s", phase10_model_version)
 
+        # orchestrator.train_and_predict の pred_df は label (fukusho_hit_validated) を保持しないため・
+        # build_training_frame 済みの frame (label-joined) から label を JOIN する (Phase 5 idiom・
+        # run_speed_figure_stopgate.py L638-667 と同一)。本 JOIN が無いと _evaluate_gate で
+        # fukusho_hit_validated KeyError (todo 260626 step 1)。
+        baseline_pred = _attach_label_to_pred(
+            baseline_result["pred_df"], label_joined_frame=baseline_frame
+        )
+        phase10_pred = _attach_label_to_pred(
+            phase10_result["pred_df"], label_joined_frame=phase10_frame
+        )
+        logger.info(
+            "pred_df label JOIN 完了: baseline rows=%d / phase10 rows=%d",
+            len(baseline_pred),
+            len(phase10_pred),
+        )
+
         # gate 判定 (B-3: 両実測値の delta)
         result = _evaluate_gate(
-            baseline_pred=baseline_result["pred_df"],
-            phase10_pred=phase10_result["pred_df"],
+            baseline_pred=baseline_pred,
+            phase10_pred=phase10_pred,
             baseline_model_version=baseline_model_version,
             phase10_model_version=phase10_model_version,
             args=args,
@@ -443,6 +459,69 @@ def main(argv: list[str] | None = None) -> int:
         "SC#5 非劣化 gate: FAIL・どれかの指標が D-16 許容幅を超過 (§11.2 聖域・許容幅は変更せず feature 見直し)"
     )
     return 2  # gate FAIL (fail-loud)
+
+
+def _attach_label_to_pred(
+    pred_df: pd.DataFrame,
+    *,
+    label_joined_frame: pd.DataFrame,
+) -> pd.DataFrame:
+    """orchestrator.train_and_predict の pred_df に label (fukusho_hit_validated 等) を JOIN する。
+
+    run_speed_figure_stopgate.py::_attach_label_and_harai の label 馬単位 merge 部分を抽出した
+    最小版 (HARAI race-level 払戻 slot は SC#5 非劣化 gate の Brier/LogLoss/AUC 算出には不要・
+    D-14 selected ROI 計算でのみ必要なため本 gate では省略)。
+
+    orchestrator.train_and_predict の pred_df は label (fukusho_hit_validated) を保持しないため・
+    本 JOIN が必須 (run_speed_figure_stopgate.py L638-667 と同一 idiom・todo 260626 step 1)。
+
+    label_joined_frame は build_training_frame の出力 (label-joined・fukusho_hit_validated 含む)。
+    pred_df と race_key + umaban で merge する (Phase 5 idiom・HIGH-1 馬単位保証)。
+    """
+    pred_df = pred_df.copy()
+    label_df = label_joined_frame.copy()
+    # umaban 型統一 (Phase 5 idiom・run_backtest.py L576-582): pred_df (object 揺れ) /
+    # label_df で merge key 型不一致 ("str and Int64") → pd.to_numeric で Int64 正規化
+    pred_df["umaban"] = pd.to_numeric(pred_df["umaban"], errors="coerce").astype("Int64")
+    label_df["umaban"] = pd.to_numeric(label_df["umaban"], errors="coerce").astype("Int64")
+
+    # label 側の必要列だけ抽出 (fukusho_hit_validated + race_key/umaban)
+    label_keep = ["race_key", "umaban", "fukusho_hit_validated"]
+    # entry_count (compute_metrics の sum(p) 分布チェック用) も存在すれば付与
+    for extra in ("entry_count", "final_starter_count", "sales_start_entry_count"):
+        if extra in label_df.columns:
+            label_keep.append(extra)
+
+    merged = pred_df.merge(
+        label_df[label_keep],
+        on=["race_key", "umaban"],
+        how="left",
+        suffixes=("", "_label"),
+        validate="many_to_one",
+    )
+    if len(merged) != len(pred_df):
+        raise RuntimeError(
+            f"_attach_label_to_pred: label merge 行数不変違反 "
+            f"len(before)={len(pred_df)} != len(after)={len(merged)} "
+            "(label が馬単位でない・race_key+umaban 重複)"
+        )
+    # suffix 衝突解決 (CR-06: _label を正とする)
+    for col in label_keep:
+        if col in ("race_key", "umaban"):
+            continue
+        label_col = f"{col}_label"
+        if label_col in merged.columns:
+            merged[col] = merged[label_col]
+            merged = merged.drop(columns=[label_col])
+
+    # fukusho_hit_validated が JOIN 後も NaN の行があれば fail-loud (silent leak 防止・§19.1 聖域)
+    n_missing = int(merged["fukusho_hit_validated"].isna().sum())
+    if n_missing > 0:
+        raise RuntimeError(
+            f"_attach_label_to_pred: pred_df の {n_missing} 行に label が JOIN できなかった "
+            "(race_key+umaban で label 側に対応行がない・silent leak・§19.1 聖域)"
+        )
+    return merged
 
 
 def _evaluate_gate(
