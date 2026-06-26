@@ -1,8 +1,8 @@
 ---
 phase: 10
 reviewers: [codex]
-reviewed_at: 2026-06-26T20:55:00Z
-cycle: 4
+reviewed_at: 2026-06-26T21:45:00Z
+cycle: 5
 plans_reviewed:
   - 10-01-PLAN.md
   - 10-02-PLAN.md
@@ -11,7 +11,172 @@ plans_reviewed:
   - 10-05-PLAN.md
   - 10-06-PLAN.md
   - 10-07-PLAN.md
-source_grounding: codex (codex-cli 0.142.1, xhigh reasoning) ran inside the project git working tree; all file:line citations were verified against the live repo (src/features/speed_figure.py, src/features/builder.py, src/features/snapshot.py, src/model/orchestrator.py). Cycle-4 mandate was to confirm the 3 Cycle-3 MEDIUMs are genuinely resolved, confirm no regression of Cycle-1/Cycle-2 leakage fixes (especially value-invariance under the new race×horse obs_id granularity), and surface any NEW concern.
+source_grounding: codex (codex-cli 0.142.1, default model gpt-5.5 at xhigh reasoning — the Cycle-4 model id `gpt-5-codex` was deprecated for ChatGPT-account Codex sessions between Cycle 4 and Cycle 5 and is no longer selectable; reviewer-verified the default model resolves to gpt-5.5 with no degradation of read-only source-grounding capability) ran inside the project git working tree; all file:line citations were verified against the live repo via `nl -ba ... | sed -n` (10-01-PLAN.md L1-240, 10-02 L1-260, 10-03 L1-280, 10-04 L1-260). Reviewer independently re-traced the cited source locations (src/features/speed_figure.py L402/510/635, src/features/builder.py L206/528, src/features/snapshot.py L62/71, src/model/orchestrator.py L106) and confirms physical line numbers are stable since Cycle 4. Cycle-5 mandate was the final convergence decision: confirm the Cycle-4 LOW is resolved (3 stale race-level obs_id notations in 10-01 L20/L166/L213 replaced with horse-level form via commit 1a9a357), re-confirm NO regression of any operative leakage/correctness/semantics/feasibility fix (C2-1/C2-2/C2-3/C2-4, Cycle-3 MEDIUM #1/#2/#3, Cycle-1 H3/H5/H6), and surface any NEW concern — with strict instructions NOT to manufacture documentation nits that do not affect execution.
+---
+
+# Cross-AI Plan Review — Phase 10 (Cycle 5 — FINAL convergence confirmation)
+
+> **Cycle 5 — the convergence decision.** Cycles 1-2 closed the leakage surface at the
+> implementation level (source-as-of full-pipeline recompute + value-invariance tests). Cycle 3
+> reached **0 HIGH** with both reviewers confirming via source trace. Cycle 4 resolved the 3
+> non-leak MEDIUMs (available_at KeyError / par-scale horse-level obs_id / per-source-race batching)
+> and left exactly 1 LOW: 3 stale race-level `SOURCE_ASOF_<race_nkey>` notations in non-operative
+> prose of 10-01 (L20 must_haves summary, L166 action epilogue, L213 threat_model T-10-01b mitigation).
+> The Cycle 4→5 cleanup commit `1a9a357` replaced those 3 notations with the horse-level form
+> `SOURCE_ASOF_<race_nkey>_<kettonum>`. A gsd-plan-checker VERIFIED PASSED on the cleaned plans.
+>
+> **Cycle-5 outcome: genuine 0/0 convergence.** Codex (gpt-5.5) and the reviewer independently
+> verified the 3 formerly-stale 10-01 locations now use the horse-level id, and re-confirmed no
+> regression of any operative fix across all 7 plans. The only residual race-level notation anywhere
+> in the phase artifacts is `10-PATTERNS.md` L126, which lives inside a "RESEARCH Pattern 1 skeleton
+> correction" note that (a) explicitly directs implementers to `10-01-PLAN.md` as the single source of
+> truth AND (b) is in PATTERNS.md — a reference document that `/gsd-execute-phase` does NOT mechanically
+> consume (execute-phase.md L6 declares `consumes: PLAN.md`; executor extracts only `<objective>` and
+> `<tasks>` from PLAN.md per L398). It therefore has ZERO effect on execution. **No HIGH, no
+> actionable — the convergence loop terminates here.**
+
+---
+
+## Consensus Verdict (Cycle 5 — Codex + Reviewer independent agreement)
+
+| Question | Answer | Evidence |
+|---|---|---|
+| Is the Cycle-4 LOW resolved? | **YES — FULLY RESOLVED** | Commit `1a9a357` diff: 10-01-PLAN.md L20, L166, L213 each changed exactly one occurrence of `SOURCE_ASOF_<race_nkey>` → `SOURCE_ASOF_<race_nkey>_<kettonum>` (3 insertions / 3 deletions, all in non-operative prose). Codex verdict on 10-01 L20/L166/L213: "RESOLVED. All three now use horse-level." Reviewer grep confirms 10-01 has 0 remaining race-level occurrences and 13 horse-level occurrences. |
+| Has any operative leakage fix regressed? | **NO** | Codex regression check: "no regression found for C2-1, C2-2, C2-3, C2-4, Cycle-3 MEDIUM #1/#2/#3, or Cycle-1 H3/H5/H6. The PLAN files still require source-as-of full-pipeline recompute, downstream propagation tests, raw-history capture before Step 5b, value-invariance audit, available_at derivation from race_date, horse-level source obs_id, batching/prod smoke, odds-in-SQL audit, exact metadata key, and correct orchestrator API flow." Reviewer independently verified the same. |
+| Has the source-side physical evidence drifted since Cycle 4? | **NO** | `speed_figure.py:402` par groupby `["obs_id", "_jyocd", "_trackcd", "_kyori"]`, `speed_figure.py:510` variant groupby `["obs_id", "_source_race_date", "_jyocd", "_surface"]`, `speed_figure.py:635` `out.merge(obs_keys, on="kettonum")` before cutoff filter, `builder.py:528` `history = compute_speed_figure_for_history(...)`, `snapshot.py:71` `feature_availability_version`, `orchestrator.py:106` `feature_df: pd.DataFrame` — all unchanged since Cycle 4. |
+| Does 10-PATTERNS.md L126 affect execution? | **NO — non-actionable** | Codex verdict: "non-actionable. It still contains race-level `SOURCE_ASOF_<race_nkey>`, but PATTERNS.md is reference-only and not mechanically consumed by `/gsd-execute-phase`; the line also directs implementers to `10-01-PLAN.md` as the implementation source of truth. It does not affect execution." Reviewer confirmed execute-phase.md L6 `consumes: PLAN.md` and L398 (executor extracts only `<objective>`/`<tasks>` from PLAN.md). |
+| Any NEW concern? | **NONE** | Codex: "Findings: none." Reviewer: no new finding. |
+
+---
+
+## Codex Review (Cycle 5 — final)
+
+**Model note:** Cycle 4 used `gpt-5-codex`. Between Cycle 4 and Cycle 5, OpenAI deprecated
+`gpt-5-codex` (and `gpt-5`) for ChatGPT-account Codex sessions (HTTP 400:
+"The 'gpt-5-codex' model is not supported when using Codex with a ChatGPT account"). Cycle 5
+was therefore run on the Codex CLI default model, which resolves to `gpt-5.5` at xhigh reasoning.
+This does not weaken source-grounding: Codex still executed `nl -ba <plan> | sed -n '<range>'`
+inside the project workdir and read the live repo files. The convergence verdict rests on
+verified file contents, not on model identity.
+
+### Codex final output (verbatim)
+
+```
+1. VERDICT: CONVERGED
+
+2. HIGH count: 0
+
+3. ACTIONABLE count: 0
+
+4. CYCLE_SUMMARY: current_high=0 current_actionable=0
+
+5. Findings: none.
+
+Regression check: no regression found for C2-1, C2-2, C2-3, C2-4, Cycle-3 MEDIUM #1/#2/#3, or
+Cycle-1 H3/H5/H6. The PLAN files still require source-as-of full-pipeline recompute, downstream
+propagation tests, raw-history capture before Step 5b, value-invariance audit, available_at
+derivation from race_date, horse-level source obs_id, batching/prod smoke, odds-in-SQL audit,
+exact metadata key, and correct orchestrator API flow.
+
+6. Explicit verdict on 10-01 L20/L166/L213: RESOLVED. All three now use horse-level
+   `SOURCE_ASOF_<race_nkey>_<kettonum>`.
+
+7. Explicit verdict on 10-PATTERNS.md L126: non-actionable. It still contains race-level
+   `SOURCE_ASOF_<race_nkey>`, but PATTERNS.md is reference-only and not mechanically consumed by
+   `/gsd-execute-phase`; the line also directs implementers to `10-01-PLAN.md` as the implementation
+   source of truth. It does not affect execution.
+```
+
+---
+
+## Reviewer independent source-grounding verification (Cycle 5)
+
+In addition to relaying the Codex review, the reviewer independently re-traced the cited evidence
+without relying on Codex's output:
+
+### Cycle-4 LOW resolution (the 3 formerly-stale 10-01 locations)
+
+- **Commit `1a9a357` diff** — VERIFIED. The diff touches exactly `10-01-PLAN.md`, 3 insertions / 3
+  deletions, each replacing one `SOURCE_ASOF_<race_nkey>` with `SOURCE_ASOF_<race_nkey>_<kettonum>`
+  at L20 (must_haves/truths CYCLE-2 HIGH-C2-1 summary), L166 (action epilogue "実装者が必ず理解
+  すべき点"), L213 (threat_model T-10-01b mitigation text). No other lines touched.
+- **Post-cleanup grep on 10-01** — VERIFIED: 0 race-level occurrences remain; 13 horse-level
+  occurrences (L20, L24, L39, L126, L131-134 area, L152, L166, L177, L188, L195, L213, L218, L245,
+  L248). Operative path (action / acceptance_criteria / threat_model / artifacts_produced) is
+  uniformly horse-level.
+- **Other plans** — VERIFIED: 10-02 (L27, L99, L170) and 10-03 (L27, L97, L122) already use the
+  horse-level form (cleaned in the Cycle-4 10-02 cleanup commit `ab92def` and at 10-03 creation).
+  10-04/10-05/10-06/10-07 do not name the synthetic obs_id literal (they consume PLAN 01's output
+  and so are correct-by-construction once 10-01 is correct).
+
+### Cycle-1/Cycle-2/Cycle-3 operative regression check (re-verified this cycle)
+
+| Prior concern | Cycle-5 verdict | Evidence re-cited |
+|---|---|---|
+| C2-1 (10-01 source-as-of full-pipeline recompute) | **RESOLVED — no regression** | `10-01-PLAN.md:20/24/39/126/133/152/166/177/188/195/213/218/245/248` all require `obs_id='SOURCE_ASOF_<race_nkey>_<kettonum>'` + `feature_cutoff_datetime=source_race.available_at` + raw_history full-pipeline recompute via `compute_speed_figure_for_history`. Source side: `speed_figure.py:402/510/635` par/variant groupby keyed on `obs_id` (horse-level under the new id), merge horse-keyed. |
+| C2-2 (10-02 downstream propagation gate) | **RESOLVED — no regression** | `10-02-PLAN.md:27,99,170` still gate both polluted→polluted and clean→clean propagation; Test 9 asserts the dependence on PLAN 01's source-as-of profile. |
+| C2-3 (10-04 raw_history capture BEFORE Step 5b) | **RESOLVED — no regression** | `10-04-PLAN.md:22,116,117,147,150,184` require `raw_history = history.copy()` BEFORE Step 5b and `compute_field_strength_profile(raw_history, ...)` as Step 5c (history not raw_history is the contamination path; the plan forbids it). Test 9 asserts the argument is raw_history via monkeypatch/arg capture. |
+| C2-4 (10-07 value-invariance audit) | **RESOLVED — no regression** | `10-07-PLAN.md:21,100,128,148,176-200` require bit-identical source-as-of speed_figure across target cutoffs T1<T2 (independent of row-inclusion). |
+| Cycle-3 MEDIUM #1 (available_at KeyError) | **RESOLVED — no regression** | `10-01-PLAN.md` (T-10-01c mitigation + Test 3 + Test 11) requires `available_at = pd.to_datetime(race_date)` derived inside `compute_field_strength_profile`; raw_history required-columns list excludes both `speed_figure` and `available_at`. Source: `builder.py:206` `_construct_derived_columns` derives `race_nkey`/`as_of_datetime`/`days_since_prev`/`timediff`/`babacd` only — no `available_at` — confirming the KeyError was real and the in-function derivation is the correct raw-history fix. |
+| Cycle-3 MEDIUM #2 (par-scale horse-level obs_id) | **RESOLVED — no regression** | `10-01-PLAN.md:24,39,188,218` and `10-03-PLAN.md:27,97,122` consistently require race×horse `SOURCE_ASOF_<race_nkey>_<kettonum>` so par is horse-level, matching target-path `(race_nkey, kettonum)`. |
+| Cycle-3 MEDIUM #3 (cardinality / H² blowup) | **RESOLVED — no regression** | `10-01-PLAN.md:127,152,189` require per-source-race batching (`SOURCE_RACE_BATCH_SIZE`); `10-07-PLAN.md:176-200` preserves W-3 (14k rows ≤5s) AND adds production-scale smoke (`PROD_PEAK_MEM_BUDGET_GB=8.0`, `PROD_WALL_TIME_BUDGET_SEC=300.0`) with merge-cardinality instrumentation. |
+| Cycle-1 H3 (10-07 odds-in-SQL scanner) | **RESOLVED — no regression** | `10-07-PLAN.md` scanner extends to detect `odds` in SQL string literals with whitelist `['odds-free','odds_snapshot_policy']`. |
+| Cycle-1 H5 (10-05 metadata key) | **RESOLVED — no regression** | `10-05-PLAN.md:26,38,42` assert the exact key `feature_availability_version` (no `_schema_`). Source: `snapshot.py:62/71` `_METADATA_KEYS` tuple contains `feature_availability_version` — matches. |
+| Cycle-1 H6 (10-06 orchestrator API) | **RESOLVED — no regression** | `10-06-PLAN.md:50,156,157,171,174,201-204` require the full chain `load_feature_matrix → load_labels → build_training_frame → load_frozen_maps → orchestrator.train_and_predict(label_joined_feature_df, feature_snapshot_id=..., snapshot_id=..., category_map=...)`. Source: `orchestrator.py:106` `feature_df: pd.DataFrame` (label-joined frame contract). |
+
+### 10-PATTERNS.md L126 residual (non-actionable)
+
+- The line appears inside a blockquote correction note: "⚠ CYCLE-2 HIGH-C2-1 訂正... 正しい実装は
+  10-01-PLAN.md Task 1 の `_compute_source_asof_opponent_speed_figures`... を参照のこと。
+  実装者は本 skeleton でなく **10-01-PLAN.md の action を実装の唯一の真理とすること**."
+- The note contains the old race-level literal `obs_id='SOURCE_ASOF_<race_nkey>'` as part of its
+  description of the superseded RESEARCH skeleton, NOT as an instruction.
+- **Effect on `/gsd-execute-phase`: ZERO.** execute-phase.md L6 declares `consumes: PLAN.md`;
+  executor extracts only `<objective>` and `<tasks>` from PLAN.md (execute-phase.md L398). PATTERNS.md
+  is produced by the pattern-mapper sub-agent during `/gsd-plan-phase` (capability-registry.cjs L1395,
+  L1429, L2177) as analog-mapping reference for the planner, and is NOT in the executor's input set.
+  The verifier (execute-phase.md L144) receives PLAN.md + SUMMARY.md + CONTEXT.md + REQUIREMENTS.md —
+  PATTERNS.md is not in that list either.
+- Therefore: even if a human reads PATTERNS.md L126, the note explicitly redirects to 10-01-PLAN.md;
+  and the executor never reads it at all. **Codex and reviewer agree: non-actionable, do NOT raise.**
+
+---
+
+## Why this is genuine 0/0 convergence (and the loop terminates)
+
+1. **Core value protected since Cycle 3.** The leakage surface (target-cutoff contamination of
+   opponent speed_figure via source-race reuse) has been closed at the implementation level since
+   Cycle 2's source-as-of full-pipeline recompute + value-invariance tests. Cycle 3 confirmed 0 HIGH
+   via source trace. Cycles 4 and 5 have not regressed this.
+2. **Cycle-4 LOW was the last non-HIGH.** It was a documentation-consistency cleanup in non-operative
+   prose of a single plan (10-01). The Cycle 4→5 cleanup commit `1a9a357` resolved it with 3 one-line
+   mechanical edits. gsd-plan-checker VERIFIED PASSED on the result.
+3. **Cycle 5 found no new HIGH and no new actionable.** Both reviewers (Codex + reviewer) agree.
+4. **The one remaining race-level notation anywhere** (10-PATTERNS.md L126) is in a reference doc that
+   `/gsd-execute-phase` does not consume and that explicitly redirects readers to 10-01-PLAN.md. It is
+   not a finding.
+5. **No source-side drift.** Every cited source line (`speed_figure.py`, `builder.py`, `snapshot.py`,
+   `orchestrator.py`) is at the same physical location as in Cycle 4, so all prior source-grounded
+   verdicts remain valid.
+
+**Convergence loop status: TERMINATED. 0 HIGH, 0 actionable. Ready for `/gsd-execute-phase`.**
+
+---
+
+CYCLE_SUMMARY: current_high=0 current_actionable=0
+
+## Current HIGH Concerns
+
+None.
+
+## Current Actionable Non-HIGH Concerns
+
+None.
+
+---
+
+# Prior cycles (superseded — kept for audit trail)
+
 ---
 
 # Cross-AI Plan Review — Phase 10 (Cycle 4 — convergence continuation, user-authorized beyond max-cycles)
@@ -273,12 +438,25 @@ the core value; the residual LOW is bookkeeping.
 
 ---
 
-CYCLE_SUMMARY: current_high=0 current_actionable=1
+> **PRIOR CYCLE — SUPERSEDED.** The block below was the live Cycle-4 summary at the time it was
+> written. Cycle 5 has since resolved LOW-C4-CODEX-1 via commit `1a9a357` (3 stale 10-01 notations
+> replaced with horse-level form). The authoritative current state is the Cycle-5 block at the top
+> of this file (`CYCLE_SUMMARY: current_high=0 current_actionable=0`). This Cycle-4 block is retained
+> only as an audit trail of what Cycle 4 left open.
 
-## Current HIGH Concerns
+CYCLE_SUMMARY (prior cycle 4 — superseded by cycle 5): current_high=0 current_actionable=1
+
+## Current HIGH Concerns (prior cycle 4 — superseded)
 
 None.
 
-## Current Actionable Non-HIGH Concerns
+## Current Actionable Non-HIGH Concerns (prior cycle 4 — superseded)
 
-- **LOW-C4-CODEX-1 (10-01, documentation consistency, raised by Codex)**: 10-01 に race-level の旧表記 `SOURCE_ASOF_<race_nkey>` が3箇所の非 operative prose に残存する — `10-01-PLAN.md:20`（must_haves/truths CYCLE-2 HIGH-C2-1 要約）、`10-01-PLAN.md:166`（action 末尾「実装者が必ず理解すべき点」要約）、`10-01-PLAN.md:213`（threat_model T-10-01b mitigation 文）。operative な action step 5/6（L126, L131-134）・acceptance_criteria（L177, L188, L245, L248）・artifacts_produced はすべて正しい新表記 `SOURCE_ASOF_<race_nkey>_<kettonum>`（race×horse 単位）を使用しているため・実装パスへの影響はなく design flaw でもリークでもない。しかし must_haves/threat_model は `/gsd-execute-phase` が機械消費する領域のため・残したままでは実装者に ambiguity を与える。PLAN.md 変更点: 上記3箇所の `SOURCE_ASOF_<race_nkey>` を `SOURCE_ASOF_<race_nkey>_<kettonum>` に置換すること（1行1箇所の機械的編集・非リーク・実装パス不変）。
+- **LOW-C4-CODEX-1 (10-01, documentation consistency, raised by Codex)** — **RESOLVED in Cycle 5**
+  via commit `1a9a357`. Original Cycle-4 finding (for audit): 10-01 に race-level の旧表記
+  `SOURCE_ASOF_<race_nkey>` が3箇所の非 operative prose に残存する — `10-01-PLAN.md:20`
+  （must_haves/truths CYCLE-2 HIGH-C2-1 要約）、`10-01-PLAN.md:166`（action 末尾「実装者が必ず
+  理解すべき点」要約）、`10-01-PLAN.md:213`（threat_model T-10-01b mitigation 文）。Cycle 5 で
+  3箇所とも `SOURCE_ASOF_<race_nkey>_<kettonum>`（race×horse 単位）に置換済み。 operative な
+  action/acceptance/artifacts は Cycle 4 時点で既に正しい新表記を使用していたため・実装パスへ
+  の影響は元々なく・本変更は documentation consistency の最終仕上げ。
