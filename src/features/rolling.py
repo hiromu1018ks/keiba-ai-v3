@@ -467,9 +467,14 @@ def build_rolling_features(
                     # sort 降順→groupby.head(2)→mean で置換（byte-reproducible・同一結果）。
                     valid_windowed = windowed[windowed["_sf_value"].notna()]
                     if len(valid_windowed) > 0:
+                        # kind="mergesort"（安定ソート）で tie-break を入力順序に従わせる
+                        # （WR-01 対策・byte reproducibility を「偶然の mean 同値」でなく
+                        # 「sort 安定性」で担保・split_3way idiom と整合）。
                         top2 = (
                             valid_windowed.sort_values(
-                                ["obs_id", "_sf_value"], ascending=[True, False]
+                                ["obs_id", "_sf_value"],
+                                ascending=[True, False],
+                                kind="mergesort",
                             )
                             .groupby("obs_id", sort=False).head(2)
                         )
