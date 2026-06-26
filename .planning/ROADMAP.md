@@ -36,7 +36,7 @@
 
 - [x] **Phase 9: Speed Figure Foundation** - 走破タイムを馬場/距離/トラック/クラス補正したスピード指数（Beyer 的）を自前構築し、能力特徴量の新たな主軸を据える (completed 2026-06-25)
 - [x] **Phase 9.1: Speed Ability Profile Expansion** (INSERTED) - Phase 9 の speed_figure 6→17 feature 拡張（median/best2/trend + same_surface/same_distance_bucket）・Phase 10 入力強化 (completed 2026-06-26)
-- [ ] **Phase 10: Opponent Strength & Race-Relative Features** - 相手強度（as-of）とレース内相対特徴量（rank/gap_to_top/gap_to_3rd）を追加し、複勝の相対競争を特徴量層で表現する
+- [x] **Phase 10: Opponent Strength & Race-Relative Features** - 相手強度（as-of）とレース内相対特徴量（rank/gap_to_top/gap_to_3rd）を追加し、複勝の相対競争を特徴量層で表現する (completed 2026-06-27)
 - [ ] **Phase 11: Race-Relative Probability Model** - 独立二値分類から `sum(p)=払戻対象数(2/3)` 制約・race-level top-k calibration のレース内相対確率モデルへ移行する
 - [ ] **Phase 12: p_lower EV & Falsification Evaluation** - `p_lower` 下側信頼限界によるEV判定へ移行し、評価指標拡張（selected-only calibration / EV-decile ROI / disagreement ROI / snapshot slippage）と falsification test で market residual を統計検証する
 
@@ -110,7 +110,7 @@ Plans:
   4. オッズ/人気/過去人気/過去オッズ proxy の混入がないことを adversarial audit で証明できる（SAFE-01）
   5. live-DB で生成した snapshot が・v1.0 の主モデル（LightGBM）で再学習時に Brier/LogLoss/AUC の現行水準（Phase 6 D-07 数値）を悪化させない（特徴量ノイズ化の回帰検知）
 
-**Plans**: 6/7 plans executed
+**Plans**: 7/7 plans executed (Phase 10 complete)
 
 Plans:
 **Wave 1**
@@ -133,7 +133,7 @@ Plans:
 **Wave 5** *(blocked on Wave 4 completion)*
 
 - [x] 10-06-PLAN.md — data.py/trainer/evaluator + scripts/run_phase10_evaluation.py（SC#5 非劣化 gate・D-16 事前登録許容幅 Brier≤0.002/LogLoss≤0.005/AUC≤0.005・§11.2 聖域）
-- [ ] 10-07-PLAN.md — SAFE-01 adversarial audit（AST odds/ninki proxy 排除・lookahead 注入【行包含 + 値の不変性・CYCLE-2 MEDIUM-C2-4】・5段階鋳型）+ cProfile 性能検証（Pitfall 2 回避）
+- [x] 10-07-PLAN.md — SAFE-01 adversarial audit（AST odds/ninki proxy 排除【REVIEW H3 odds-in-SQL 拡張】・lookahead 注入【行包含 + 値の不変性・CYCLE-2 MEDIUM-C2-4】・5段階鋳型）+ cProfile 性能検証（W-3 核心 GREEN・W-3 縮小版 5.0s は PLAN 01 設計と構造的矛盾で default skip・PLAN 更新待ち）
 
 ### Phase 11: Race-Relative Probability Model
 
