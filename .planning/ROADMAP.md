@@ -113,11 +113,25 @@ Plans:
 **Plans**: 7 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 10-01-PLAN.md — FEAT-02 相手強度 field_strength 第1段階（source race 内 opponent profile 8値・D-01 厳格版 as-of・D-04 発走馬特定・compute_field_strength_profile 新規・PIT/lookahead 単体テスト）
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 10-02-PLAN.md — FEAT-02 相手強度 第2段階（rolling.py 拡張・_FIELD_STRENGTH_AXES・D-13 21 feature・obs_id group・sentinel ルール）
 - [ ] 10-03-PLAN.md — FEAT-03 レース内相対特徴量（race_relative.py 新規・speed_index_rank 3軸・gap_to_top/3rd・field_strength_adjusted_rank・competition ranking・D-12 係数事前登録）
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 10-04-PLAN.md — builder.py 統合（Step 5c/5d/7/7b・A6 構成変更）+ feature_availability.yaml schema_version 0.6.0 + 27 feature registry 登録（registry↔Parquet parity）
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 10-05-PLAN.md — snapshot.py 拡張 + live-DB で snapshot 20260626-1a-opponentstrength-v1（feature_count=106）生成 + byte-reproducibility 検証（SC#3・§19.1・Pitfall 5）
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 10-06-PLAN.md — data.py/trainer/evaluator + scripts/run_phase10_evaluation.py（SC#5 非劣化 gate・D-16 事前登録許容幅 Brier≤0.002/LogLoss≤0.005/AUC≤0.005・§11.2 聖域）
 - [ ] 10-07-PLAN.md — SAFE-01 adversarial audit（AST odds/ninki proxy 排除・lookahead 注入・5段階鋳型）+ cProfile 性能検証（Pitfall 2 回避）
 
