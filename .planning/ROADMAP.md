@@ -115,7 +115,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 10-01-PLAN.md — FEAT-02 相手強度 field_strength 第1段階（source race 内 opponent profile 8値・D-01 厳格版 as-of・D-04 発走馬特定・compute_field_strength_profile 新規・PIT/lookahead 単体テスト）
+- [ ] 10-01-PLAN.md — FEAT-02 相手強度 field_strength 第1段階（source race 内 opponent profile 8値・D-01 厳格版 as-of・D-04 発走馬特定・compute_field_strength_profile 新規・CYCLE-2 HIGH-C2-1: raw history に obs_id='SOURCE_ASOF_<race_nkey>' で full par+variant+speed_figure pipeline を source-as-of 再計算・値の不変性 adversarial test）
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -124,7 +124,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 10-04-PLAN.md — builder.py 統合（Step 5c/5d/7/7b・A6 構成変更）+ feature_availability.yaml schema_version 0.6.0 + 27 feature registry 登録（registry↔Parquet parity）
+- [ ] 10-04-PLAN.md — builder.py 統合（Step 5c/5d/7/7b・A6 構成変更・CYCLE-2 HIGH-C2-3: Step 5c は history でなく raw_history を渡す）+ feature_availability.yaml schema_version 0.6.0 + 27 feature registry 登録（registry↔Parquet parity）
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -133,7 +133,7 @@ Plans:
 **Wave 5** *(blocked on Wave 4 completion)*
 
 - [ ] 10-06-PLAN.md — data.py/trainer/evaluator + scripts/run_phase10_evaluation.py（SC#5 非劣化 gate・D-16 事前登録許容幅 Brier≤0.002/LogLoss≤0.005/AUC≤0.005・§11.2 聖域）
-- [ ] 10-07-PLAN.md — SAFE-01 adversarial audit（AST odds/ninki proxy 排除・lookahead 注入・5段階鋳型）+ cProfile 性能検証（Pitfall 2 回避）
+- [ ] 10-07-PLAN.md — SAFE-01 adversarial audit（AST odds/ninki proxy 排除・lookahead 注入【行包含 + 値の不変性・CYCLE-2 MEDIUM-C2-4】・5段階鋳型）+ cProfile 性能検証（Pitfall 2 回避）
 
 ### Phase 11: Race-Relative Probability Model
 
