@@ -708,12 +708,24 @@ def build_feature_matrix(
     # field_strength profile 生値（field_strength_mean 等・rolling_ prefix 無し）は
     # rolling_field_strength_* の計算用中間値・feature_matrix に出力しない（registry parity 違反回避）。
     # D-11 raw rank/profile と別保持: rolling_field_strength_* / FEAT-03 6 feature は残す。
-    # errors="ignore" で安全（列が存在しなくても例外にしない・Step 5c merge 失敗時の耐性）。
+    # Rule 1 auto-fix (PLAN 05 live-DB 検証で発覚): field_strength_adjusted_rank は FEAT-03 feature
+    # （D-11/D-12・target-only race_id group-by で算出・race_relative.py L287-289）・中間値でない。
+    # 元の ``c.startswith("field_strength_")`` 条件がこれも巻き込んで drop していたため・
+    # FEAT-03 feature 名を明示的に除外する（registry parity のため・6 feature 全て残す）。
+    _FEAT03_KEEP_COLS = frozenset({
+        "speed_index_rank_mean5",
+        "speed_index_rank_best2_mean5",
+        "speed_index_rank_median5",
+        "gap_to_top",
+        "gap_to_3rd",
+        "field_strength_adjusted_rank",
+    })
     feature_matrix = feature_matrix.drop(
         columns=[
             c for c in feature_matrix.columns
             if c.startswith("field_strength_")
             and not c.startswith("rolling_field_strength_")
+            and c not in _FEAT03_KEEP_COLS
         ],
         errors="ignore",
     )

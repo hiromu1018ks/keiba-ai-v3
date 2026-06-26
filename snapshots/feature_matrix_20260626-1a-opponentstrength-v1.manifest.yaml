@@ -1,0 +1,18 @@
+byte_reproducible_scope: parquet_data_only_metadata_excluded
+byte_size: 107678706
+category_map_artifact: snapshots/category_map_20260626-1a-opponentstrength-v1.json
+created_at: '2026-06-26T15:50:34.079194+00:00'
+created_at_fixed: '2026-06-26T00:00:00Z'
+dataset_version: v1.0.0
+feature_availability_version: 0.6.0
+feature_count: 106
+feature_cutoff_rule: race_date - 1 day
+feature_snapshot_id: 20260626-1a-opponentstrength-v1
+label_version: v1.0.0
+parquet_path: /Users/hart/develop/keiba-ai-v3/snapshots/feature_matrix_20260626-1a-opponentstrength-v1.parquet
+prediction_timing: 1A
+row_count: 554267
+sha256: c25ae5561e5e1db068973972e57a4f61d2f919be28a2e82ed9a72e05a750cd00
+snapshot_id: 20260626-1a-opponentstrength-v1
+train_period: 2016-07-01/2023-12-31
+validation_period: 2024-01-01/2024-12-31
