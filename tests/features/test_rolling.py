@@ -1,3 +1,4 @@
+# ruff: noqa: E501  (docstring / assert メッセージ / 日本語コメント行長は緩和・tests/features/test_field_strength.py 等と同一慣例)
 """D-03/D-04/D-13 + REVIEWS HIGH #1 per-observation latest-5 algorithm（RED stub・Plan 03-03 GREEN）。
 
 本ファイルは ``src.features.rolling`` が未実装のため RED（Phase 2 RED-集群パターン）。
@@ -13,6 +14,7 @@ import pytest
 
 from tests.features.conftest import (
     _build_adversarial_rolling_rows,
+    _build_se_history_row,
     _build_two_observation_rolling_rows,
 )
 
@@ -266,20 +268,20 @@ def _build_fs_5start_history(
 ) -> pd.DataFrame:
     """5走の過去走（cutoff 以前・全て eligible）を持つ field_strength history builder.
 
-    各 row の field_strength_mean を区別値（base_mean + i）に設定し・
-    rolling_field_strength_mean_mean_5 が (base+1 + base+2 + base+3 + base+4 + base+5)/5 = base+3
-    になることで window 完全性を機械検出する。
+    各 row の field_strength_mean を区別値に設定し・最新1件目が最大値（base+5）になるよう構成。
+    rolling_field_strength_mean_mean_5 = (base+1 + base+2 + base+3 + base+4 + base+5)/5 = base+3
+    ・latest_1 = base+5（最新）・mean_3 = (base+5 + base+4 + base+3)/3 = base+4 で window 完全性を機械検出。
     """
     obs_rd = pd.to_datetime(obs_race_date)
     rows = []
-    # 5走・全て cutoff 以前（2〜6日前）・降順で直近1件目が最新
+    # 5走・全て cutoff 以前（2〜6日前）。i=1 が最古・i=5 が最新（race_date 降順で先頭）
     for i in range(1, 6):
-        rd = obs_rd - pd.Timedelta(days=i + 1)  # cutoff は obs_rd - 1day strict < なので -2日以前が eligible
+        rd = obs_rd - pd.Timedelta(days=6 - i + 1)  # i=1 → -6d（最古）・i=5 → -2d（最新）
         rows.append(
             _build_fs_history_row(
                 kettonum=kettonum,
                 race_date=(rd).strftime("%Y-%m-%d"),
-                fs_mean=base_mean + i,
+                fs_mean=base_mean + i,  # i=1(最古) → base+1 / i=5(最新) → base+5
                 fs_median=base_mean + i + 0.5,
                 fs_top3=base_mean + i + 1.0,
                 fs_top5=base_mean + i + 1.5,
@@ -399,7 +401,7 @@ def test_field_strength_pit_strict_less_obs_id_group():
             fs_valid_count=5, fs_coverage=0.5,
         ))
     # adversarial: 当日（target・除外）・未来（除外）・cutoff同日（除外）
-    for off, label in [(0, "target"), (2, "future"), (-1, "cutoff_day")]:
+    for off, _label in [(0, "target"), (2, "future"), (-1, "cutoff_day")]:
         rd = obs_rd + pd.Timedelta(days=off)
         rows.append(_build_fs_history_row(
             kettonum=8008,
@@ -435,13 +437,13 @@ def test_field_strength_sentinel_rule_count_below_window():
 
     obs_rd = pd.to_datetime("2023-06-04")
     rows = []
-    # 3走のみ（cutoff 以前）
+    # 3走のみ（cutoff 以前）・i=1 が最古・i=3 が最新（fs_mean=21..23・最新が23）
     for i in range(1, 4):
-        rd = obs_rd - pd.Timedelta(days=i + 1)
+        rd = obs_rd - pd.Timedelta(days=4 - i + 1)  # i=1 → -4d（最古）・i=3 → -2d（最新）
         rows.append(_build_fs_history_row(
             kettonum=9009,
             race_date=rd.strftime("%Y-%m-%d"),
-            fs_mean=20.0 + i,  # 21..23
+            fs_mean=20.0 + i,  # i=1(最古)=21 / i=3(最新)=23
             fs_median=20.0 + i, fs_top3=20.0 + i, fs_top5=20.0 + i,
             fs_max=20.0 + i, fs_sd=1.0,
             fs_valid_count=8, fs_coverage=0.8,
@@ -476,6 +478,8 @@ def test_field_strength_count_coverage_always_real():
 
     sentinel 化しない（D-11 信頼度軸・Phase 9.1 idiom 踏襲）。
     """
+    from src.utils.category_map import MISSING
+
     rolling = _get_rolling()
 
     # 3走のみの場合でも count/coverage は実際数値
@@ -643,37 +647,55 @@ def test_field_strength_high_c22_downstream_propagation():
     rolling = _get_rolling()
 
     obs_rd = pd.to_datetime("2023-06-04")
-    # クリーン profile: 5走・mean = [11, 12, 13, 14, 15] → mean_5 = 13.0
+    # クリーン profile: 4走・mean = [11, 12, 13, 14]（最新=14・降順で [14,13,12,11]）
+    # → mean_5 = sentinel（count=4 < 5）だが count>=4 で mean_5 を算出可能にするため 4 走 + dirty 1件 = 5 走で検証
     clean_rows = []
-    for i in range(1, 6):
-        rd = obs_rd - pd.Timedelta(days=i + 1)
+    for i in range(1, 5):
+        rd = obs_rd - pd.Timedelta(days=5 - i + 1)  # i=1 → -5d（最古）・i=4 → -2d（最新）
         clean_rows.append(_build_fs_history_row(
             kettonum=1515,
             race_date=rd.strftime("%Y-%m-%d"),
-            fs_mean=10.0 + i,
+            fs_mean=10.0 + i,  # i=1(最古)=11 / i=4(最新)=14
             fs_median=0.0, fs_top3=0.0, fs_top5=0.0,
             fs_max=0.0, fs_sd=0.0,
             fs_valid_count=9, fs_coverage=0.9,
         ))
     clean_history = pd.DataFrame(clean_rows)
 
-    # 汚染 profile: クリーン profile に (source, target] 区間の汚染 opponent 混入を想定した値を人為的に入れる
-    # → mean = 999.0 の行を1件追加（target-cutoff-contaminated speed_figure 流用を想定）
-    dirty_history = pd.concat([
+    # 汚染 profile: クリーン profile 4走 に (source, target] 区間の汚染 opponent 混入を想定した
+    # 汚染値（fs_mean=999.0）を「最新」として1件追加（target-cutoff-contaminated speed_figure 流用を想定）。
+    # これにより dirty 側は5走（count=5・window=5 窓内）になり・mean_5 が (11+12+13+14+999)/5 = 209.8 に変化。
+    # クリーン4走のみでは count<5 で mean_5 は sentinel になり比較不能なため・クリーン側も5走目（正当値=15）を用意。
+    clean_history_with_5th = pd.concat([
         clean_history,
         pd.DataFrame([_build_fs_history_row(
             kettonum=1515,
-            race_date=(obs_rd - pd.Timedelta(days=10)).strftime("%Y-%m-%d"),
+            race_date=(obs_rd - pd.Timedelta(days=6)).strftime("%Y-%m-%d"),  # 6日前・最古
+            fs_mean=15.0,  # 5走目（正当値）
+            fs_median=0.0, fs_top3=0.0, fs_top5=0.0,
+            fs_max=0.0, fs_sd=0.0,
+            fs_valid_count=9, fs_coverage=0.9,
+        )]),
+    ], ignore_index=True)
+    # clean_history_with_5th: 5走・mean = [11,12,13,14,15]・最新5件 = 全て → mean_5 = 13.0
+    # ※ race_date: -5d(11), -4d(12), -3d(13), -2d(14), -6d(15)・降順で [14,13,12,11,15]・最新5件 = 全て
+
+    dirty_history = pd.concat([
+        clean_history,  # 4走
+        pd.DataFrame([_build_fs_history_row(
+            kettonum=1515,
+            race_date=(obs_rd - pd.Timedelta(days=6)).strftime("%Y-%m-%d"),  # 6日前（5走目・窓内）
             fs_mean=999.0,  # 汚染値（target-cutoff-contaminated 由来を想定）
             fs_median=0.0, fs_top3=0.0, fs_top5=0.0,
             fs_max=0.0, fs_sd=0.0,
             fs_valid_count=9, fs_coverage=0.9,
         )]),
     ], ignore_index=True)
+    # dirty_history: 5走・降順で [14,13,12,11,999] → mean_5 = (14+13+12+11+999)/5 = 209.8
 
     obs = pd.DataFrame([{"kettonum": 1515, "feature_cutoff_datetime": pd.Timestamp("2023-06-03")}])
 
-    result_clean = rolling.build_rolling_features(obs, clean_history)
+    result_clean = rolling.build_rolling_features(obs, clean_history_with_5th)
     result_dirty = rolling.build_rolling_features(obs, dirty_history)
 
     # (a) 汚染伝播: dirty 側は rolling_field_strength_mean_mean_5 が 999.0 の影響で変化

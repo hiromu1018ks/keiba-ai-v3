@@ -1,3 +1,4 @@
+# ruff: noqa: E501  (docstring / 日本語コメント行長は緩和・src/features/speed_figure.py・field_strength.py 等と同一慣例)
 """過去走 rolling feature 構築（Phase 3 Plan 03-03 Task 1 / D-03/D-04/D-13）.
 
 REVIEWS HIGH #1 (per-observation latest-K algorithm) / HIGH #2 (strict < cutoff) /
@@ -84,6 +85,10 @@ _ROLLING_SYSTEMS: tuple[str, ...] = (
     # compute_speed_figure_for_history で付与・float）。既存8系統とは異なり
     # _SPEED_FIGURE_AXES で (axis, window) ペアを明示指定し window 1/3/5 が混在。
     "speed_figure",
+    # NEW Phase 10 D-06 第2段階・source 列 = field_strength.py が history に付与した
+    # field_strength profile 8値（mean/median/top3_mean/top5_mean/max/sd/valid_count/coverage）。
+    # _FIELD_STRENGTH_AXES で (axis, window) ペアを明示指定し window 1/3/5 が混在・D-13 21 feature 生成。
+    "field_strength",
 )
 
 # 各系統が ``history`` から読む source 列の対応表。target race 当日の後半3ハロン
@@ -101,6 +106,18 @@ _SYSTEM_SOURCE: dict[str, tuple[str, ...]] = {
     # NEW Phase 9: speed_figure は builder が compute_speed_figure_for_history で
     # history に付与済みの float 列をそのまま source とする（単一 source）。
     "speed_figure": ("speed_figure",),
+    # NEW Phase 10: field_strength 系統は field_strength.py が history に付与した
+    # profile 8値（PLAN 01 出力・D-06 第1段階中間値）を source とする（D-13 21 feature 生成）。
+    "field_strength": (
+        "field_strength_mean",
+        "field_strength_median",
+        "field_strength_top3_mean",
+        "field_strength_top5_mean",
+        "field_strength_max",
+        "field_strength_sd",
+        "field_strength_valid_count",
+        "field_strength_coverage",
+    ),
 }
 
 # CR-02 (03-REVIEW): ``jyocd`` は JRA 競馬場コード（"01"=札幌, "05"=東京 等）の
@@ -178,6 +195,92 @@ _SPEED_FIGURE_CONDITIONAL_AXES: tuple[tuple[str, str], ...] = (
     ("same_distance_bucket", "max"),
     ("same_distance_bucket", "count"),
 )
+
+
+# ---------------------------------------------------------------------------
+# Phase 10 PLAN 02 (D-13): field_strength 系統の (axis, window) 定義・21 feature。
+# _SPEED_FIGURE_AXES と対称だが・D-13 命名は window 番号でなく意味サフィックス
+# （1→latest_1, 3→mean_3, 5→mean_5）を採用。trend 系は axis 名に window 埋込・
+# count/coverage 系は axis 名に "_mean" 埋込で window=5 固定（信頼度軸・D-11）。
+# sentinel ルール: mean/median/top3_mean/top5_mean/max/sd/trend_* は count>=window で算出・
+# 未満 NaN。valid_count_mean/coverage_mean は常に実際数値（0〜window・sentinel 化しない）。
+# best2_mean 系は使わない（D-09/D-09.1-01 と対称）。
+# ---------------------------------------------------------------------------
+# axis 値の3分類（列名生成と sentinel threshold の決定に使用）:
+#   (A) stats axis: "mean","median","top3_mean","top5_mean","max","sd"
+#       → 列名: rolling_field_strength_{axis}_{suffix}（suffix = latest_1/mean_3/mean_5）
+#       → sentinel threshold = window（count>=window）
+#   (B) trend axis: "trend_last_minus_mean5","trend_mean3_minus_mean5"
+#       → 列名: rolling_field_strength_mean_{axis}（"mean_" 接頭辞 + axis に "mean5" 埋込）
+#       → sentinel threshold = 5（mean5 必要）
+#   (C) count/coverage axis: "valid_count_mean","coverage_mean"
+#       → 列名: rolling_field_strength_{axis}_5（window=5 固定サフィックス）
+#       → sentinel 化しない（常に実際数値・D-11 信頼度軸）
+_FIELD_STRENGTH_AXES: tuple[tuple[str, int], ...] = (
+    # --- latest_1 系6: 直近1件の profile（count>=1 で算出） ---
+    ("mean", 1),            # rolling_field_strength_mean_latest_1
+    ("median", 1),          # rolling_field_strength_median_latest_1
+    ("top3_mean", 1),       # rolling_field_strength_top3_mean_latest_1
+    ("top5_mean", 1),       # rolling_field_strength_top5_mean_latest_1
+    ("max", 1),             # rolling_field_strength_max_latest_1
+    ("sd", 1),              # rolling_field_strength_sd_latest_1
+    # --- mean_3 系5: 直近3件の profile 平均（count>=3・sd は window=3 に定義しない） ---
+    ("mean", 3),            # rolling_field_strength_mean_mean_3
+    ("median", 3),          # rolling_field_strength_median_mean_3
+    ("top3_mean", 3),       # rolling_field_strength_top3_mean_mean_3
+    ("top5_mean", 3),       # rolling_field_strength_top5_mean_mean_3
+    ("max", 3),             # rolling_field_strength_max_mean_3
+    # --- mean_5 系6: 直近5件の profile 平均（count>=5） ---
+    ("mean", 5),            # rolling_field_strength_mean_mean_5
+    ("median", 5),          # rolling_field_strength_median_mean_5
+    ("top3_mean", 5),       # rolling_field_strength_top3_mean_mean_5
+    ("top5_mean", 5),       # rolling_field_strength_top5_mean_mean_5
+    ("max", 5),             # rolling_field_strength_max_mean_5
+    ("sd", 5),              # rolling_field_strength_sd_mean_5
+    # --- trend 系2: axis 名に window 埋込（rolling_field_strength_mean_trend_*） ---
+    # trend_last_minus_mean5: latest_1 の mean - mean_5 の mean（window=5・count>=5）
+    # trend_mean3_minus_mean5: mean_3 の mean - mean_5 の mean（window=5・count>=5）
+    ("trend_last_minus_mean5", 5),   # rolling_field_strength_mean_trend_last_minus_mean5
+    ("trend_mean3_minus_mean5", 5),  # rolling_field_strength_mean_trend_mean3_minus_mean5
+    # --- count/coverage 系2: 信頼度軸（D-11・window=5 固定・sentinel 化しない） ---
+    # axis 名に "_mean" 埋込・5走窓の source profile 値（valid_count/coverage）の平均。
+    ("valid_count_mean", 5),   # rolling_field_strength_valid_count_mean_5
+    ("coverage_mean", 5),      # rolling_field_strength_coverage_mean_5
+)
+# D-13 完全性機械保証: 21 feature（6 + 5 + 6 + 2 + 2）
+assert len(_FIELD_STRENGTH_AXES) == 21, (
+    f"_FIELD_STRENGTH_AXES の要素数が21でない: {len(_FIELD_STRENGTH_AXES)} (D-13 完全性)"
+)
+
+
+def _field_strength_col_name(axis: str, window: int) -> str:
+    """``_FIELD_STRENGTH_AXES`` の (axis, window) → 出力列名（D-13 命名）.
+
+    3分類（``_FIELD_STRENGTH_AXES`` docstring 参照）:
+
+    - stats axis (mean/median/top3_mean/top5_mean/max/sd):
+      ``rolling_field_strength_{axis}_{suffix}``（suffix = latest_1/mean_3/mean_5）
+    - trend axis (trend_last_minus_mean5/trend_mean3_minus_mean5):
+      ``rolling_field_strength_mean_{axis}``（"mean_" 接頭辞 + axis 名に "mean5" 埋込）
+    - count/coverage axis (valid_count_mean/coverage_mean):
+      ``rolling_field_strength_{axis}_5``（window=5 固定・axis 名に "_mean" 埋込済み）
+
+    ``_speed_figure_col_name`` と対称だが・D-13 は window 番号でなく意味サフィックスを採用。
+    """
+    if axis.startswith("trend_"):
+        # trend 系: rolling_field_strength_mean_trend_last_minus_mean5 等
+        return f"rolling_field_strength_mean_{axis}"
+    if axis in ("valid_count_mean", "coverage_mean"):
+        # count/coverage 系: rolling_field_strength_valid_count_mean_5 等
+        return f"rolling_field_strength_{axis}_5"
+    # stats 系: rolling_field_strength_{axis}_{suffix}
+    suffix_map = {1: "latest_1", 3: "mean_3", 5: "mean_5"}
+    suffix = suffix_map.get(window)
+    if suffix is None:  # pragma: no cover - D-13 設計上到達不能
+        raise ValueError(
+            f"_field_strength_col_name: 未対応 window={window} (D-13 命名は 1/3/5 のみ)"
+        )
+    return f"rolling_field_strength_{axis}_{suffix}"
 
 
 def _best2_mean_of_group(values: pd.Series) -> float:
@@ -325,6 +428,16 @@ def build_rolling_features(
             # NEW Phase 9.1 (D-09.1-02): same_surface / same_distance_bucket（条件適性 profile）
             for cond, stat_axis in _SPEED_FIGURE_CONDITIONAL_AXES:
                 col = f"rolling_speed_figure_{cond}_{stat_axis}_5"
+                rolling_cols.append(col)
+                result[col] = pd.Series(
+                    [MISSING] * len(result), dtype=object, index=result.index
+                )
+            continue
+        if system == "field_strength":
+            # NEW Phase 10 (D-13): field_strength profile 8値から 21 feature を生成
+            # （window 1/3/5 混在・trend/count 系の特別命名は _field_strength_col_name で吸収）。
+            for axis, window in _FIELD_STRENGTH_AXES:
+                col = _field_strength_col_name(axis, window)
                 rolling_cols.append(col)
                 result[col] = pd.Series(
                     [MISSING] * len(result), dtype=object, index=result.index
@@ -606,6 +719,129 @@ def build_rolling_features(
                         np.where(max_valid, max_series, MISSING),
                         index=result.index, dtype=object,
                     )
+            continue
+
+        # --- NEW Phase 10 (D-13): field_strength 系統専用集約ブロック（21 feature） ---
+        # speed_figure 集約ブロック（L403-720）と対称な idiom・_FIELD_STRENGTH_AXES の
+        # (axis, window) ペアで集約。source 列は field_strength.py が history に付与した
+        # profile 8値（PLAN 01 出力）。recent は PIT filter + groupby("obs_id").head(5) 済み
+        # （LOOKBACK=5 窓）・更に head(window) で window<=5 に切詰める（PIT filter 後なので安全）。
+        # sentinel ルール（L525-535 idiom 転用）:
+        #   - stats axis (mean/median/top3_mean/top5_mean/max/sd): count>=window で算出・未満 NaN
+        #   - trend axis (trend_*): count>=5（mean5 必要）で算出・未満 NaN
+        #   - count/coverage axis (valid_count_mean/coverage_mean): 常に実際数値（D-11 信頼度軸）
+        if system == "field_strength":
+            # source 列を numeric 化（field_strength_mean/median/top3_mean/top5_mean/max/sd/
+            # valid_count/coverage の8値・PLAN 01 出力）・_fs_{col} として recent に assign
+            fs_assign = {}
+            for src_col in _SYSTEM_SOURCE["field_strength"]:
+                if src_col in recent.columns:
+                    fs_assign[f"_fs_{src_col}"] = pd.to_numeric(
+                        recent[src_col], errors="coerce"
+                    )
+            recent_fs = recent.assign(**fs_assign) if fs_assign else recent.copy()
+
+            for axis, window in _FIELD_STRENGTH_AXES:
+                # window 上位 K 件に切詰め（obs_id 毎に独立・window<=5 なので recent を起点に安全）
+                windowed = (
+                    recent_fs
+                    .groupby("obs_id", sort=False)
+                    .head(window)
+                )
+                col = _field_strength_col_name(axis, window)
+
+                # --- (C) count/coverage axis: 常に実際数値（sentinel 化しない・D-11） ---
+                if axis == "valid_count_mean":
+                    # 5走窓の field_strength_valid_count の平均（信頼度軸・sentinel でなく数値）
+                    src = "_fs_field_strength_valid_count"
+                    if src in windowed.columns:
+                        val_per_obs = windowed.groupby("obs_id")[src].mean().to_dict()
+                    else:
+                        val_per_obs = {}
+                    val_series = result["obs_id"].map(val_per_obs)
+                    result[col] = val_series.fillna(0).astype(float)
+                    continue
+                if axis == "coverage_mean":
+                    src = "_fs_field_strength_coverage"
+                    if src in windowed.columns:
+                        val_per_obs = windowed.groupby("obs_id")[src].mean().to_dict()
+                    else:
+                        val_per_obs = {}
+                    val_series = result["obs_id"].map(val_per_obs)
+                    result[col] = val_series.fillna(0).astype(float)
+                    continue
+
+                # --- (A)/(B) stats/trend axis: count>=threshold で算出・未満 sentinel ---
+                # 各 axis の source 列・統計関数・threshold を決定
+                if axis == "trend_last_minus_mean5":
+                    # latest_1 の mean - mean_5 の mean（window=5・mean5 必要）
+                    src = "_fs_field_strength_mean"
+                    if src in windowed.columns:
+                        first_per_obs = windowed.groupby("obs_id", sort=False)[src].first()
+                        mean_per_obs = windowed.groupby("obs_id")[src].mean()
+                        val_per_obs = (first_per_obs - mean_per_obs).to_dict()
+                        count_check = (
+                            windowed[src].notna()
+                            .groupby(windowed["obs_id"]).sum().astype(int).to_dict()
+                        )
+                    else:
+                        val_per_obs, count_check = {}, {}
+                    threshold = 5
+                elif axis == "trend_mean3_minus_mean5":
+                    # mean_3 の mean - mean_5 の mean（window=5・mean5 必要）
+                    src = "_fs_field_strength_mean"
+                    if src in windowed.columns:
+                        mean5_per_obs = windowed.groupby("obs_id")[src].mean()
+                        # head(3): obs_id 毎に直近3件（recent_fs は race_start_datetime DESC sort 済み）
+                        windowed3 = recent_fs.groupby("obs_id", sort=False).head(3)
+                        mean3_per_obs = windowed3.groupby("obs_id")[src].mean()
+                        val_per_obs = (mean3_per_obs - mean5_per_obs).to_dict()
+                        count_check = (
+                            windowed[src].notna()
+                            .groupby(windowed["obs_id"]).sum().astype(int).to_dict()
+                        )
+                    else:
+                        val_per_obs, count_check = {}, {}
+                    threshold = 5
+                else:
+                    # stats axis: axis 名 → source 列・統計関数 の mapping
+                    # axis: mean/median/top3_mean/top5_mean/max/sd → source 列 = 同名
+                    src = f"_fs_field_strength_{axis}"
+                    if src in windowed.columns:
+                        if axis == "mean":
+                            val_per_obs = windowed.groupby("obs_id")[src].mean().to_dict()
+                        elif axis == "median":
+                            val_per_obs = windowed.groupby("obs_id")[src].median().to_dict()
+                        elif axis == "max":
+                            val_per_obs = windowed.groupby("obs_id")[src].max().to_dict()
+                        elif axis == "sd":
+                            val_per_obs = windowed.groupby("obs_id")[src].std(ddof=1).to_dict()
+                        elif axis in ("top3_mean", "top5_mean"):
+                            # top3_mean/top5_mean source 列は各 source race 内 opponent top-k 平均
+                            # （PLAN 01 出力）・rolling ではそれを更に mean 化（profile→rolling 2段階）
+                            val_per_obs = windowed.groupby("obs_id")[src].mean().to_dict()
+                        else:  # pragma: no cover - D-13 設計上到達不能
+                            continue
+                        count_check = (
+                            windowed[src].notna()
+                            .groupby(windowed["obs_id"]).sum().astype(int).to_dict()
+                        )
+                    else:
+                        val_per_obs, count_check = {}, {}
+                    threshold = window  # stats axis は count>=window
+
+                # vectorized 設定（result.at 行ごと設定は数十万行で致命的に低速化・speed_figure idiom）
+                val_series = result["obs_id"].map(val_per_obs)
+                count_series = (
+                    result["obs_id"].map(count_check).fillna(0).astype(int)
+                    if count_check
+                    else pd.Series([0] * len(result), index=result.index, dtype=int)
+                )
+                valid = (count_series >= threshold) & val_series.notna()
+                result[col] = pd.Series(
+                    np.where(valid, val_series, MISSING),
+                    index=result.index, dtype=object,
+                )
             continue
 
         is_categorical = system in _CATEGORICAL_SYSTEMS
