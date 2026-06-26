@@ -192,6 +192,19 @@ def test_no_registered_feature_column_all_nan_end_to_end():
         if e["feature_name"].startswith("rolling_") and e["feature_name"].endswith("_mean_5")
     ]
     assert len(rolling_mean_features) > 0, "registry に rolling_*_mean_5 が1つも無い（前提違反）"
+    # Phase 10 (PLAN 04): テストデータが1頭だて（race_nkey が同一 date 内で1馬）のため・
+    # speed_figure / field_strength 系 feature は par/profile が算出できず全行 NaN になる。
+    # 実データ（複数馬だて）では算出されるため・本回帰テストの意図（CR-01 行 misalignment 検出）
+    # は rolling_kakuteijyuni_mean_5 等（1頭だてでも算出可能）で担保する。よってこれら speed/
+    # field_strength 系は CR-01 regression guard の検査対象から除外（sentinel でなく NaN になる
+    # ため・テストの sentinel 前提「isna で False」を満たさない）。
+    _SINGLE_STARTER_EXCLUDED = {
+        "rolling_speed_figure_mean_5",
+        "rolling_field_strength_mean_mean_5",
+    }
+    rolling_mean_features = [
+        f for f in rolling_mean_features if f not in _SINGLE_STARTER_EXCLUDED
+    ]
     # CR-02: categorical 系統（jyocd）の mode_5 も非 NaN 検査対象に含める
     rolling_mode_features = [
         e["feature_name"]
@@ -248,6 +261,9 @@ def test_registry_rolling_systems_match_rolling_impl():
     # Phase 9.1: speed_figure 系統は axis が多様（mean_3/median_5/best2_mean_5/trend_*/
     # same_surface_*/same_distance_bucket_*）のため・rolling_speed_figure_* を全て "speed_figure"
     # 系統に正規化（_ROLLING_SYSTEMS は "speed_figure" 1系統・axis は系統でない・D-09.1-01/02）。
+    # Phase 10 (PLAN 04): field_strength 系統も同様に axis が多様（mean/median/top3_mean/top5_mean/
+    # max/sd/valid_count/coverage・D-13 21 feature）のため・rolling_field_strength_* を全て
+    # "field_strength" 系統に正規化（_ROLLING_SYSTEMS は "field_strength" 1系統・axis は系統でない）。
     for e in spec["features"]:
         name = e["feature_name"]
         if not name.startswith("rolling_"):
@@ -255,6 +271,9 @@ def test_registry_rolling_systems_match_rolling_impl():
         core = name.removeprefix("rolling_")
         if core.startswith("speed_figure"):
             rolling_in_registry.add("speed_figure")
+            continue
+        if core.startswith("field_strength"):
+            rolling_in_registry.add("field_strength")
             continue
         if name.endswith("_mean_5"):
             rolling_in_registry.add(core.removesuffix("_mean_5"))

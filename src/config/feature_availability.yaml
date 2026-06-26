@@ -7,6 +7,10 @@
 # Phase 9.1: schema_version 0.4.0 → 0.5.0（rolling_speed_figure 6 → 17 feature 拡張:
 #            median_3/median_5/best2_mean_5/trend_last_minus_mean5/trend_mean3_minus_mean5
 #            + same_surface_{mean,max,count}_5 + same_distance_bucket_{mean,max,count}_5）。
+# Phase 10 (PLAN 04): schema_version 0.5.0 → 0.6.0（FEAT-02 rolling_field_strength 21 feature +
+#            FEAT-03 race_relative 6 feature = 27 feature 追加・D-06 第2段階 + D-07 target-only）。
+#            rolling_field_strength は PLAN 01 source-as-of full-pipeline 再計算を経由した
+#            opponent profile（CYCLE-2 HIGH-C2-1 値レベル PIT 保証）を入力とする rolling 集約。
 # 各 feature エントリは7項目スキーマ（feature_name / feature_group / available_from_timing /
 # source_role / source_table / cutoff_rule / leakage_risk_level）を持つ。
 #
@@ -16,7 +20,7 @@
 #                  registry 未登録・babacd（過去走 source）は history_allowed_post_race。
 # D-07: available_from_timing は {entry_confirmed, post_position_confirmed} のみ許可。
 
-schema_version: "0.5.0"
+schema_version: "0.6.0"
 
 # ---------------------------------------------------------------------------
 # REVIEWS HIGH #2: cutoff semantics の仕様化（厳密 `<`・JST midnight 解釈）
@@ -464,6 +468,212 @@ features:
     available_from_timing: entry_confirmed
     source_role: both_allowed
     source_table: "normalized.n_uma_race (history) + derived speed_figure + target kyori"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+
+  # --- rolling_field_strength (Phase 10 PLAN 01/02・D-06 第2段階・D-13 21 feature) ---
+  # history 側で builder Step 5c が compute_field_strength_profile で付与した field_strength profile
+  # 8値（PLAN 01 source-as-of full-pipeline 再計算・CYCLE-2 HIGH-C2-1 値レベル PIT 保証）を
+  # rolling source とする。target 馬の過去走にわたり latest-K rolling（obs_id group・strict <cutoff・
+  # LOOKBACK=5）で集約し D-13 21 feature を生成。命名は _SPEED_FIGURE_AXES と対称だが・
+  # D-13 は window 番号でなく意味サフィックス（1→latest_1, 3→mean_3, 5→mean_5）。
+  # odds-free・PIT-correct（過去走 opponent profile のみ集約・当日情報不使用・SAFE-01）。
+  # D-11: valid_count_mean_5 / coverage_mean_5 は信頼度軸・sentinel 化せず実際数値（feature 扱い）。
+  - feature_name: rolling_field_strength_mean_latest_1
+    feature_group: rolling_field_strength
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived field_strength profile"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_field_strength_median_latest_1
+    feature_group: rolling_field_strength
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived field_strength profile"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_field_strength_top3_mean_latest_1
+    feature_group: rolling_field_strength
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived field_strength profile"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_field_strength_top5_mean_latest_1
+    feature_group: rolling_field_strength
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived field_strength profile"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_field_strength_max_latest_1
+    feature_group: rolling_field_strength
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived field_strength profile"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_field_strength_sd_latest_1
+    feature_group: rolling_field_strength
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived field_strength profile"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_field_strength_mean_mean_3
+    feature_group: rolling_field_strength
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived field_strength profile"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_field_strength_median_mean_3
+    feature_group: rolling_field_strength
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived field_strength profile"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_field_strength_top3_mean_mean_3
+    feature_group: rolling_field_strength
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived field_strength profile"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_field_strength_top5_mean_mean_3
+    feature_group: rolling_field_strength
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived field_strength profile"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_field_strength_max_mean_3
+    feature_group: rolling_field_strength
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived field_strength profile"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_field_strength_mean_mean_5
+    feature_group: rolling_field_strength
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived field_strength profile"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_field_strength_median_mean_5
+    feature_group: rolling_field_strength
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived field_strength profile"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_field_strength_top3_mean_mean_5
+    feature_group: rolling_field_strength
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived field_strength profile"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_field_strength_top5_mean_mean_5
+    feature_group: rolling_field_strength
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived field_strength profile"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_field_strength_max_mean_5
+    feature_group: rolling_field_strength
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived field_strength profile"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_field_strength_sd_mean_5
+    feature_group: rolling_field_strength
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived field_strength profile"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_field_strength_mean_trend_last_minus_mean5
+    feature_group: rolling_field_strength
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived field_strength profile"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_field_strength_mean_trend_mean3_minus_mean5
+    feature_group: rolling_field_strength
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived field_strength profile"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_field_strength_valid_count_mean_5
+    feature_group: rolling_field_strength
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived field_strength profile"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_field_strength_coverage_mean_5
+    feature_group: rolling_field_strength
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived field_strength profile"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+
+  # --- race_relative (Phase 10 PLAN 03・FEAT-03 6 feature・target-only race_id group-by) ---
+  # target observation のみ・race_nkey group-by + transform で competition ranking を算出。
+  # source_role: both_allowed（target + history 両方参照・Phase 9.1 same_surface と同様）。
+  # rolling_speed_figure_mean_5 / best2_mean_5 / median_5 (Phase 9.1) と
+  # rolling_field_strength_mean_mean_5 (PLAN 02 source-asof 経由・同一 horse-level par) を消費。
+  # odds-free・PIT-correct（feature_cutoff_datetime 時点で確定した値のみ・当日結果不使用・SAFE-01）。
+  # D-10 competition ranking "1224" 方式・D-09 欠損馬 NaN 保持・D-12 coef=0.25 canonical（§11.2 聖域）。
+  - feature_name: speed_index_rank_mean5
+    feature_group: race_relative
+    available_from_timing: entry_confirmed
+    source_role: both_allowed
+    source_table: "feature_matrix (derived rolling_speed_figure_mean_5 + race_nkey group-by)"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: speed_index_rank_best2_mean5
+    feature_group: race_relative
+    available_from_timing: entry_confirmed
+    source_role: both_allowed
+    source_table: "feature_matrix (derived rolling_speed_figure_best2_mean_5 + race_nkey group-by)"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: speed_index_rank_median5
+    feature_group: race_relative
+    available_from_timing: entry_confirmed
+    source_role: both_allowed
+    source_table: "feature_matrix (derived rolling_speed_figure_median_5 + race_nkey group-by)"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: gap_to_top
+    feature_group: race_relative
+    available_from_timing: entry_confirmed
+    source_role: both_allowed
+    source_table: "feature_matrix (derived rolling_speed_figure_mean_5 + race_nkey group-by)"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: gap_to_3rd
+    feature_group: race_relative
+    available_from_timing: entry_confirmed
+    source_role: both_allowed
+    source_table: "feature_matrix (derived rolling_speed_figure_mean_5 + race_nkey group-by)"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: field_strength_adjusted_rank
+    feature_group: race_relative
+    available_from_timing: entry_confirmed
+    source_role: both_allowed
+    source_table: "feature_matrix (derived rolling_speed_figure_mean_5 + rolling_field_strength_mean_mean_5 + race_nkey group-by)"
     cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
     leakage_risk_level: low
 

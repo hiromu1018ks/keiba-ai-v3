@@ -29,11 +29,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import psycopg.errors
 from psycopg_pool import ConnectionPool
-
-import numpy as np
 
 from src.etl.filters import project_window_filter
 from src.features.availability import (
@@ -522,11 +521,70 @@ def build_feature_matrix(
     # REVIEW H1-c: feature_matrix を observations として渡す（obs_id は上記で早期構築済み）。
     # 位置は CR-01 merge（Step 5 rolling）の前・build_rolling_features が history["speed_figure"]
     # を numeric 系統として自動集約し rolling_speed_figure_* 6 feature を出力（P02 拡張済み）。
-    from src.features.speed_figure import compute_speed_figure_for_history
+    #
+    # **CYCLE-2 HIGH-C2-3 (10-REVIEWS.md L108-114, L219-226, L297)**: Step 5b の呼出で
+    # ``history = compute_speed_figure_for_history(history, observations=feature_matrix)`` が
+    # history を obs_id 展開済み target-cutoff-contaminated フレームに変換する（各行の par/variant/
+    # speed_figure が target obs の feature_cutoff_datetime に依存・speed_figure.py L655-657）。
+    # Step 5c compute_field_strength_profile がこれを消費すると PLAN 01 の source-race opponent
+    # 流用で (source, target] 区間の opponent レースが値レベルで混入する。よって Step 5b の **前** に
+    # raw_history = history.copy() で obs_id 未展開・speed_figure 未付与の生 history を保存し・
+    # Step 5c は history でなく raw_history を第1引数に渡す（PLAN 01 C2-1 full-pipeline source-as-of
+    # 再計算を適用するための入力）。
+    raw_history = history.copy()  # CYCLE-2 HIGH-C2-3: Step 5b 前・obs_id 未展開
     import time as _time
+
+    from src.features.speed_figure import compute_speed_figure_for_history
     _t_5b = _time.time()
     history = compute_speed_figure_for_history(history, observations=feature_matrix)
-    logger.info("build_feature_matrix: Step5b speed_figure %.1fs (history rows=%d)", _time.time() - _t_5b, len(history))
+    logger.info(
+        "build_feature_matrix: Step5b speed_figure %.1fs (history rows=%d)",
+        _time.time() - _t_5b, len(history),
+    )
+
+    # --- Step 5c: 相手強度 field_strength profile 計算（D-06 第1段階・Phase 10 PLAN 01・新） ---
+    # raw_history（obs_id 未展開・speed_figure 未付与の生 history・CYCLE-2 HIGH-C2-3）を
+    # compute_field_strength_profile に渡す。同関数は raw_history に合成 observation
+    # (SOURCE_ASOF_<race_nkey>_<kettonum>・feature_cutoff_datetime=source_race.available_at) で
+    # compute_speed_figure_for_history を再実行し full par+variant+speed_figure pipeline を
+    # source-as-of で再計算する（PLAN 01 CYCLE-2 HIGH-C2-1 値レベル PIT 保証）。得られた
+    # field_strength profile 8値を obs_id 展開済み history に race_nkey + kettonum + race_date で
+    # left-merge（copy-not-rename・HIGH#5・profile は source-as-of 再計算由来で target cutoff 非依存）。
+    # Step 5（build_rolling_features）は profile が history に揃った後で rolling する（A6 構成変更）。
+    from src.features.field_strength import compute_field_strength_profile
+    _t_5c = _time.time()
+    field_strength_profile = compute_field_strength_profile(raw_history, observations=feature_matrix)
+    # profile 8値（field_strength_mean/median/top3_mean/top5_mean/max/sd/valid_count/coverage）を
+    # raw_history に付与した戻り値から取り出し・obs_id 展開済み history に left-merge。
+    # merge key は race_nkey + kettonum + race_date（date 型・source race を一意に特定）。
+    # race_nkey + kettonum だけだとテストデータ等で race_nkey が衝突した際に history が膨らむため・
+    # source race の race_date（両フレーム共通・date 型で一致）で一意に特定。
+    # history 側の as_of_datetime（datetime・12:00 含む）と profile 側の available_at
+    # （datetime・00:00 由来）は時刻表現が異なるため race_date（date）で一致させる。
+    _fs_profile_cols = [
+        c for c in field_strength_profile.columns
+        if c.startswith("field_strength_")
+    ]
+    if len(_fs_profile_cols) > 0 and len(history) > 0 and "race_date" in history.columns:
+        _profile_merge = field_strength_profile[
+            ["race_nkey", "kettonum", "race_date"] + _fs_profile_cols
+        ]
+        history = history.merge(
+            _profile_merge,
+            on=["race_nkey", "kettonum", "race_date"],
+            how="left",
+            suffixes=("", "_fs_profile"),
+        )
+        # suffix 衝突で _fs_profile 付いた列があれば元列名に統一（copy-not-rename・profile が勝る）
+        for col in list(_fs_profile_cols):
+            if f"{col}_fs_profile" in history.columns and col not in history.columns:
+                history[col] = history[f"{col}_fs_profile"]
+                history = history.drop(columns=[f"{col}_fs_profile"])
+    logger.info(
+        "build_feature_matrix: Step5c field_strength profile %.1fs (profile rows=%d)",
+        _time.time() - _t_5c,
+        len(field_strength_profile),
+    )
 
     if len(history) > 0 and len(feature_matrix) > 0:
         _t_5 = _time.time()
@@ -614,6 +672,51 @@ def build_feature_matrix(
         )
     else:
         feature_matrix["estimated_running_style"] = "__MISSING__"
+
+    # --- Step 6c: レース内相対特徴量（FEAT-03・target-only・Phase 10 PLAN 03・D-07・新） ---
+    # Step 6b の obs_id drop の前・race_nkey が使える段階で計算（PLAN 04 PLAN action (1) Step 7）。
+    # compute_race_relative_features は feature_matrix に copy-not-rename で6列を追加:
+    #   speed_index_rank_{mean5,best2_mean5,median5}・gap_to_top・gap_to_3rd・
+    #   field_strength_adjusted_rank
+    # 入力: rolling_speed_figure_mean_5/best2_mean_5/median_5（Phase 9.1・target 経路）と
+    #   rolling_field_strength_mean_mean_5（PLAN 02・source-asof 経由・同一 horse-level par）。
+    # target-only（D-07）・race_nkey group-by + transform で competition ranking を算出
+    # （feature_cutoff_datetime 時点で確定した値のみ・当日結果不使用・SAFE-01）。
+    from src.features.race_relative import compute_race_relative_features
+    if len(feature_matrix) > 0:
+        feature_matrix = compute_race_relative_features(feature_matrix)
+        # FEAT-03 6列（rolling_ prefix 無し・PAT§ snapshot.py L343-361）を float64 に強制 cast。
+        # rolling_speed_figure_mean_5 等が object dtype（MISSING sentinel 文字列）の場合・
+        # rank/gap が object dtype で伝播し Parquet 書出し/数値演算で TypeError になる。
+        # sentinel 文字列は pd.to_numeric(errors="coerce") で NaN になり D-09 欠損馬 NaN 保持と整合。
+        # rank 列は整数値だが間欠欠損 (NaN) を許容するため Float64 (nullable float) で保持。
+        _FEAT03_COLS = [
+            "speed_index_rank_mean5",
+            "speed_index_rank_best2_mean5",
+            "speed_index_rank_median5",
+            "gap_to_top",
+            "gap_to_3rd",
+            "field_strength_adjusted_rank",
+        ]
+        for _feat3_col in _FEAT03_COLS:
+            if _feat3_col in feature_matrix.columns:
+                feature_matrix[_feat3_col] = pd.to_numeric(
+                    feature_matrix[_feat3_col], errors="coerce"
+                ).astype("Float64")
+
+    # --- Step 6d: 中間値 drop（Phase 10 PLAN 04 Step 7b・T-10-16 mitigate） ---
+    # field_strength profile 生値（field_strength_mean 等・rolling_ prefix 無し）は
+    # rolling_field_strength_* の計算用中間値・feature_matrix に出力しない（registry parity 違反回避）。
+    # D-11 raw rank/profile と別保持: rolling_field_strength_* / FEAT-03 6 feature は残す。
+    # errors="ignore" で安全（列が存在しなくても例外にしない・Step 5c merge 失敗時の耐性）。
+    feature_matrix = feature_matrix.drop(
+        columns=[
+            c for c in feature_matrix.columns
+            if c.startswith("field_strength_")
+            and not c.startswith("rolling_field_strength_")
+        ],
+        errors="ignore",
+    )
 
     # --- Step 6b: obs_id 中間処理用列の除去（CR-01 / WR-03 実データ検証で発見） ---
     # obs_id は rolling merge (CR-01) と推定脚質 groupby (WR-03) の中間キーで (race_nkey, kettonum)

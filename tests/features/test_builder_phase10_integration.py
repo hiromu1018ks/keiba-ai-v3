@@ -158,13 +158,18 @@ def test_builder_step5c_passes_raw_history_not_history():
     再計算が統合時にも適用される（obs_id 展開済み target-cutoff-contaminated history でなく
     Step 5b 前に保存した raw_history を渡す）。
     """
+    import re
+
     src = _read_builder_source()
     # raw_history 保存（Step 5b 前）
     assert "raw_history = history.copy()" in src, (
         "CYCLE-2 HIGH-C2-3: Step 5b 前の raw_history = history.copy() が builder.py に無い"
     )
-    # Step 5c は raw_history を第1引数に取る
-    assert "compute_field_strength_profile(raw_history" in src, (
+    # Step 5c は raw_history を第1引数に取る（実装は改行を挟み得るため正規表現で許容）
+    pattern = re.compile(
+        r"compute_field_strength_profile\(\s*raw_history\b"
+    )
+    assert pattern.search(src), (
         "CYCLE-2 HIGH-C2-3: compute_field_strength_profile が raw_history でなく history を"
         "第1引数に取っている可能性・PLAN 01 C2-1 fix が統合時に迂回される (10-REVIEWS.md L297)"
     )
@@ -186,13 +191,15 @@ def test_builder_step7b_drops_intermediate_field_strength_columns():
 def test_builder_step5c_precedes_step5_rolling_call():
     """A6 構成変更: build_rolling_features 呼出 が compute_field_strength_profile 呼出の後に
     位置すること（field_strength profile が history に揃った後で rolling する）。"""
+    import re
+
     src = _read_builder_source()
-    fs_pos = src.find("compute_field_strength_profile(raw_history")
-    rolling_pos = src.find("build_rolling_features(feature_matrix")
-    assert fs_pos != -1, "Step 5c compute_field_strength_profile(raw_history ...) が見つからない"
-    assert rolling_pos != -1, "Step 5 build_rolling_features(feature_matrix, ...) が見つからない"
-    assert fs_pos < rolling_pos, (
-        f"A6: Step 5c (pos={fs_pos}) が Step 5 rolling (pos={rolling_pos}) の後にある・"
+    fs_match = re.compile(r"compute_field_strength_profile\(\s*raw_history\b").search(src)
+    rolling_match = re.compile(r"build_rolling_features\(feature_matrix").search(src)
+    assert fs_match is not None, "Step 5c compute_field_strength_profile(raw_history ...) が見つからない"
+    assert rolling_match is not None, "Step 5 build_rolling_features(feature_matrix, ...) が見つからない"
+    assert fs_match.start() < rolling_match.start(), (
+        f"A6: Step 5c (pos={fs_match.start()}) が Step 5 rolling (pos={rolling_match.start()}) の後にある・"
         "field_strength profile が history に揃う前に rolling している (PLAN 04 A6 違反)"
     )
 

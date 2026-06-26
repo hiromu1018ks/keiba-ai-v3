@@ -156,6 +156,13 @@ _ROLLING_SYSTEMS_FOR_RESERVED: tuple[str, ...] = (
     # count_5）は _ROLLING_SYSTEMS の系統でなく conditional axis のため本 reserved 自動展開の
     # 対象外・feature_availability.yaml に feature として個別登録（schema 0.5.0・D-09.1-02）。
     "speed_figure",
+    # NEW Phase 10 (PLAN 04): field_strength 系統（D-06 第2段階・PLAN 02 で rolling.py
+    # _ROLLING_SYSTEMS に追加済み・D-13 21 feature）。rolling_field_strength_valid_count_mean_5 /
+    # coverage_mean_5 は D-11 信頼度軸で feature 扱い・reserved 自動展開の count_5 とは別。
+    # 本系統の count_5 は rolling 側で生成しないため reserved 自動展開から除外する必要は無いが・
+    # rolling.py が mean/median/top3_mean/top5_mean/max/sd の6 axis のみ生成し count_5 系統
+    # feature は無いため・speed_figure と同様に除外（REVIEW H3b と対称・3者 parity 整合）。
+    "field_strength",
 )
 
 # ---------------------------------------------------------------------------
@@ -185,10 +192,12 @@ _RESERVED_NON_FEATURE_COLUMNS: frozenset[str] = frozenset({
     # unregistered column として検出する二重防御とする。
     # REVIEW H3b: speed_figure の count_5 は D-09 が feature(信頼度) と定義するため
     # reserved 自動展開から除外。他系統の count_5 は従来通り reserved（回帰なし）。
+    # Phase 10 (PLAN 04): field_strength 系統も D-11 で valid_count_mean_5 / coverage_mean_5 が
+    # feature 扱い・rolling 側は count_5 系統を生成しないため speed_figure と同様に除外。
 }) | {
     f"rolling_{sys}_count_5"
     for sys in _ROLLING_SYSTEMS_FOR_RESERVED
-    if sys != "speed_figure"
+    if sys != "speed_figure" and sys != "field_strength"
 }
 
 

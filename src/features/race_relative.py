@@ -246,6 +246,18 @@ def compute_race_relative_features(feature_matrix: pd.DataFrame) -> pd.DataFrame
     # --- copy-not-rename (HIGH #5) ---
     result = feature_matrix.copy()
 
+    # --- numeric 強制 cast (Rule 1 auto-fix・PLAN 04 統合時発覚) ---
+    # rolling_speed_figure_mean_5 / best2_mean_5 / median_5 / rolling_field_strength_mean_mean_5 は
+    # E2E builder で object dtype（MISSING sentinel 文字列 __MISSING__ 含む）で渡ってくる場合がある。
+    # 数値演算 (gap = top_val - mean5 等) が object で文字列引き算 TypeError になるため・
+    # 入力を pd.to_numeric(errors="coerce") で通常の float64 に変換する（sentinel 文字列は np.nan・
+    # D-09 欠損馬 NaN 保持と整合・PLAN 03 既存テスト契約の np.isnan 互換性を維持）。
+    # 最終的な Parquet 出力時の nullable Float64 化は builder Step 6c 側で実施（PAT§ snapshot.py
+    # L343-361・rank/gap 列の nullable 扱いは builder の責務）。
+    for axis_col in (*_SPEED_INDEX_AXES_FOR_RANK, "rolling_field_strength_mean_mean_5"):
+        if axis_col in result.columns:
+            result[axis_col] = pd.to_numeric(result[axis_col], errors="coerce")
+
     # --- D-07 rank 3軸: race_id group-by + transform ---
     for axis_col in _SPEED_INDEX_AXES_FOR_RANK:
         rank_suffix = _AXIS_TO_RANK_SUFFIX[axis_col]
