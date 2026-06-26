@@ -243,6 +243,12 @@ def test_feature_columns_contains_speed_figure_no_proxy() -> None:
             f"speed_figure snapshot FEATURE_COLUMNS に期待の17 feature のうち欠落: {missing} "
             f"(actual speed features: {sorted(actual_speed)})"
         )
+        # Phase 10 (PLAN 07 拡張): SAFE-01 検査対象を Phase 10 全 feature（rolling_field_strength 21 +
+        # FEAT-03 6 = 27 feature）に拡張する検査は・本 speed_figure snapshot(20260626-1a-speedprofile-v1)
+        # には Phase 10 feature が含まれないため・別 snapshot (opponentstrength-v1) で検証する。
+        # 検査本体は test_audit_field_strength.py::test_feature_columns_contains_phase10_features_no_proxy
+        # に実装（27 feature 含有・forbidden prefix 0件を検証）。本ファイルは expected_features
+        # hardcode list の Phase 10 拡張が speed_figure snapshot では分離されていることを明示。
         # FEATURE_COLUMNS の各要素は forbidden prefix で始まらない（HIGH #9 banned alias sneak-in 防止）
         forbidden_in_speed = [c for c in speed_cols if c.split("_")[0] in _FORBIDDEN_TOKENS]
         assert forbidden_in_speed == [], (
