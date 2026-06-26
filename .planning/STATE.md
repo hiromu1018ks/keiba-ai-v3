@@ -4,16 +4,16 @@ milestone: v1.1
 milestone_name: Ability Feature v2 & Conditional Calibration
 current_phase: 10
 current_phase_name: opponent-strength-race-relative-features
-status: completed
+status: executing
 stopped_at: "Phase 10 context gathered（相手強度 field_strength 厳格版 as-of・レース内相対 rank 3軸+gap・SC#5 非劣化 gate）"
-last_updated: "2026-06-26T06:36:13.968Z"
-last_activity: 2026-06-25
-last_activity_desc: "Phase 09 P05 Task 1/2 完了 (SC#6 stop gate script + 合成 E2E smoke 9 tests GREEN)"
+last_updated: "2026-06-26T13:29:47.844Z"
+last_activity: 2026-06-26
+last_activity_desc: Phase 10 execution started
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 6
-  completed_plans: 6
+  total_plans: 13
+  completed_plans: 7
   percent: 40
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-16)
 
 **Core value:** オッズ非依存の確率 `p_fukusho_hit` と固定オッズ時点のEVで、過小評価されている馬の複勝払戻対象入り可能性をリークなく検出し、race_id単位・時系列順の再現可能バックテストで定量評価できること。リーク防止と再現性だけは必ず守る。
-**Current focus:** Phase 10 — opponent-strength-race-relative-features (Phase 9.1 完了後・新 snapshot 20260626-1a-speedprofile-v1 入力)
+**Current focus:** Phase 10 — opponent-strength-race-relative-features
 
 ## Current Position
 
-Phase: 10 (opponent-strength-race-relative-features) — PLANNING (Phase 9.1 完了・17-feature 拡張 snapshot 入力)
-Plan: 0 of ? (Phase 10 未計画)
-Status: Phase 9 実質完了(09-01〜04 complete・09-05 学習通過確認・SC#6 完全化は別タスク 260626-09-05-stopgate-completion)
-Last activity: 2026-06-25 — Phase 09 P05 Task 1/2 完了 (SC#6 stop gate script + 合成 E2E smoke 9 tests GREEN)
+Phase: 10 (opponent-strength-race-relative-features) — EXECUTING
+Plan: 2 of 7
+Status: Ready to execute
+Last activity: 2026-06-26 — Phase 10 execution started
 
 ## v1.1 Milestone Context
 
@@ -125,6 +125,7 @@ Last activity: 2026-06-25 — Phase 09 P05 Task 1/2 完了 (SC#6 stop gate scrip
 | Phase 09 P02 | 約30分 | 3 tasks | 4 files |
 | Phase 09 P03 | 約12分 | 3 tasks | 7 files |
 | Phase 09 P04 | 約18分 | 2 tasks | 2 files |
+| Phase 10 P01 | 23min | 1 task tasks | 2 files files |
 
 ### Decisions
 
@@ -259,6 +260,9 @@ Recent decisions affecting current work:
 - [Phase 09]: plan 09-03: 新 feature_snapshot_id 候補 = 20260625-1a-speedfigure-v1（v1.0 20260620-1a-postreview-v2 系統継承・make_model_version prefix 整合・P04/P05 が消費）
 - [Phase ?]: SC#4 SAFE-01 proxy 排除: AST Name/Attribute + H5 SQL 文字列 word-boundary で市場情報 proxy 0件を静的証明（Phase 9 横断聖域）
 - [Phase ?]: SC#5 script: build_feature_matrix dict 戻り値から result[feature_matrix] 抽出・include_plotlyjs=directory + div_id 固定で byte-reproducible・dsn_masked+statement_timeout で安全
+- [Phase ?]: Phase 10 Plan 01: CYCLE-2 HIGH-C2-1 source-as-of full-pipeline recompute（obs_id=SOURCE_ASOF_<race_nkey>_<kettonum>・source_race.available_at cutoff で compute_speed_figure_for_history を raw history に再実行・値レベル source-vs-target-cutoff 保証）
+- [Phase ?]: Phase 10 Plan 01: CYCLE-3 MEDIUM #1/#2/#3（available_at 関数内導出・horse-level par via race×horse obs_id・per-source-race batch で H² 積回避）
+- [Phase ?]: Phase 10 Plan 01: D-02 Open Question #1 解決（OPPONENT_ROLLING_AXIS=rolling_speed_figure_mean_5 の1軸のみ・17倍計算量抑制）
 
 ### Pending Todos
 
@@ -292,7 +296,7 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-06-25:
 
 **Resume file:** .planning/phases/10-opponent-strength-race-relative-features/10-CONTEXT.md
 
-Last session: 2026-06-26T06:36:13.962Z
+Last session: 2026-06-26T13:29:47.838Z
 Stopped at: Phase 10 context gathered（相手強度 field_strength 厳格版 as-of・レース内相対 rank 3軸+gap・SC#5 非劣化 gate）
 Resume: `/gsd-execute-phase 9`（P04: SC#4 SAFE-01 AST audit + SC#5 ドメイン整合性可視化・rolling_speed_figure_* 6 feature を含む完成 feature_matrix が必要・本 P03 で生成可能に）
 

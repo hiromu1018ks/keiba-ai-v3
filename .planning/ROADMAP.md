@@ -110,12 +110,12 @@ Plans:
   4. オッズ/人気/過去人気/過去オッズ proxy の混入がないことを adversarial audit で証明できる（SAFE-01）
   5. live-DB で生成した snapshot が・v1.0 の主モデル（LightGBM）で再学習時に Brier/LogLoss/AUC の現行水準（Phase 6 D-07 数値）を悪化させない（特徴量ノイズ化の回帰検知）
 
-**Plans**: 7 plans
+**Plans**: 1/7 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 10-01-PLAN.md — FEAT-02 相手強度 field_strength 第1段階（source race 内 opponent profile 8値・D-01 厳格版 as-of・D-04 発走馬特定・compute_field_strength_profile 新規・CYCLE-2 HIGH-C2-1: raw history に obs_id='SOURCE_ASOF_<race_nkey>' で full par+variant+speed_figure pipeline を source-as-of 再計算・値の不変性 adversarial test）
+- [x] 10-01-PLAN.md — FEAT-02 相手強度 field_strength 第1段階（source race 内 opponent profile 8値・D-01 厳格版 as-of・D-04 発走馬特定・compute_field_strength_profile 新規・CYCLE-2 HIGH-C2-1: raw history に obs_id='SOURCE_ASOF_<race_nkey>' で full par+variant+speed_figure pipeline を source-as-of 再計算・値の不変性 adversarial test）
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -180,6 +180,6 @@ Plans:
 | 8. Adversarial Audit Suite | v1.0 | 3/3 | Complete | 2026-06-25 |
 | 9. Speed Figure Foundation | v1.1 | 5/5 | Complete   | 2026-06-25 |
 | 9.1. Speed Ability Profile Expansion (INSERTED) | v1.1 | 1/1 | Complete | 2026-06-26 |
-| 10. Opponent Strength & Race-Relative Features | v1.1 | 0/? | Not started | - |
+| 10. Opponent Strength & Race-Relative Features | v1.1 | 1/7 | In Progress|  |
 | 11. Race-Relative Probability Model | v1.1 | 0/? | Not started | - |
 | 12. p_lower EV & Falsification Evaluation | v1.1 | 0/? | Not started | - |
