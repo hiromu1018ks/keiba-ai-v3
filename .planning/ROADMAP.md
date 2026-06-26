@@ -110,7 +110,7 @@ Plans:
   4. オッズ/人気/過去人気/過去オッズ proxy の混入がないことを adversarial audit で証明できる（SAFE-01）
   5. live-DB で生成した snapshot が・v1.0 の主モデル（LightGBM）で再学習時に Brier/LogLoss/AUC の現行水準（Phase 6 D-07 数値）を悪化させない（特徴量ノイズ化の回帰検知）
 
-**Plans**: 5/7 plans executed
+**Plans**: 6/7 plans executed
 
 Plans:
 **Wave 1**
@@ -132,7 +132,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 10-06-PLAN.md — data.py/trainer/evaluator + scripts/run_phase10_evaluation.py（SC#5 非劣化 gate・D-16 事前登録許容幅 Brier≤0.002/LogLoss≤0.005/AUC≤0.005・§11.2 聖域）
+- [x] 10-06-PLAN.md — data.py/trainer/evaluator + scripts/run_phase10_evaluation.py（SC#5 非劣化 gate・D-16 事前登録許容幅 Brier≤0.002/LogLoss≤0.005/AUC≤0.005・§11.2 聖域）
 - [ ] 10-07-PLAN.md — SAFE-01 adversarial audit（AST odds/ninki proxy 排除・lookahead 注入【行包含 + 値の不変性・CYCLE-2 MEDIUM-C2-4】・5段階鋳型）+ cProfile 性能検証（Pitfall 2 回避）
 
 ### Phase 11: Race-Relative Probability Model
@@ -180,6 +180,6 @@ Plans:
 | 8. Adversarial Audit Suite | v1.0 | 3/3 | Complete | 2026-06-25 |
 | 9. Speed Figure Foundation | v1.1 | 5/5 | Complete   | 2026-06-25 |
 | 9.1. Speed Ability Profile Expansion (INSERTED) | v1.1 | 1/1 | Complete | 2026-06-26 |
-| 10. Opponent Strength & Race-Relative Features | v1.1 | 5/7 | In Progress|  |
+| 10. Opponent Strength & Race-Relative Features | v1.1 | 6/7 | In Progress|  |
 | 11. Race-Relative Probability Model | v1.1 | 0/? | Not started | - |
 | 12. p_lower EV & Falsification Evaluation | v1.1 | 0/? | Not started | - |
