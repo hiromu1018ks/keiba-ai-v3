@@ -110,7 +110,7 @@ Plans:
   4. オッズ/人気/過去人気/過去オッズ proxy の混入がないことを adversarial audit で証明できる（SAFE-01）
   5. live-DB で生成した snapshot が・v1.0 の主モデル（LightGBM）で再学習時に Brier/LogLoss/AUC の現行水準（Phase 6 D-07 数値）を悪化させない（特徴量ノイズ化の回帰検知）
 
-**Plans**: 7/7 plans executed (Phase 10 complete)
+**Plans**: 7/7 plans executed (Phase 10 complete) + 2 gap-closure plans (10-08/10-09・post-ship REVIEW findings 対応・10-REVIEW.md 4 Critical + 6 Warning + doc 不整合)
 
 Plans:
 **Wave 1**
@@ -134,6 +134,11 @@ Plans:
 
 - [x] 10-06-PLAN.md — data.py/trainer/evaluator + scripts/run_phase10_evaluation.py（SC#5 非劣化 gate・D-16 事前登録許容幅 Brier≤0.002/LogLoss≤0.005/AUC≤0.005・§11.2 聖域）
 - [x] 10-07-PLAN.md — SAFE-01 adversarial audit（AST odds/ninki proxy 排除【REVIEW H3 odds-in-SQL 拡張】・lookahead 注入【行包含 + 値の不変性・CYCLE-2 MEDIUM-C2-4】・5段階鋳型）+ cProfile 性能検証（W-3 核心 GREEN・W-3 縮小版 5.0s は PLAN 01 設計と構造的矛盾で default skip・PLAN 更新待ち）
+
+**Gap-Closure (post-ship・10-REVIEW.md findings 対応)**
+
+- [ ] 10-08-PLAN.md — gap-closure 本体（10-REVIEW.md 4 Critical + 6 Warning の fail-loud 化・堅牢化・live-DB snapshot 再生成検証・CR-01〜04/WR-01〜06・Phase 11 入力 snapshot 整合・core value「リーク防止」の鏡像「silent fallback 禁止」機械保証）
+- [ ] 10-09-PLAN.md — 10-06-PLAN doc truth 数値訂正（baseline feature count 79 → 35・substantive 達成済み・doc 正確性・コード変更なし）
 
 ### Phase 11: Race-Relative Probability Model
 
