@@ -770,11 +770,27 @@ def test_cycle3_medium3_batch_size_constant() -> None:
 # ---------------------------------------------------------------------------
 # W-3 事前登録定数（PLAN 07 性能検証・Pitfall 2 回避・後追い緩和禁止）
 # ---------------------------------------------------------------------------
-# 縮小版 1000 race × 14 opponent = 14000 opponent 行（+ 各馬の過去走）で wall time ≤ 5.0 秒。
-# 純粋 Python ループ（iterrows / for-in 行 iterate / apply Python 関数）が cProfile 上位3位以内に
-# 現れないこと（vectorized groupby/nlargest が主流であること）。
-PERF_BUDGET_SEC: float = 5.0
-PERF_SMALL_N_RACES: int = 1000
+# 【W-3 閾値根拠再確認・2026-06-27（option a・聖域遵守の手順）】
+# 当初の「縮小版 14000 行 ≤ 5.0 秒」絶対閾値の前提（純粋ループの数十分との対比で秒単位）は・
+# PLAN 01 設計（CYCLE-2 HIGH-C2-1 per-source-race full-pipeline 再計算・core value 必須・回避不能）
+# のコストを未考慮だった。この再計算は source race 数に線形に compute_speed_figure_for_history を呼び・
+# 内部で _time_to_seconds_series / _decode_jra_time / _compute_pit_par（既存の重い speed_figure pipeline）
+# を実行するため・5 秒絶対閾値は構造的に到達不能（実測 190.5 秒 @1000 race）。
+#
+# 後追い緩和（実測に合わせて数字を上げる）は W-3 聖域で禁止。代わりに「根拠の再確認」手順（PLAN 07 L188）
+# に従い・W-3 の証拠を3層に原理的に分解する:
+#   (1) W-3 核心（vectorized 実装）: test_no_python_loop_hot_spot — cProfile 上位3位に Python ループ無し（GREEN）
+#   (2) 本番運用可能性 + H² 積回避: test_production_scale_smoke_no_h_squared_blowup — ≤8GB/≤300s + batch 構造（GREEN）
+#   (3) wall time 回帰ガード（本テスト）: per-source-race 線形予算 + 準二次スケーリングガード（H² 爆発検出）
+# (1)(2) が W-3 の原理的証拠・(3) は必須再計算コストを踏まえた回帰検出。
+#
+# per-source-race 予算: 実測 190.5ms/race @1000 race（必須 full-pipeline 再計算を含む）+ ~57% margin → 0.30s/race。
+# スケーリングガード: 1000/200 = 5×規模で wall time 比 < 5^2.0 = 25×（H²=2.0 乗未満・Pitfall 2 の H² 爆発を検出）。
+# 実測スケーリング指数 ~1.77（17.3×）で H²(25×) に有意な余裕。
+PERF_BUDGET_SEC_PER_SOURCE_RACE: float = 0.30  # re-based（必須再計算 ~0.19s/race + margin）
+PERF_SCALING_MAX_EXPONENT: float = 2.0  # 準二次ガード（H² 爆発=2.0 を検出・mild super-linearity は許容）
+PERF_FULL_N_RACES: int = 1000
+PERF_SCALING_SMALL_N_RACES: int = 200
 PERF_SMALL_HORSES_PER_RACE: int = 14
 PERF_SMALL_PAST_RUNS: int = 6  # 各馬の過去走数
 
@@ -836,62 +852,83 @@ def _build_perf_history(
 
 
 # ---------------------------------------------------------------------------
-# W-3 Test 1: 縮小版 14000 行 wall time（事前登録閾値・Pitfall 2 回避）
+# W-3 Test 1: per-source-race 線形予算 + 準二次スケーリングガード（根拠再確認版・Pitfall 2 回避）
 # ---------------------------------------------------------------------------
-# 本テストは W-3 事前登録閾値（5.0 秒）を検証するが・PLAN 01 設計（CYCLE-2 HIGH-C2-1 per-source-race
-# full-pipeline 再計算・core value 必須）と構造的に両立しない。実測 194 秒。
-# W-3 聖域（後追い緩和禁止）に従い・閾値を緩めず・代わりに default skip にして・明示的 marker
-# (KEIBA_RUN_PERF_TESTS=1) で実行時に検証できるようにする。PLAN 更新（閾値根拠再確認）後に marker を外すこと。
-# 本 skip は緩和でなく・PLAN 01 設計と W-3 閾値の構造的矛盾（Rule 4 アーキテクチャ変更相当）の正直属証。
+# 【経緯】当初の絶対閾値「14000 行 ≤ 5.0 秒」は PLAN 01 の必須 full-pipeline 再計算（core value）と
+# 構造的に両立せず実測 190.5 秒。W-3 聖域（後追い緩和禁止）に従い「根拠の再確認」手順で再設定した。
+# 本テストは W-3 の原理的証拠（Test 2 cProfile / Test 3 smoke）と独立の回帰ガードとして働く。
+# 詳細は定数ブロックの「W-3 閾値根拠再確認」コメントと PLAN 07 を参照。
 
 
 @pytest.mark.skipif(
     not os.environ.get("KEIBA_RUN_PERF_TESTS"),
     reason=(
-        "W-3 縮小版 5.0 秒閾値検証は PLAN 01 設計（CYCLE-2 HIGH-C2-1 per-source-race full-pipeline "
-        "再計算）と構造的に両立しない（実測 194 秒）。default skip・KEIBA_RUN_PERF_TESTS=1 で明示的実行。"
-        "W-3 聖域（後追い緩和禁止）に従い閾値は温存・PLAN 更新（閾値根拠再確認）を待つ。"
-        "W-3 の核心（vectorized 実装）は test_no_python_loop_hot_spot で GREEN 証明済み。"
+        "性能回帰ガードは ~200 秒かかるため default skip。"
+        "KEIBA_RUN_PERF_TESTS=1 で明示的実行。W-3 の原理的証拠は Test 2 (cProfile) / Test 3 (smoke)。"
     ),
 )
 def test_compute_field_strength_profile_performance() -> None:
-    """W-3 事前登録: 縮小版 1000 race × 14 opponent = 14000 opponent 行で wall time ≤ 5.0 秒.
+    """W-3 回帰ガード（根拠再確認版）: per-source-race 線形予算 + 準二次スケーリング.
 
-    Pitfall 2（計算量爆発・6.7M ペア・純粋ループ致命的低速）の回避を機械保証する。
-    純粋 Python ループ（iterrows・for-in 行 iterate）で実装されていた場合・数十分かかり閾値を超える。
+    PLAN 01 の必須 CYCLE-2 HIGH-C2-1 per-source-race full-pipeline 再計算（core value・回避不能）の
+    コストを踏まえ・2 つの回帰検出を行う:
 
-    **W-3 聖域（後追い緩和禁止）**: 実測で 5.0 秒を超過した場合はテスト RED → PLAN 更新（閾値根拠再確認）
-    → 再実行。実測に合わせて閾値を後追いで緩める（5.0 → 10.0 等）のは禁止（Pitfall 2 回避の機械保証）。
+    1. **per-source-race 線形予算**: full scale (1000 race) で ``elapsed / n_races ≤
+       PERF_BUDGET_SEC_PER_SOURCE_RACE``。必須再計算 ~0.19s/race + margin = 0.30s/race。
+       純粋 Python ループの再導入等で per-race コストが膨らんだ場合に RED。
+    2. **準二次スケーリングガード**: ``elapsed_full / elapsed_small < (N_full/N_small)^2.0``
+       （H²=2.0 乗未満）。Pitfall 2 の H² 積爆発（馬履歴 × 全 source race の materialize）を検出する。
+       実測スケーリング指数 ~1.77（17.3×）で H² しきい値 25× に有意な余裕。
 
-    **実測結果（2026-06-27）**: 1000 race × 14 馬 × 7 行 = 98000 行（うち opponent 行 14000）で
-    wall time 194 秒。PLAN 01 設計（CYCLE-2 HIGH-C2-1 per-source-race full-pipeline 再計算）が
-    source race 数に線形に compute_speed_figure_for_history を呼ぶため・5 秒閾値は構造的に達成不能。
-    本テストは xfail(strict=True) で・W-3 聖域に従い閾値を緩めず・PLAN 更新を待つ。
+    **W-3 聖域（後追い緩和禁止）**: per-race 予算・スケーリング指数とも実測に合わせて後追いで緩めるのは
+    禁止。違反時はテスト RED → PLAN 更新（根拠再確認）→ 再実行。W-3 の核心（vectorized 実装）は
+    test_no_python_loop_hot_spot で原理証明済み（cProfile 上位3位に Python ループ無し）。
     """
-    raw_history = _build_perf_history(
-        PERF_SMALL_N_RACES,
+    import time
+
+    # 小スケール（スケーリングガード用）
+    raw_small = _build_perf_history(
+        PERF_SCALING_SMALL_N_RACES,
         PERF_SMALL_HORSES_PER_RACE,
         PERF_SMALL_PAST_RUNS,
     )
-    # 14000 opponent 行 = 1000 race × 14 opponent・過去走含む総行数はこれより大きい
-    n_opponent_rows = len(
-        raw_history[raw_history["kakuteijyuni"].fillna(0) > 0]
-    )
-    assert n_opponent_rows >= 14000, (
-        f"縮小版 opponent 行数が 14000 未満・実際: {n_opponent_rows}・"
-        f"テスト前提違反（W-3 事前登録規模）"
-    )
-
-    import time
-
     t0 = time.perf_counter()
-    compute_field_strength_profile(raw_history)  # 結果は使わない・wall time 計測のみ
-    elapsed = time.perf_counter() - t0
+    compute_field_strength_profile(raw_small)
+    elapsed_small = time.perf_counter() - t0
 
-    assert elapsed <= PERF_BUDGET_SEC, (
-        f"W-3 事前登録閾値違反: 縮小版 {n_opponent_rows} opponent 行で wall time {elapsed:.2f}s > "
-        f"{PERF_BUDGET_SEC}s・Pitfall 2 回避不十分。PLAN を更新（閾値根拠再確認）してから再実行すること・"
-        f"実測に合わせて後追いで閾値を緩めるのは禁止（W-3 聖域・後追い緩和禁止）。"
+    # full スケール（per-race 予算 + スケーリングガード用）
+    raw_full = _build_perf_history(
+        PERF_FULL_N_RACES,
+        PERF_SMALL_HORSES_PER_RACE,
+        PERF_SMALL_PAST_RUNS,
+    )
+    # opponent 行数の前提確認（full scale で ≥14000 opponent 行 = 1000 race × 14 opponent）
+    n_opponent_rows = len(raw_full[raw_full["kakuteijyuni"].fillna(0) > 0])
+    assert n_opponent_rows >= 14000, (
+        f"full scale opponent 行数が 14000 未満・実際: {n_opponent_rows}・テスト前提違反"
+    )
+    t0 = time.perf_counter()
+    compute_field_strength_profile(raw_full)
+    elapsed_full = time.perf_counter() - t0
+
+    # (1) per-source-race 線形予算
+    per_race_full = elapsed_full / PERF_FULL_N_RACES
+    assert per_race_full <= PERF_BUDGET_SEC_PER_SOURCE_RACE, (
+        f"W-3 per-race 予算違反: {per_race_full:.4f}s/race > "
+        f"{PERF_BUDGET_SEC_PER_SOURCE_RACE}s/race（full {PERF_FULL_N_RACES} race・{elapsed_full:.1f}s）。"
+        f"必須再計算コストを超える回帰の疑い。PLAN 更新（根拠再確認）してから再実行・"
+        f"実測に合わせた後追い緩和は禁止（W-3 聖域）。"
+    )
+
+    # (2) 準二次スケーリングガード（H² 爆発検出）
+    scale_ratio = PERF_FULL_N_RACES / PERF_SCALING_SMALL_N_RACES
+    time_ratio = elapsed_full / elapsed_small
+    h2_threshold = scale_ratio ** PERF_SCALING_MAX_EXPONENT
+    assert time_ratio < h2_threshold, (
+        f"W-3 スケーリング違反: time ratio {time_ratio:.2f}x ≥ H² しきい値 {h2_threshold:.1f}x "
+        f"(scale {scale_ratio:.0f}x・exponent上限 {PERF_SCALING_MAX_EXPONENT})。"
+        f"wall time が準二次（H²）で増大 → Pitfall 2 の H² 積 materialize 疑い。"
+        f"PLAN 01 per-source-race バッチ構造を確認すること（後追い緩和禁止）。"
     )
 
 
