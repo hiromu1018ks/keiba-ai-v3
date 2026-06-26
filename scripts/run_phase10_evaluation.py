@@ -142,12 +142,29 @@ def hash_canonical(obj: Any) -> str:
 # JSON sanitizer (run_speed_figure_stopgate.py L121-143 idiom・NaN/Inf → None/"NaN"/"Infinity")
 # ---------------------------------------------------------------------------
 def _sanitize_for_json(obj: Any) -> Any:
-    """dict/list/float を再帰走査し NaN/Inf を JSON 安全な表現に変換する (REVIEW M4 idiom).
+    """dict/list/float/ndarray を再帰走査し NaN/Inf/ndarray を JSON 安全な表現に変換する (REVIEW M4 idiom).
 
     src/model/segment_eval.py L94-112 (``_sanitize_nan_to_null``) の sanitizer pattern を踏襲。
     single-class AUC 等で NaN が混入しても ``json.dumps(allow_nan=False)`` が
     ``ValueError`` で失敗するのを防ぐ (RFC 8259 strict)。
+
+    拡張: numpy.ndarray / numpy scalar も list / Python scalar に変換する
+    (compute_metrics / evaluate_all_segments の戻り値に ndarray が含まれるため)。
     """
+    # numpy ndarray / scalar の再帰的 list 化 (先に処理・float 判定より前)
+    try:
+        import numpy as _np
+    except ImportError:  # numpy 無し環境 (本プロジェクトでは起こり得ないが安全側)
+        _np = None
+    if _np is not None:
+        if isinstance(obj, _np.ndarray):
+            return _sanitize_for_json(obj.tolist())
+        if isinstance(obj, _np.integer):
+            return int(obj)
+        if isinstance(obj, _np.floating):
+            return _sanitize_for_json(float(obj))
+        if isinstance(obj, _np.bool_):
+            return bool(obj)
     if isinstance(obj, float):
         if math.isnan(obj):
             return None
