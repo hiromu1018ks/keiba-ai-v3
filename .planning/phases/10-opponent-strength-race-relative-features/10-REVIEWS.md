@@ -1,7 +1,8 @@
 ---
 phase: 10
-reviewers: [codex]
-reviewed_at: 2026-06-26T09:28:55Z
+reviewers: [codex, claude]
+reviewed_at: 2026-06-26T10:22:29Z
+cycle: 2
 plans_reviewed:
   - 10-01-PLAN.md
   - 10-02-PLAN.md
@@ -10,220 +11,291 @@ plans_reviewed:
   - 10-05-PLAN.md
   - 10-06-PLAN.md
   - 10-07-PLAN.md
-source_grounding: codex (gpt-5.5, xhigh reasoning) — ran inside the project git working tree; file:line citations verified against the live repo
+source_grounding: codex (default model, xhigh reasoning) AND claude (cycle-2 lead) — both ran inside the project git working tree; file:line citations verified against the live repo. Both reviewers independently reached the same critical finding on plan 10-01.
 ---
 
-# Cross-AI Plan Review — Phase 10 (Opponent Strength & Race-Relative Features)
+# Cross-AI Plan Review — Phase 10 (Cycle 2 — re-review of REVISED plans)
 
-> Single-reviewer cycle (Codex / gpt-5.5). Each finding below is source-grounded —
-> the reviewer opened the referenced files and cited `path:line` evidence.
-> The planner should treat every HIGH as a planning-level defect that must be
-> incorporated into PLAN.md (or explicitly deferred with rationale) before
-> `/gsd-execute-phase` — otherwise it is invisible to the executor.
+> Cycle 2 of a convergence loop. Cycle 1 raised 6 HIGH + 5 actionable MEDIUM/LOW findings
+> on leakage surfaces. The plans were revised in reviews mode (added `_compute_opponent_rolling_mean5`,
+> `_source_race_cutoff_gate`, odds-in-SQL scanner, corrected metadata key, fixed orchestrator
+> API chain). A gsd-plan-checker then VERIFIED the plans PASS.
+>
+> **Cycle-2 outcome: the plan-checker's structural pass did NOT catch a content-level leak.**
+> Both reviewers (Codex + Claude) independently discovered that the revised 10-01's central
+> premise — that history's `speed_figure` values are "raw race_date-derived, not target-cutoff-
+> expanded" — is **directly contradicted by `src/features/speed_figure.py`**. The H2 fix is
+> structurally insufficient and the H4 adversarial test has a blind spot that lets the leak pass.
+> Overall risk remains **HIGH**. See the Cycle-2 NEW HIGH below.
 
 ---
 
-## Codex Review
+## Cycle-1 HIGH resolution verdicts (at a glance)
+
+| Cycle-1 HIGH | Cycle-2 verdict | Why |
+|---|---|---|
+| H1 (10-01 dataflow: history lacks rolling_speed_figure_mean_5) | **PARTIALLY RESOLVED** | Revision correctly removes the dependency on the existing rolling column, BUT recomputes the rolling mean from `speed_figure` values that are themselves target-cutoff-contaminated (NEW HIGH-C2-1). |
+| H2 (10-01 source-vs-target-cutoff lookahead) | **UNRESOLVED — NEW HIGH-C2-1 introduced/confirmed** | The row-level cutoff gate is insufficient: per-row `speed_figure` already depends on the target obs's `feature_cutoff_datetime` via per-`obs_id` par/variant. |
+| H3 (10-07 SQL scanner excludes "odds") | **RESOLVED** | Plan extends odds to SQL literal check for field_strength/race_relative with whitelist; existing scanner gap at `tests/audit/test_audit_speed_figure.py:39-48` acknowledged and fixed. |
+| H4 (10-07 lookahead scope misses source-vs-target) | **PARTIALLY RESOLVED** | New `test_source_vs_target_cutoff_lookahead_injection_detected` is added, but it only tests row inclusion in (S,T]; it does NOT test that the same pre-S opponent row gets different `speed_figure` values under different target cutoffs (the actual leak vector). |
+| H5 (10-05 metadata key) | **RESOLVED** | `feature_availability_version` matches `src/features/snapshot.py:62,71`; plan asserts the wrong key is absent. |
+| H6 (10-06 orchestrator API) | **RESOLVED** | 5-step flow matches `orchestrator.py:234-258` and mirrors `run_speed_figure_stopgate.py:583-629`. |
+
+---
+
+## Codex Review (Cycle 2)
 
 **Summary**
 
-Overall risk is **HIGH until Plan 10-01 and 10-07 are tightened**. The wave structure is
-coherent, and many guardrails correctly reuse existing project patterns: strict `< cutoff`,
-`obs_id`-scoped rolling windows, registry parity, dynamic `FEATURE_COLUMNS`, and measured
-baseline-vs-scenario evaluation. The main leak risk is in `field_strength`: the plan assumes
-`history` already contains `rolling_speed_figure_mean_5`, but current code only creates rolling
-speed features for the target `feature_matrix`, not for historical source races. Worse, current
-speed figures are expanded relative to the target observation cutoff, so reusing them for
-source-race opponent ability can leak races that occurred after the source race but before the
-target race.
+The revised plans do not pass independent review. H3, H5, and H6 are substantively resolved,
+and 10-03's tie/additive-score clarifications are good. But the critical 10-01 claim is false
+against current `speed_figure.py`: `compute_speed_figure_for_history(..., observations=...)`
+returns an `obs_id`-expanded frame whose `par_sec`, `variant_sec`, and therefore `speed_figure`
+are target-cutoff-dependent. Filtering those already-contaminated `speed_figure` values by
+`source_available_at` does not make them source-race safe. Overall risk remains **HIGH**.
 
-### Plan 10-01 (FEAT-02 field_strength stage 1)
+### Plan 10-01 — **HIGH (NEW Cycle-2 HIGH-C2-1): source-race opponent ability still leaks through target-expanded `speed_figure` values**
 
-**Strengths**
-- The strict as-of choice is aligned with the existing invariant: `CUTOFF_SEMANTICS["comparison_operator"] == "strict_less_than"` in `src/features/availability.py:45`, and both speed/rolling PIT helpers enforce `<` at `src/features/speed_figure.py:98` and `src/features/rolling.py:114`.
-- The starter rule `kakuteijyuni > 0` matches the Phase 10 context decision to exclude unstarted horses but include stopped/DNF starters, `.planning/phases/10-opponent-strength-race-relative-features/10-CONTEXT.md:28`.
-- The 8-value opponent profile matches the registered design: mean, median, top3/top5, max, sd, valid count, coverage at `.planning/phases/10-opponent-strength-race-relative-features/10-CONTEXT.md:27`.
+The plan claims `_compute_opponent_rolling_mean5` consumes `speed_figure` values that are
+"not target cutoff expanded" and are raw race_date-derived (`10-01-PLAN.md:44`, also `:96`).
+Actual code contradicts this.
 
-**Concerns**
-- **HIGH:** The plan requires `rolling_speed_figure_mean_5` in `history` (`10-01-PLAN.md:111`), but current `compute_speed_figure_for_history` adds `speed_figure` and `available_at`, not rolling columns (`src/features/speed_figure.py:681`, `src/features/speed_figure.py:697`). Rolling speed features are produced later by `build_rolling_features` and merged only into `feature_matrix` (`src/features/builder.py:531`, `src/features/builder.py:535`). The planner does not establish how opponent `rolling_speed_figure_mean_5` lands in `history` for source-race profile computation.
-- **HIGH:** Strict `_opp_available_at < source.available_at` is necessary but not sufficient. Current speed-figure expansion is observation-cutoff based: it expands history against target observations (`src/features/speed_figure.py:579`) and filters by `feature_cutoff_datetime` (`src/features/speed_figure.py:640`). For field strength, opponent ability must be evaluated as of each **source race**, not the later target cutoff. Reusing target-cutoff-expanded `speed_figure` values for opponents can silently include opponent races that occurred after the source race but before the target race — a lookahead leak that the strict `<` guard between opponent and source does not catch.
-- **MEDIUM:** The performance claim depends on vectorization, but the suggested top-k aggregation uses per-group custom functions (`10-PATTERNS.md:104`). That may be acceptable, but the 6.7M-pair concern is real and explicitly called out in research (`10-RESEARCH.md:425`).
+`compute_speed_figure_for_history` merges history to observations by `kettonum`, carrying
+`obs_id` and each target observation's `feature_cutoff_datetime` (`speed_figure.py:579`, `:635`).
+It then filters by that target cutoff (`speed_figure.py:640`), computes par/variant on the
+expanded frame, and sets `result = with_variant`, explicitly preserving the expanded frame
+(`speed_figure.py:653`, `:655-657`).
 
-**Suggestions**
-- Materialize an opponent ability table keyed by `(source_race_nkey, opponent_kettonum)` with `feature_cutoff_datetime = source_race.available_at`, then compute latest-K speed ability from rows strictly before that source race.
-- Add an adversarial test where an opponent has a strong race after the source race but before the target race; field strength must ignore it.
+`_compute_pit_par` is explicitly per-observation: its docstring says `obs_id` is part of the
+group key and different cutoffs must not share par medians (`speed_figure.py:343`, `:350-362`).
+Stage 1 uses `["obs_id", "_jyocd", "_trackcd", "_kyori"]` (`speed_figure.py:401-402`). Variant
+is also per-`obs_id` (`speed_figure.py:453`, `:509-510`). Finally, `speed_figure` is computed
+from those obs-specific `par_sec` and `variant_sec` (`speed_figure.py:691`).
 
-**Risk: HIGH.** This is the foundational feature, and the current plan can either fail mechanically or leak target-cutoff future information into source-race strength.
+Existing tests confirm this is intentional: "result は展開されている" and `O_early`/`O_late`
+get different `par_sec` under different cutoffs (`tests/features/test_speed_figure_pit.py:197`).
 
-### Plan 10-02 (FEAT-02 stage 2 — 21 rolling features)
+**Leak mechanism**: an opponent race before source race `S` can carry a `speed_figure`
+computed under target cutoff `T`, where `(S, T]` rows influenced par/variant.
+`_compute_opponent_rolling_mean5` can filter selected rows to `< S`, but the selected row's
+value is already contaminated.
 
-**Strengths**
-- The plan's `obs_id` latest-K design matches existing rolling behavior: `obs_id` is synthesized from `(race_nkey, kettonum)` at `src/features/rolling.py:297`, strict prefilter happens at `src/features/rolling.py:370`, and latest-5 is selected with deterministic sort plus `groupby("obs_id").head(5)` at `src/features/rolling.py:375`.
-- The count/coverage "do not sentinel" rule is consistent with the existing speed-count behavior, where count columns are set directly (`src/features/rolling.py:448`, `src/features/rolling.py:515`) and sentinel thresholds are applied separately (`src/features/rolling.py:524`).
-- It correctly does not force `merge_asof` for latest-K. Existing rolling docs explicitly reject single `merge_asof` because it only solves latest-1 (`src/features/rolling.py:23`).
+**Why planned Test 2 would miss it** (`10-01-PLAN.md:95`): it only tests whether rows in
+`(S,T]` are included in the rolling window. It does not assert that the same opponent race
+has the same `speed_figure` under different target cutoffs. The adversarial test treats
+injected (S,T] opponent `speed_figure` values as legitimate fixed numbers — it never tests
+that those numbers would differ under another target's cutoff.
 
-**Concerns**
-- **HIGH:** This plan inherits Plan 10-01's dataflow risk. If `field_strength_*` profiles are not source-race PIT-correct, then all 21 rolling features are contaminated. The dependency chain makes 10-02 a downstream carrier of the 10-01 leak.
-- **MEDIUM:** "Symmetric with speed_figure" is structurally true, but not identical. Speed figure axes are registered at `src/features/rolling.py:136`; field-strength names like `valid_count_mean_5` and `coverage_mean_5` need explicit tests through Parquet coercion because snapshot handling parses rolling names heuristically (`src/features/snapshot.py:116`).
-- **LOW:** Existing rolling code still has row-wise update loops for older systems (`src/features/rolling.py:640`, `src/features/rolling.py:687`). The field-strength branch should stay in the vectorized speed-figure section, as planned.
+**Correct fix**: compute opponent speed figures from scratch with `source_available_at` as
+the cutoff, including par/variant, not just the rolling mean. Concretely, preserve raw history
+before Step 5b, or add a source-as-of speed-figure path keyed by source race/available_at,
+then compute opponent rolling ability from those source-cutoff-specific values.
 
-**Suggestions**
-- Gate Plan 10-02 on a test proving Plan 10-01's profile values are computed at source-race cutoff.
-- Include snapshot dtype tests for every new rolling name, not only representative columns.
+### Plan 10-02 — **HIGH (NEW Cycle-2 HIGH-C2-2): downstream gate documents propagation but does not protect against it**
 
-**Risk: MEDIUM-HIGH**, mostly due to dependency on Plan 10-01.
+The revised plan admits Plan 02 depends on Plan 01's source-safe profile (`10-02-PLAN.md:27`).
+Test 9 only demonstrates that polluted profiles pollute rolling outputs (`10-02-PLAN.md:99`).
+Since 10-01 still consumes target-dependent `speed_figure`, all 21 downstream rolling
+field-strength features remain at risk.
 
-### Plan 10-03 (FEAT-03 race-relative features)
+### Plan 10-03 — LOW: revised tie/additive-score concerns look resolved
 
-**Strengths**
-- Target-only race-relative computation matches D-07: race-relative features should be computed on target observations only (`10-CONTEXT.md:34`), and current builder preserves `race_nkey` until late in the pipeline (`src/features/builder.py:618`).
-- Competition ranking with `method="min"` and `na_option="keep"` is the right mechanism for same-rank ties and missing values; this is exactly what the plan specifies (`10-03-PLAN.md:20`).
-- The coefficient is pre-registered with candidate set and canonical value (`10-CONTEXT.md:39`, `10-03-PLAN.md:26`), and the plan explicitly drops candidate-derived temporary columns (`10-03-PLAN.md:96`).
+`gap_to_3rd` tie behavior is now explicit: rank `3` must exist under competition ranking,
+otherwise all `gap_to_3rd` are `NaN` (`10-03-PLAN.md:93`, `:122-124`, Test 5b at `:94`).
+Additive-score diagnostics are planned for train/calib only (`:29`, `:138` — the W-2
+`compute_candidate_score_diagnostics` helper).
 
-**Concerns**
-- **MEDIUM:** `gap_to_3rd` is ambiguous under ties. With values `[100, 95, 95, 90]`, competition ranks are `[1,2,2,4]`; there is no rank 3. The plan should state whether "3rd" means third sorted non-null runner or rank value `3` (`10-03-PLAN.md:23`, `10-03-PLAN.md:119`).
-- **MEDIUM:** The AST audit plans warn not to place forbidden romanized tokens in docstrings, which is necessary because current scanner examines `ast.Constant` strings (`tests/audit/test_audit_speed_figure.py:100`). Comments are not scanned by AST, so comments cannot create AST false positives but also cannot be audited this way.
-- **LOW:** `field_strength_adjusted_score = speed + 0.25 * field_strength` may mix differently scaled values. The plan protects against test-window retuning, but it should log train-window distribution sanity before accepting the coefficient.
+### Plan 10-04 — **HIGH (NEW Cycle-2 HIGH-C2-3): integration order feeds 10-01 the contaminated frame**
 
-**Suggestions**
-- Define `gap_to_3rd` as "third sorted non-null value" or "rank == 3" and add a tie test.
-- Add scale diagnostics for the additive score on train/calib only.
+Current builder Step 5b assigns `history = compute_speed_figure_for_history(history,
+observations=feature_matrix)` (`builder.py:525`). Plan 04 inserts
+`compute_field_strength_profile(history, observations=feature_matrix)` after Step 5b
+(`10-04-PLAN.md:113`). That means field strength receives the already target-expanded
+`history`, unless the plan is changed to preserve/recompute from raw history.
 
-**Risk: MEDIUM.**
+### Plan 10-05 — RESOLVED: metadata key correction is grounded in code
 
-### Plan 10-04 (builder integration + registry)
+Actual metadata key is `feature_availability_version`, not `feature_availability_schema_version`
+(`snapshot.py:62`, `:71`). The revised plan uses the real key and asserts the wrong key is
+absent (`10-05-PLAN.md:94`, `:114`). CLI flags `--snapshot-id/--label-version/--fa-version/--created-at`
+match `scripts/run_feature_build.py:65-103`; `--bt-split` correctly dropped.
 
-**Strengths**
-- Moving rolling after field-strength profile generation is necessary. Current builder computes speed figures at `src/features/builder.py:525` and immediately calls rolling at `src/features/builder.py:531`; Plan 10-04 correctly inserts field strength before rolling (`10-04-PLAN.md:20`).
-- Registry parity is well-grounded: current builder already calls `assert_matrix_columns_registered` at `src/features/builder.py:644`, and that function rejects unregistered columns and banned target-observation columns (`src/features/availability.py:314`, `src/features/availability.py:333`).
-- Adding `field_strength` to reserved rolling systems is consistent with the current reserved-system list ending at `"speed_figure"` (`src/features/availability.py:143`) and the special speed exclusion logic at `src/features/availability.py:188`.
+### Plan 10-06 — RESOLVED: orchestrator API flow is now correct
 
-**Concerns**
-- **MEDIUM:** Step 7b drops raw `field_strength_*` columns from `feature_matrix` (`10-04-PLAN.md:22`), but Plan 10-01 adds those columns to `history`, and current rolling merge only brings `rolling_` columns into `feature_matrix` (`src/features/builder.py:535`). This drop may be redundant unless another step merges raw profile columns.
-- **MEDIUM:** The plan uses `feature_count 79 -> 106` (`10-04-PLAN.md:29`), but current snapshot manifest writes full DataFrame column count (`scripts/run_feature_build.py:232`), while model feature columns are derived separately (`src/model/data.py:179`). The plan must clarify "model feature count" vs "Parquet column count."
-- **MEDIUM:** Registry entries with `source_role: both_allowed` do not themselves prove leak freedom. The mechanism still depends on builder ordering and race-relative tests.
+Actual `train_and_predict` requires `feature_df` plus keyword args, including
+`feature_snapshot_id` and optional `snapshot_id` (`orchestrator.py:234`). It requires a
+label-joined frame (`orchestrator.py:253-258`). The revised plan specifies the correct
+five-step flow and mirrors the working stopgate script (`10-06-PLAN.md:50`,
+`run_speed_figure_stopgate.py:583-629`). Category-map bit-identity assertion (W-3) added,
+`load_frozen_maps` is per-snapshot (`data.py:707-722`).
 
-**Suggestions**
-- Add an explicit test that final `feature_matrix` contains no non-rolling `field_strength_*` columns.
-- Rename the count assertion to `model_feature_count == 106` if that is the intended metric.
+### Plan 10-07 — PARTIAL: H3 fixed, H4 test still has the 10-01 blind spot
 
-**Risk: MEDIUM.**
+Existing scanner excludes `odds` from SQL literal checks
+(`test_audit_speed_figure.py:39-48`). Plan 07 explicitly adds odds-in-SQL detection for new
+modules with whitelist (`10-07-PLAN.md:19`, `:94`). That resolves H3.
 
-### Plan 10-05 (snapshot byte-reproducibility)
+But the source-vs-target lookahead test still checks inclusion of `(S,T]` opponent rows
+(`10-07-PLAN.md:97`). It does not test that `speed_figure` for the same pre-`S` opponent row
+is invariant across target cutoffs. The H4 test inherits 10-01's false premise and would
+GREEN even though the leak persists.
 
-**Strengths**
-- The plan correctly identifies the dtype risk: snapshot coercion currently only handles columns starting with `rolling_` (`src/features/snapshot.py:99`), so FEAT-03 non-rolling float columns need separate coverage.
-- Byte reproducibility is grounded in existing deterministic write behavior: sort keys at `src/features/snapshot.py:221`, metadata-excluded SHA at `src/features/snapshot.py:236`, and deterministic Parquet writer settings at `src/features/snapshot.py:273`.
-- Live-DB verification is justified because the research notes Parquet dtype bugs may not appear in unit tests (`10-RESEARCH.md:455`).
+### Overall Risk Assessment (Codex)
 
-**Concerns**
-- **HIGH:** Metadata key name is wrong in the plan. It expects `feature_availability_schema_version` (`10-05-PLAN.md:25`), but current snapshot metadata uses `feature_availability_version` (`src/features/snapshot.py:62`, `src/features/snapshot.py:266`). Tests asserting the wrong key will false-pass or fail loudly at runtime.
-- **MEDIUM:** The proposed command includes `--bt-split BT-1` (`10-05-PLAN.md:151`), but `scripts/run_feature_build.py` has no such CLI option; it supports `--snapshot-id`, `--label-version`, `--fa-version`, periods, and `--created-at` (`scripts/run_feature_build.py:65`).
-- **MEDIUM:** `FIXED_REPRODUCE_TS` wording does not match this script. `run_feature_build.py` defaults `created_at` from the current date (`scripts/run_feature_build.py:119`), though the SHA excludes metadata.
-- **MEDIUM:** Same `feature_count=106` ambiguity as Plan 10-04.
-
-**Suggestions**
-- Update tests and wording to use `feature_availability_version`, or deliberately rename the code and all downstream readers.
-- Fix the live command and pass `--fa-version 0.6.0`; pass `--created-at` if cross-day byte identity is required.
-
-**Risk: MEDIUM.**
-
-### Plan 10-06 (SC#5 non-inferiority gate)
-
-**Strengths**
-- The measured-delta gate is well designed. Comparing Phase 10 against a baseline snapshot re-run under the same settings protects §11.2 better than comparing to hardcoded Phase 6 numbers (`10-06-PLAN.md:29`, `10-06-PLAN.md:192`).
-- This matches the existing stopgate pattern, which loads both snapshots (`scripts/run_speed_figure_stopgate.py:583`) and trains both through `train_and_predict` with explicit snapshot IDs (`scripts/run_speed_figure_stopgate.py:611`, `scripts/run_speed_figure_stopgate.py:622`).
-- Dynamic feature derivation is real: `_derive_feature_columns(snapshot_id)` reads registry and Parquet schema (`src/model/data.py:179`), and `make_X_y` asserts exact `X.columns` equality (`src/model/data.py:487`).
-
-**Concerns**
-- **HIGH:** The plan's shorthand says call `orchestrator.train_and_predict(snapshot_id=...)` (`10-06-PLAN.md:44`), but the actual function requires a label-joined `feature_df` and `feature_snapshot_id` (`src/model/orchestrator.py:234`). Missing labels fail loud (`src/model/orchestrator.py:353`). The implementation must copy the stopgate's load/join flow.
-- **MEDIUM:** "Category map bit-identical" is asserted (`10-06-PLAN.md:29`), but the existing stopgate loads maps per snapshot (`scripts/run_speed_figure_stopgate.py:596`). If this is part of the gate, compare category-map hashes explicitly.
-- **MEDIUM:** Constants prevent accidental drift in code, but they do not mechanically prove tolerances were not changed after seeing results. The report should record tolerance values and the script git hash before live execution.
-- **LOW:** Selected-only calibration and odds-band diagnostics are useful but require market columns; segment axes expect `odds_band`/`ninki_band` style inputs (`src/model/segment_eval.py:81`). Keep them diagnostic-only as planned.
-
-**Suggestions**
-- Base `run_phase10_evaluation.py` directly on `run_speed_figure_stopgate.py`'s snapshot-load, label-join, frozen-map, and train-call flow.
-- Write a pre-run manifest containing tolerance constants, snapshot IDs, trainer params, category-map hashes, and git commit.
-
-**Risk: MEDIUM.**
-
-### Plan 10-07 (SAFE-01 adversarial audit + perf)
-
-**Strengths**
-- Reusing the existing adversarial audit pattern is appropriate. The scanner already checks AST `Name`/`Attribute` nodes (`tests/audit/test_audit_speed_figure.py:86`) and has a false-pass injection test (`tests/audit/test_audit_speed_figure.py:309`).
-- The lookahead monkeypatch target is a good pattern because strict PIT helpers exist and are isolated (`src/features/speed_figure.py:98`, `src/features/rolling.py:114`).
-- A pre-registered performance budget is useful because the research explicitly flags field-strength pair explosion (`10-RESEARCH.md:425`) and only assigns medium confidence to runtime (`10-RESEARCH.md:626`).
-
-**Concerns**
-- **HIGH:** The current string-literal proxy scanner intentionally excludes `"odds"` from substring checks (`tests/audit/test_audit_speed_figure.py:39`). Plan 10-07 claims SQL literals containing `odds` are detected (`10-07-PLAN.md:19`), but direct reuse of the current scanner would miss SQL text containing only `odds`. The plan's claim "SQL 文字列リテラルに odds/ninki/... の word-boundary 部分一致が0件" is not mechanically enforced by the existing scanner.
-- **MEDIUM:** The current scanner checks all `ast.Constant` strings, not just SQL (`tests/audit/test_audit_speed_figure.py:100`). That means romanized forbidden words in docstrings can false-positive, while comments are not scanned at all.
-- **HIGH:** The proposed lookahead injection focuses on changing `<` to `<=` (`10-07-PLAN.md:22`). It must also catch the more important Plan 10-01 risk: opponent races after the source race but before the target cutoff. The current monkeypatch plan only proves the source-vs-opponent guard, not the source-vs-target-cutoff guard.
-- **LOW:** "No Python loop in cProfile top 3" can be brittle with pandas internals. Static checks for `iterrows`, `itertuples`, row-wise `apply`, plus wall-clock budget, are more stable.
-
-**Suggestions**
-- Update the audit scanner to include `odds` in SQL-like string checks, with an explicit whitelist for harmless prose such as `odds-free`.
-- Add an adversarial source-vs-target cutoff test.
-- Keep cProfile output as evidence, but make wall-time and static anti-pattern checks the hard gates.
-
-**Risk: HIGH.**
-
-### Overall Risk Assessment
-
-Overall Phase 10 plan risk is **HIGH** right now. The architecture and sequencing are mostly
-sound, but the core leakage surface is unresolved: `field_strength` must be computed from
-opponent ability available strictly before each **source race**, and current code does not
-provide that table. Fix that dataflow, strengthen the SAFE-01 SQL scanner, and correct the
-snapshot/evaluation API mismatches before implementation.
+**HIGH.** The architectural fixes for H3/H5/H6 are real, but the central leakage surface
+(10-01's source-race opponent ability) is not actually closed — the revision added a gate
+that controls *which rows* enter the rolling window without recognizing that the *values on
+those rows* are already target-cutoff-dependent. Three new HIGHs (C2-1/C2-2/C2-3) follow
+from this single root cause.
 
 ---
 
-## Consensus Summary (single-reviewer cycle)
+## Claude Review (Cycle 2 lead — independent corroboration)
 
-This cycle invoked Codex only (per `--codex`). There is no second reviewer to converge or
-diverge with, so the summary below restates the single reviewer's findings ranked by severity
-and leakage relevance. The planner should treat these the same way as multi-reviewer consensus
-HIGHs — incorporate into PLAN.md or explicitly defer with rationale.
+**Summary**
 
-### Agreed (single-reviewer) Strengths
-- Strict `< cutoff` PIT invariant is consistently anchored to existing code (`availability.py:45`, `speed_figure.py:98`, `rolling.py:114`).
-- `obs_id`-scoped latest-K rolling design and sentinel/count rules reuse the speed_figure idiom faithfully (`rolling.py:297/375/524`).
-- Registry parity and dynamic `FEATURE_COLUMNS` derivation already exist and are correctly leveraged (`builder.py:644`, `availability.py:314`, `data.py:179/487`).
-- Measured baseline-vs-Phase10 delta gate (B-3) is a genuine improvement over hardcoded Phase 6 thresholds for §11.2 protection.
-- Byte-reproducibility machinery (`snapshot.py:221/236/273`) is correctly identified and reused.
+I independently verified the revised 10-01 plan's core premise against the source and reached
+the same conclusion as Codex: the plan's claim that history's `speed_figure` is "raw
+race_date-derived, not target-cutoff-expanded" (`10-01-PLAN.md:44, :96, :22`) is **false**.
+`compute_speed_figure_for_history` returns an `obs_id`-expanded frame (`speed_figure.py:655-658`,
+`:700`) where each row's `speed_figure` depends on `obs_id`-scoped par/variant
+(`speed_figure.py:350-362`, `:401-402`, `:509-510`, `:691`). The `_compute_opponent_rolling_mean5`
+fix therefore filters contaminated values by a clean cutoff — the leak persists.
 
-### Agreed (single-reviewer) Concerns — ranked
-1. **HIGH (10-01, leakage):** `history` lacks `rolling_speed_figure_mean_5`; the plan does not specify how opponent rolling ability is produced per source race.
-2. **HIGH (10-01, leakage):** Target-cutoff-expanded `speed_figure` values, if reused for source-race opponent ability, leak races between source and target dates. The strict `<` guard only covers opponent-vs-source, not source-vs-target-cutoff.
-3. **HIGH (10-07, SAFE-01 unsoundness):** Existing scanner excludes `"odds"` from string substring checks, so the plan's claim that SQL `odds` literals are detected is not enforced by direct reuse.
-4. **HIGH (10-07, audit gap):** Lookahead injection only tests source-vs-opponent (`<` → `<=`); the source-vs-target-cutoff leak path is untested.
-5. **HIGH (10-05, spec mismatch):** Metadata key `feature_availability_schema_version` does not exist in code; the real key is `feature_availability_version`.
-6. **HIGH (10-06, API mismatch):** `orchestrator.train_and_predict` requires a label-joined `feature_df`, not just a `snapshot_id`; the plan's shorthand will fail loud or silently short-circuit.
-7. **MEDIUM (10-03):** `gap_to_3rd` ambiguous under ties (no rank-3 in `[1,2,2,4]`).
-8. **MEDIUM (10-04/10-05/10-06):** `feature_count == 106` is ambiguous between Parquet column count and model feature count.
-9. **MEDIUM (10-02):** Inherits the 10-01 leak; needs an explicit source-cutoff gate test.
-10. **MEDIUM (10-06):** Category-map bit-identity is asserted but not mechanically verified.
+The non-10-01 HIGHs (H3/H5/H6) are genuinely resolved with verifiable source grounding.
+10-03's tie/diagnostic clarifications are correct and incorporated. The new concerns are all
+consequences of the single root cause below.
 
-### Divergent Views
-- (Single reviewer — no divergence this cycle. A second reviewer in a later cycle could
-  either corroborate the leakage severity or argue the source-race cutoff is implicitly
-  handled by a downstream step the reviewer did not trace.)
+### NEW Cycle-2 HIGHs (root cause + downstream)
+
+**HIGH-C2-1 (10-01, leakage — root cause): per-row `speed_figure` is target-cutoff-dependent; the revision's row-level cutoff gate is insufficient.**
+
+Evidence (all `src/features/speed_figure.py`):
+- L635: `expanded = out.merge(obs_keys, on="kettonum", how="inner", ...)` — joins each history
+  row to ALL target observations for that horse.
+- L641: `expanded_filtered = _pit_cutoff_prefilter(expanded)` — uses the TARGET's
+  `feature_cutoff_datetime` (L116-118: `expanded["as_of_datetime"] < expanded["feature_cutoff_datetime"]`).
+- L402 / L350-362: par groupby key is `["obs_id", "_jyocd", "_trackcd", "_kyori"]` — par is
+  scoped per target observation; the docstring explicitly states "observation 毎に独立した par".
+- L509-510: variant groupby key is `["obs_id", "_source_race_date", "_jyocd", "_surface"]` —
+  also per-target-observation.
+- L691: `sf_values = (result["par_sec"] - result["time_sec"] + result["variant_sec"]) * pps_per_row`
+  — `speed_figure` inherits the obs-specific par/variant.
+- L655-657 comment: "obs_id 毎に par/variant が異なるため・元 history 行 × observation の
+  組み合わせで保持" — the author confirms the expanded shape is intentional.
+
+Consequence for the revision: `_compute_opponent_rolling_mean5(history_with_sf=history,
+source_available_at=...)` receives the expanded frame where the SAME opponent source-race
+appears multiple times (once per target obs sharing that horse), each row carrying a DIFFERENT
+`speed_figure` value because par/variant were computed under a different target cutoff. The
+plan does not specify which obs_id copy to use, and even if it picks one, that value was
+computed using a target cutoff — filtering by `source_available_at` cannot un-contaminate it.
+
+The adversarial Test 2 (`10-01-PLAN.md:95`) would GREEN despite the leak: it injects (S,T]
+opponent races and assigns them fixed `speed_figure` values, then asserts the gate excludes
+them. It never tests that a pre-S opponent race receives different `speed_figure` values under
+two different target cutoffs — which is the actual leak vector.
+
+**Required fix (for the planner)**: `_compute_opponent_rolling_mean5` must NOT consume the
+`obs_id`-expanded `speed_figure` from `compute_speed_figure_for_history`. It must instead
+recompute opponent ability from the RAW history (pre-Step-5b) using `source_available_at` as
+the cutoff for the *entire* speed-figure pipeline (par + variant + speed_figure), or maintain
+a separate "source-as-of speed_figure" path keyed by `(source_race, opponent)` that runs
+`compute_speed_figure_for_history` with a synthetic observation whose `feature_cutoff_datetime
+= source_available_at`. Anything short of this leaves the per-row value contaminated.
+
+Also: the adversarial test must assert value-invariance — "the same pre-S opponent race
+yields the same `speed_figure` regardless of which target observation triggers the field
+strength computation" — not just row-inclusion in (S,T].
+
+**HIGH-C2-2 (10-02, leakage — downstream carrier): all 21 rolling_field_strength_* features inherit the C2-1 contamination.**
+
+10-02 correctly states it depends on 10-01's source-race PIT-correctness (`10-02-PLAN.md:27`).
+But its Test 9 (`10-02-PLAN.md:99`) only demonstrates that *if* the profile is polluted then
+the rolling output is polluted — it does not verify the profile is clean. Since 10-01 does
+not actually produce a clean profile (C2-1), all 21 downstream features are at risk. Gating
+10-02 on 10-01's adversarial test is necessary but, given C2-1, not sufficient.
+
+**HIGH-C2-3 (10-04, leakage — integration order): builder Step 5b replaces `history` with the obs_id-expanded frame BEFORE Step 5c (field_strength) consumes it.**
+
+`builder.py:525` does `history = compute_speed_figure_for_history(history,
+observations=feature_matrix)`. Plan 04 inserts `compute_field_strength_profile(history,
+observations=feature_matrix)` as Step 5c AFTER this reassignment (`10-04-PLAN.md:113`). So
+field strength receives the already-target-expanded history unless the plan preserves raw
+history or recomputes from it. This is the integration-level manifestation of C2-1 and must
+be addressed at the builder ordering level, not only inside field_strength.py.
+
+### Cycle-2 MEDIUM/LOW (actionable)
+
+- **MEDIUM-C2-4 (10-07, audit blind spot)**: the new
+  `test_source_vs_target_cutoff_lookahead_injection_detected` (`10-07-PLAN.md:97`) inherits
+  10-01's false premise. It must additionally assert that a pre-S opponent row's `speed_figure`
+  is invariant across target cutoffs (value-level leak, not just row-inclusion). Without this,
+  the SAFE-01 audit will GREEN even though the leak persists. PLAN.md change needed: add a
+  value-invariance assertion to Test 7 in 10-07 (and to Test 2 in 10-01).
+
+- All other Cycle-1 MEDIUM/LOW concerns are incorporated into PLAN.md:
+  - MEDIUM-7 gap_to_3rd tie (`10-03-PLAN.md:94, :122-124`) — RESOLVED.
+  - MEDIUM-8 feature_count ambiguity (`10-04-PLAN.md:28-29, :207`) — RESOLVED.
+  - MEDIUM (10-06 category-map bit-identity, `10-06-PLAN.md` W-3) — RESOLVED.
+  - LOW additive-score scale diagnostic (`10-03-PLAN.md:29-30, :138` W-2 helper) — RESOLVED.
+  - LOW cProfile brittleness (`10-07-PLAN.md` W-3 wall-clock + static anti-pattern) — RESOLVED.
+
+---
+
+## Consensus Summary (Cycle 2 — two reviewers)
+
+### Agreement
+
+Both reviewers (Codex + Claude) independently and unanimously identified the same root-cause
+HIGH: the revised 10-01 plan's central factual premise about `speed_figure` provenance is
+contradicted by the code, and therefore the H2 fix is structurally insufficient. Both
+reviewers cited the same evidence chain (`speed_figure.py:579/635/640/655/402/350-362/509/691`
++ `test_speed_figure_pit.py:197`). Both agree H3/H5/H6 are genuinely resolved and 10-03 is
+good. No divergence on any finding.
 
 ### Cross-cycle leakage-priority call-out
-The two 10-01 HIGHs and the two 10-07 HIGHs are the four findings that bear directly on the
-project's core value (leakage prevention). They must be resolved at the planning level — not
-deferred to execution-time discovery — because a leak that passes the adversarial audit will
-not be caught again until the model is trained.
+
+Cycle 2 confirms that Cycle-1 H1/H2 were **not** resolved by the revision — they were
+re-expressed in a way that passes a structural plan-checker (the helper names and adversarial
+tests exist) but fails content-level source-grounding (the values being filtered are already
+contaminated). The plan-checker's PASS was correct on plan *structure* but could not catch a
+claim that is false against the source. The single root cause (C2-1) generates two downstream
+HIGHs (C2-2, C2-3). Fixing C2-1 at the 10-01/10-04 boundary (recompute opponent speed_figure
+under source_available_at, not target cutoff) will close all three.
+
+### Why the plan-checker passed but Cycle-2 fails
+
+The plan-checker verified that the plans *mention* `_compute_opponent_rolling_mean5`,
+`_source_race_cutoff_gate`, and the adversarial tests. It did not — and structurally cannot —
+verify the plan's prose claim that history's `speed_figure` is "raw race_date-derived." That
+claim is load-bearing for the entire H2 fix, and it is false. This is exactly the kind of
+content-level leak that adversarial cross-AI review exists to catch.
 
 ---
 
-## Verification coverage
+## Verification coverage (Cycle 2)
 
-| Plan | Source-grounded evidence cited | Leakage-relevant finding? |
-|------|-------------------------------|---------------------------|
-| 10-01 | `availability.py:45`, `speed_figure.py:98/579/640/681/697`, `rolling.py:114`, `builder.py:531/535`, `10-CONTEXT.md:27/28`, `10-RESEARCH.md:425`, `10-PATTERNS.md:104` | YES (HIGH ×2) |
-| 10-02 | `rolling.py:23/136/297/370/375/448/515/524/640/687`, `snapshot.py:116` | YES (inherits 10-01) |
-| 10-03 | `10-CONTEXT.md:34/39`, `builder.py:618`, `10-03-PLAN.md:20/23/26/96/119`, `tests/audit/test_audit_speed_figure.py:100` | partial (gap_to_3rd ambiguity, AST docstring scope) |
-| 10-04 | `builder.py:525/531/535/644/618`, `availability.py:143/188/314/333`, `scripts/run_feature_build.py:232`, `data.py:179`, `10-04-PLAN.md:20/22/29` | no (parity/feature_count ambiguity) |
-| 10-05 | `snapshot.py:62/99/116/221/236/266/273`, `10-RESEARCH.md:455`, `scripts/run_feature_build.py:65/119/232`, `10-05-PLAN.md:25/151` | no (metadata key + CLI flag mismatch) |
-| 10-06 | `10-06-PLAN.md:29/44/192`, `scripts/run_speed_figure_stopgate.py:583/596/611/622`, `data.py:179/487`, `orchestrator.py:234/353`, `segment_eval.py:81` | no (API mismatch; §11.2 protection) |
-| 10-07 | `tests/audit/test_audit_speed_figure.py:39/86/100/309`, `speed_figure.py:98`, `rolling.py:114`, `10-RESEARCH.md:425/626`, `10-07-PLAN.md:19/22` | YES (HIGH ×2 — SQL scanner gap, lookahead scope) |
+| Plan | Source-grounded evidence re-cited this cycle | Leakage-relevant finding? |
+|------|----------------------------------------------|---------------------------|
+| 10-01 | `speed_figure.py:579/635/640/655-657/691/697-698/350-362/401-402/509-510`, `test_speed_figure_pit.py:197`, `10-01-PLAN.md:22/44/95/96` | YES (HIGH-C2-1, root cause) |
+| 10-02 | `10-02-PLAN.md:27/99` | YES (HIGH-C2-2, downstream) |
+| 10-03 | `10-03-PLAN.md:29/93/94/122-124/138` | no (RESOLVED — tie + diagnostic) |
+| 10-04 | `builder.py:525`, `10-04-PLAN.md:113` | YES (HIGH-C2-3, integration order) |
+| 10-05 | `snapshot.py:62/71`, `run_feature_build.py:65-103`, `10-05-PLAN.md:94/114` | no (RESOLVED) |
+| 10-06 | `orchestrator.py:234-258`, `run_speed_figure_stopgate.py:583-629`, `data.py:707-722`, `10-06-PLAN.md:50` | no (RESOLVED) |
+| 10-07 | `test_audit_speed_figure.py:39-48`, `10-07-PLAN.md:19/94/97` | partial (MEDIUM-C2-4 audit blind spot) |
+
+---
+
+CYCLE_SUMMARY: current_high=3 current_actionable=1
+
+## Current HIGH Concerns
+
+- **HIGH-C2-1 (10-01, leakage root cause)**: The revised plan's premise that history's `speed_figure` is "raw race_date-derived, not target-cutoff-expanded" is false. `compute_speed_figure_for_history` returns an `obs_id`-expanded frame (`speed_figure.py:655-658`) where each row's `speed_figure` depends on the target observation's `feature_cutoff_datetime` via per-`obs_id` par/variant (`speed_figure.py:350-362, 401-402, 509-510, 691`). `_compute_opponent_rolling_mean5`'s row-level cutoff gate filters already-contaminated values; the H2 leak persists. Adversarial Test 2 (`10-01-PLAN.md:95`) does not catch it because it tests row-inclusion, not value-invariance. Fix: recompute opponent speed_figure from raw history with `source_available_at` as the cutoff for the FULL par+variant+speed_figure pipeline.
+- **HIGH-C2-2 (10-02, leakage downstream)**: All 21 `rolling_field_strength_*` features inherit the C2-1 contamination. 10-02's Test 9 only documents propagation, it does not verify the profile is clean.
+- **HIGH-C2-3 (10-04, leakage integration order)**: builder.py:525 reassigns `history` to the obs_id-expanded frame before Plan 04's Step 5c `compute_field_strength_profile(history, ...)` consumes it (`10-04-PLAN.md:113`), unless the plan is changed to preserve/recompute from raw history.
+
+## Current Actionable Non-HIGH Concerns
+
+- **MEDIUM-C2-4 (10-07, audit blind spot)**: The new `test_source_vs_target_cutoff_lookahead_injection_detected` (`10-07-PLAN.md:97`) inherits 10-01's false premise — it tests row-inclusion in (S,T] but not that a pre-S opponent row's `speed_figure` is invariant across target cutoffs. PLAN.md change needed: add a value-invariance assertion ("same pre-S opponent race yields the same `speed_figure` regardless of target obs") to Test 7 in 10-07 AND to Test 2 in 10-01. Without this the SAFE-01 audit GREENs while the leak persists.
