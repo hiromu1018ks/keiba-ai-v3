@@ -377,6 +377,12 @@ def _compute_pit_par(expanded_filtered: pd.DataFrame) -> pd.DataFrame:
     group key が細かすぎる際の正統 fallback・D-13 踏襲）。
     """
     out = expanded_filtered.copy()
+    # obs_id expand で同一元 history 行が複数 observation に複製され duplicate index が
+    # 発生する。duplicate index では out.index[pending] と out.loc[pending].index が異なる
+    # 順序を返す pandas 既知の落とし穴（WR-03 対策）があり、Stage 2 の positional alignment
+    # （pending_indices[mask2] と size2_map[mask2] の対応）の暗黙前提が崩れる。
+    # reset_index(drop=True) で index を一意化し構造保証する。
+    out = out.reset_index(drop=True)
     # time_sec が無ければ算出（_pit_cutoff_prefilter 済みフレームには無い場合がある）
     # 障害除外 + 距離別物理妥持範囲外 NaN は time_sec 算出段階で反映する（par 汚染防止）
     if "time_sec" not in out.columns:
@@ -474,6 +480,10 @@ def _compute_leave_one_out_variant(expanded_with_par: pd.DataFrame) -> pd.DataFr
            （「馬場差不明=中立」・silent NaN fill でなく明示的 0.0）。
     """
     out = expanded_with_par.copy()
+    # WR-03 対策: _compute_pit_par と同様に duplicate index を一意化し、
+    # Stage 2 fallback の out.index[pending] / out.loc[pending].index の positional alignment
+    # を構造保証する（obs_id expand で複製された duplicate index を持つ場合がある）。
+    out = out.reset_index(drop=True)
     # residual = time_sec - par_sec（time_sec が無ければ算出）
     if "time_sec" not in out.columns:
         surf = out["surface"] if "surface" in out.columns else None
