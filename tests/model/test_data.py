@@ -377,3 +377,167 @@ def test_make_X_y_uses_snapshot_feature_columns(tmp_path):
     finally:
         data_mod._snapshot_paths = orig_snapshot_paths
 
+
+# ---------------------------------------------------------------------------
+# Phase 10 PLAN 06 Task 1: 実 snapshot_id で 79/35 回帰・27 新 feature 含有・
+# W-3 category-map bit-identity（B-3 同一 trainer 設定の前提保証）を検証する。
+#
+# NOTE: PLAN 06 truth は「baseline (postreview-v2) も 79 feature」と記載するが・これは誤り。
+# 実測値（registry derived allowlist）は:
+#   - 20260626-1a-opponentstrength-v1 (Phase 10): 79 feature（Phase 9.1 52 + 27 新 feature）
+#   - 20260620-1a-postreview-v2 (v1.0 baseline): 35 feature
+#   - 20260625-1a-speedfigure-v1: 41 feature
+# PROJECT decisions にも「postreview-v2 実データ値 35 が正」と明記。本テストは実測値で検証する。
+# PLAN の意図（H1-b 無言失敗 catch・27 新 feature 含有・両 snapshot_id で別 FEATURE_COLUMNS）は
+# 79/35 の組で完全に達成される。
+# ---------------------------------------------------------------------------
+PHASE10_SNAPSHOT_ID = "20260626-1a-opponentstrength-v1"
+BASELINE_V10_SNAPSHOT_ID = "20260620-1a-postreview-v2"
+
+# 実測値定数（手動検証で確認・registry derived allowlist）
+PHASE10_FEATURE_COUNT = 79
+BASELINE_V10_FEATURE_COUNT = 35
+
+
+def test_phase10_derive_feature_columns_new_and_baseline_regression():
+    """Phase 10 PLAN 06 Task 1 (B-2): _derive_feature_columns が実 snapshot_id で
+    異なる FEATURE_COLUMNS を返すことを検証（H1-b 無言失敗 catch の核心）。
+
+    新 snapshot_id (20260626-1a-opponentstrength-v1) で 79 feature・
+    baseline snapshot_id (20260620-1a-postreview-v2) で 35 feature が両方成立することで・
+    registry 動的導出と snapshot_id 明示伝播 (H1-b) の両方が保証される。
+
+    NOTE: PLAN 06 truth の「baseline も 79 feature」は誤記（PROJECT decisions で 35 が正と明記）。
+    本テストは実測値（79/35）で検証する。PLAN の本質（snapshot_id で FEATURE_COLUMNS が切替わる・
+    H1-b 無言失敗 catch・27 新 feature 含有）は 79/35 の組で完全に達成される。
+    """
+    from src.model.data import _derive_feature_columns
+
+    # 新 snapshot_id (Phase 10・opponentstrength): 79 feature
+    new_cols = _derive_feature_columns(snapshot_id=PHASE10_SNAPSHOT_ID)
+    assert len(new_cols) == PHASE10_FEATURE_COUNT, (
+        f"snapshot_id={PHASE10_SNAPSHOT_ID} の FEATURE_COLUMNS は "
+        f"{PHASE10_FEATURE_COUNT} feature のべき・"
+        f"実際: {len(new_cols)}（PLAN truth 79 と不一致の場合は registry 伝播破損・H1-b）"
+    )
+
+    # baseline snapshot_id (v1.0 postreview-v2): 35 feature（PROJECT decisions で確定値）
+    baseline_cols = _derive_feature_columns(snapshot_id=BASELINE_V10_SNAPSHOT_ID)
+    assert len(baseline_cols) == BASELINE_V10_FEATURE_COUNT, (
+        f"snapshot_id={BASELINE_V10_SNAPSHOT_ID} の FEATURE_COLUMNS は "
+        f"{BASELINE_V10_FEATURE_COUNT} feature のべき・実際: {len(baseline_cols)}"
+    )
+
+    # 両者が異なる集合であること（H1-b: snapshot_id で実際に切替わる）
+    assert set(new_cols) != set(baseline_cols), (
+        "Phase 10 snapshot と baseline で FEATURE_COLUMNS が同一（H1-b 違反・"
+        "snapshot_id 伝播で FEATURE_COLUMNS が切替わっていない無言失敗）"
+    )
+
+    # delta: Phase 10 が baseline + 27 新 feature（厳密には +44・Phase 9.1 speed_figure 系統込み）
+    delta = set(new_cols) - set(baseline_cols)
+    expected_new = {
+        # FEAT-02 相手強度 rolling profile (21 feature)
+        "rolling_field_strength_mean_latest_1",
+        "rolling_field_strength_mean_mean_5",
+        "rolling_field_strength_mean_mean_3",
+        "rolling_field_strength_coverage_mean_5",
+        "rolling_field_strength_valid_count_mean_5",
+        # FEAT-03 レース内相対 (6 feature)
+        "speed_index_rank_mean5",
+        "speed_index_rank_best2_mean5",
+        "speed_index_rank_median5",
+        "gap_to_top",
+        "gap_to_3rd",
+        "field_strength_adjusted_rank",
+    }
+    missing = expected_new - delta
+    assert missing == set(), (
+        f"Phase 10 の 27 新 feature の一部が FEATURE_COLUMNS に含まれない: {sorted(missing)}"
+    )
+
+
+def test_phase10_make_X_y_green_on_new_snapshot():
+    """Phase 10 PLAN 06 Task 1: 既存 make_X_y snapshot_id 伝播テストが・新 snapshot_id
+    '20260626-1a-opponentstrength-v1' でも GREEN になることを検証（B-2・H1-b 無言失敗 catch）。
+
+    実 snapshot の Parquet を読み・合成 label を inject して build_training_frame し・
+    make_X_y が X.columns == FEATURE_COLUMNS（新 snapshot から導出・79 feature）を完全一致 assert
+    で PASS することを確認する。snapshot_id 未伝播の無言失敗を直接 catch する形。
+    """
+    feature_df = load_feature_matrix(snapshot_id=PHASE10_SNAPSHOT_ID)
+    labels = _make_synthetic_labels(feature_df)
+    frame = build_training_frame(feature_df, labels)
+
+    # 新 snapshot_id で make_X_y が完全一致 assert で GREEN
+    X, y = make_X_y(frame, snapshot_id=PHASE10_SNAPSHOT_ID)
+
+    # X.columns が新 snapshot 由来 FEATURE_COLUMNS と完全一致
+    from src.model.data import _derive_feature_columns
+
+    expected = _derive_feature_columns(snapshot_id=PHASE10_SNAPSHOT_ID)
+    assert list(X.columns) == expected, (
+        "make_X_y が新 snapshot_id で X.columns == FEATURE_COLUMNS を満たさない (H1-b 違反)・"
+        f"len(X.columns)={len(X.columns)} len(expected)={len(expected)}"
+    )
+    # 27 新 feature の代表が実際に X に含まれる
+    for required in (
+        "rolling_field_strength_mean_mean_5",
+        "speed_index_rank_mean5",
+        "field_strength_adjusted_rank",
+    ):
+        assert required in X.columns, (
+            f"新 feature {required} が X.columns に含まれない（FEATURE_COLUMNS 伝播破損）"
+        )
+    assert set(y.unique()).issubset({0, 1})
+
+
+def test_phase10_category_map_bit_identity_w3():
+    """Phase 10 PLAN 06 Task 1 (W-3): baseline_cat_map と phase10_cat_map の hash bit-identity を
+    検証する（B-3 同一 trainer 設定の前提保証・REVIEWS.md L140/L205 MEDIUM）。
+
+    Phase 10 は新 feature 追加のみで category mapping を変更しない設計・両 snapshot の
+    category_map が bit-identical であることを保証する。hash が異なると delta は feature ノイズ化
+    ではなく category mapping ドリフトを測る（B-3・両 snapshot 同一 trainer 設定の核心）。
+    """
+    import hashlib
+    import json
+    from pathlib import Path
+
+    from src.model.data import _snapshot_paths
+
+    _, _, baseline_cat_path = _snapshot_paths(snapshot_id=BASELINE_V10_SNAPSHOT_ID)
+    _, _, phase10_cat_path = _snapshot_paths(snapshot_id=PHASE10_SNAPSHOT_ID)
+
+    baseline_path = Path(baseline_cat_path)
+    phase10_path = Path(phase10_cat_path)
+    assert baseline_path.exists(), f"baseline category_map が存在しない: {baseline_path}"
+    assert phase10_path.exists(), f"phase10 category_map が存在しない: {phase10_path}"
+
+    # 両 JSON を sort_keys=True で正規化して hash 比較（mapping 順序に依存しない）
+    with baseline_path.open(encoding="utf-8") as f:
+        baseline_map = json.load(f)
+    with phase10_path.open(encoding="utf-8") as f:
+        phase10_map = json.load(f)
+
+    baseline_hash = hashlib.sha256(
+        json.dumps(baseline_map, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    phase10_hash = hashlib.sha256(
+        json.dumps(phase10_map, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+    assert baseline_hash == phase10_hash, (
+        "W-3 bit-identity 違反・baseline_cat_map と phase10_cat_map の hash が異なる"
+        "（category mapping ドリフト・B-3 同一 trainer 設定の前提崩れ）・"
+        f"baseline={baseline_hash[:16]}... phase10={phase10_hash[:16]}..."
+    )
+
+    # category key 集合の一致も念のため検査（jockey_id/horse_id/sire_id 等）
+    only_baseline = set(baseline_map.keys()) - set(phase10_map.keys())
+    only_phase10 = set(phase10_map.keys()) - set(baseline_map.keys())
+    assert set(baseline_map.keys()) == set(phase10_map.keys()), (
+        f"category_map の key 集合が異なる: only_baseline={only_baseline} "
+        f"only_phase10={only_phase10}"
+    )
+
