@@ -5,8 +5,8 @@ milestone_name: Ability Feature v2 & Conditional Calibration
 current_phase: 10
 current_phase_name: opponent-strength-race-relative-features
 status: completed
-stopped_at: "Phase 9 P03 完了: builder Step 5b 統合 + SC#1/SC#3 + REVIEW H1-a/H1-b/H1-c data.py/orchestrator snapshot parameterization（34 テスト GREEN）"
-last_updated: "2026-06-26T04:14:19.586Z"
+stopped_at: "Phase 10 context gathered（相手強度 field_strength 厳格版 as-of・レース内相対 rank 3軸+gap・SC#5 非劣化 gate）"
+last_updated: "2026-06-26T06:36:13.968Z"
 last_activity: 2026-06-25
 last_activity_desc: "Phase 09 P05 Task 1/2 完了 (SC#6 stop gate script + 合成 E2E smoke 9 tests GREEN)"
 progress:
@@ -290,10 +290,10 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-06-25:
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/09-speed-figure-foundation/09-04-PLAN.md
+**Resume file:** .planning/phases/10-opponent-strength-race-relative-features/10-CONTEXT.md
 
-Last session: 2026-06-25T13:49:48.466Z
-Stopped at: Phase 9 P03 完了 (builder Step 5b 統合 + REVIEW H1-a/H1-b/H1-c data.py/orchestrator snapshot parameterization・34 テスト GREEN)
+Last session: 2026-06-26T06:36:13.962Z
+Stopped at: Phase 10 context gathered（相手強度 field_strength 厳格版 as-of・レース内相対 rank 3軸+gap・SC#5 非劣化 gate）
 Resume: `/gsd-execute-phase 9`（P04: SC#4 SAFE-01 AST audit + SC#5 ドメイン整合性可視化・rolling_speed_figure_* 6 feature を含む完成 feature_matrix が必要・本 P03 で生成可能に）
 
 ## Operator Next Steps
