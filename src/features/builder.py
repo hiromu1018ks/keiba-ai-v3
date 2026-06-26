@@ -569,6 +569,15 @@ def build_feature_matrix(
         _profile_merge = field_strength_profile[
             ["race_nkey", "kettonum", "race_date"] + _fs_profile_cols
         ]
+        # CR-02 (10-08 gap-closure): merge 前に race_date を pd.to_datetime で双方向正規化する。
+        # history 側は Step5b compute_speed_figure_for_history を経由した obs_id 展開済みフレームで
+        # race_date の dtype が実装依存（datetime.date object / datetime64 等）・profile 側は
+        # raw_history.assign(available_at=pd.to_datetime(race_date)) の copy で race_date 自体は入力の型を
+        # 保持する。両者が同じ raw_history 由来でも dtype 不一致で silent NaN merge になるリスクを
+        # 構造的に排除する（FEAT-02 21 feature 全行 sentinel 化の silent data loss 封印・core value 違反）。
+        history["race_date"] = pd.to_datetime(history["race_date"])
+        _profile_merge = _profile_merge.copy()
+        _profile_merge["race_date"] = pd.to_datetime(_profile_merge["race_date"])
         history = history.merge(
             _profile_merge,
             on=["race_nkey", "kettonum", "race_date"],
@@ -580,6 +589,22 @@ def build_feature_matrix(
             if f"{col}_fs_profile" in history.columns and col not in history.columns:
                 history[col] = history[f"{col}_fs_profile"]
                 history = history.drop(columns=[f"{col}_fs_profile"])
+        # CR-02 (10-08 gap-closure): merge 後に field_strength_mean の notna 率を fail-loud 検査する。
+        # starter_mask（kakuteijyuni > 0）上で field_strength_mean が 0.5 未満しか JOIN できていない場合は
+        # silent NaN merge（dtype mismatch / profile 欠損等）とみなし RuntimeError を raise する
+        # （FEAT-02 21 feature 全行 sentinel 化の silent data loss を検知・core value「リーク防止」の鏡像）。
+        if "field_strength_mean" in history.columns and len(history) > 0:
+            starter_mask = history["kakuteijyuni"].fillna(0) > 0
+            if starter_mask.any():
+                joined_ratio = float(
+                    history.loc[starter_mask, "field_strength_mean"].notna().mean()
+                )
+                if joined_ratio < 0.5:
+                    raise RuntimeError(
+                        f"Step5c profile merge で field_strength_mean が {joined_ratio:.1%} しか "
+                        f"JOIN できず (silent data loss・dtype mismatch / profile 欠損の疑い・"
+                        "core value「リーク防止」の鏡像「silent fallback 禁止」違反・CR-02 fail-loud)"
+                    )
     logger.info(
         "build_feature_matrix: Step5c field_strength profile %.1fs (profile rows=%d)",
         _time.time() - _t_5c,

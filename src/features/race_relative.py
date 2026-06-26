@@ -171,6 +171,13 @@ def _gap_to_3rd_within_race(mean5: pd.Series) -> pd.Series:
     出走馬 < 3 の場合も NaN（rank==3 が存在しないため上記と同値）。
     欠損馬（D-09）は母集団除外・自身の gap も NaN。
 
+    CR-03 (10-08 gap-closure) race size < 3 の早返し:
+        ``len(mean5) < 3`` の場合は competition ranking でも rank==3 が存在し得ないため・関数冒頭で
+        明示的に ``pd.Series([np.nan] * len(mean5), index=mean5.index)`` を返す。pandas ``groupby.transform``
+        の境界挙動がバージョン依存のリスク（size=0 の transform 呼出で ``mean5.max()`` が NaN を返す等の
+        非決定論的振舞）を明示的に防御する（race size 0/1/2 で rank==3 は存在し得ない・competition
+        ranking でも）。
+
     Parameters
     ----------
     mean5 : pd.Series
@@ -181,6 +188,10 @@ def _gap_to_3rd_within_race(mean5: pd.Series) -> pd.Series:
     pd.Series
         rank==3 の馬の mean_5 − self.mean_5（rank==3 が存在しない場合は race 内全馬 NaN）。
     """
+    # CR-03 (10-08 gap-closure): race size < 3 は rank==3 が存在し得ない（competition ranking でも）。
+    # pandas バージョン依存の transform 境界（size=0/1/2）を明示的に防御する早返し。
+    if len(mean5) < 3:
+        return pd.Series([np.nan] * len(mean5), index=mean5.index)
     # competition ranking を算出（rank==3 の馬を特定するため）
     ranks = mean5.rank(method="min", ascending=False, na_option="keep")
     # rank==3 の馬が存在するか確認・存在すればその馬の mean_5 を使う

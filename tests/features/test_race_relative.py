@@ -557,3 +557,38 @@ def test_compute_candidate_score_diagnostics_with_split_mask():
     assert diag_all[0.25]["mean"] == pytest.approx(diag_none[0.25]["mean"])
     # mask で抽出すると値が変わる
     assert diag_half[0.25]["mean"] != pytest.approx(diag_all[0.25]["mean"])
+
+
+# === Test 14 (CR-03・10-08 gap-closure・race size < 3 早返し境界防御) =========
+
+@pytest.mark.parametrize("size", [0, 1, 2])
+def test_gap_to_3rd_within_race_size_lt_3_early_return_index_preserved(size: int):
+    """CR-03 (10-08 gap-closure): ``_gap_to_3rd_within_race`` に len < 3 の Series を渡した場合・
+    ``index=mean5.index`` を持つ NaN Series が返る早返しが存在する.
+
+    pandas ``groupby.transform`` の境界挙動（size=0/1/2 で ``mean5.max()`` が NaN を返す等）が
+    バージョン依存のリスクを明示的に防御する。非連続 index でも正しく伝播することを検証する。
+    """
+    from src.features.race_relative import _gap_to_3rd_within_race
+
+    # 非連続 index で transform 境界の index 整合性を検証
+    idx = pd.Index([10, 20, 30][:size]) if size > 0 else pd.Index([], dtype=int)
+    values = [100.0, 95.0, 90.0][:size] if size > 0 else []
+    mean5 = pd.Series(values, index=idx, dtype=float)
+
+    result = _gap_to_3rd_within_race(mean5)
+
+    # 全要素 NaN
+    assert result.isna().all(), (
+        f"size={size} の場合は rank==3 が存在し得ないため全要素 NaN のはず・実際: {result.tolist()}"
+    )
+    # index が mean5.index と一致（transform 境界の整合性）
+    assert result.index.equals(mean5.index), (
+        f"size={size} の返り Series の index が mean5.index と一致しない・"
+        f"result.index={list(result.index)} / mean5.index={list(mean5.index)}"
+    )
+    # 長さが一致
+    assert len(result) == len(mean5), (
+        f"size={size} の返り Series の長さ {len(result)} が mean5 の長さ {len(mean5)} と一致しない"
+    )
+

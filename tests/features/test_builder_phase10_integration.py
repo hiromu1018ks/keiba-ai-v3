@@ -205,6 +205,47 @@ def test_builder_step5c_precedes_step5_rolling_call():
 
 
 # ===========================================================================
+# CR-02 (10-08 gap-closure): builder Step5c dtype 正規化 + JOIN 率 fail-loud
+# ===========================================================================
+def test_builder_step5c_has_race_date_dtype_normalization():
+    """CR-02 (10-08 gap-closure): builder.py Step5c の profile merge 実行前に・
+    ``history['race_date']`` と ``_profile_merge['race_date']`` の両者が pd.to_datetime で正規化される.
+
+    dtype mismatch 由来の silent NaN merge を構造的に排除する（FEAT-02 21 feature 全行 sentinel 化の
+    silent data loss 封印・core value「リーク防止」の鏡像「silent fallback 禁止」）。
+    """
+    src = _read_builder_source()
+    assert 'pd.to_datetime(history["race_date"])' in src, (
+        "CR-02: Step5c merge 前の history['race_date'] pd.to_datetime 正規化が builder.py に無い"
+    )
+    assert 'pd.to_datetime(_profile_merge["race_date"])' in src, (
+        "CR-02: Step5c merge 前の _profile_merge['race_date'] pd.to_datetime 正規化が builder.py に無い"
+    )
+
+
+def test_builder_step5c_has_join_ratio_fail_loud():
+    """CR-02 (10-08 gap-closure): builder.py Step5c の merge 後に・starter_mask 上の field_strength_mean の
+    notna 率が 0.5 未満の場合に RuntimeError を raise する fail-loud 検査が存在する.
+
+    FEAT-02 21 feature 全行 sentinel 化の silent data loss を検知する（core value「リーク防止」の鏡像）。
+    """
+    src = _read_builder_source()
+    assert "joined_ratio" in src, (
+        "CR-02: Step5c の field_strength_mean notna 率 (joined_ratio) 計算が builder.py に無い"
+    )
+    assert "0.5" in src, (
+        "CR-02: Step5c の joined_ratio < 0.5 閾値が builder.py に無い"
+    )
+    assert "RuntimeError" in src, (
+        "CR-02: Step5c の joined_ratio < 0.5 で raise する RuntimeError が builder.py に無い"
+    )
+    assert "CR-02 fail-loud" in src, (
+        "CR-02: Step5c の fail-loud 検査に CR-02 識別子が無い"
+    )
+
+
+
+# ===========================================================================
 # Test 5: assert_matrix_columns_registered が 27 新 feature で GREEN
 # ===========================================================================
 def test_assert_matrix_columns_registered_accepts_27_new_features():

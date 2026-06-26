@@ -50,12 +50,16 @@ per-source-race batch（``SOURCE_RACE_BATCH_SIZE``）に分割し・各バッチ
 
 from __future__ import annotations
 
+import logging
 from typing import Any  # noqa: F401  (型ヒント用)
 
 import pandas as pd
 
 from src.features.availability import CUTOFF_SEMANTICS
 from src.features.speed_figure import compute_speed_figure_for_history
+
+# CR-01 (10-08 gap-closure): 空 バッチの silent data loss を logger.warning で可視化するため。
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # HIGH #2 / SC#2: cutoff semantics 不変量の実行時参照（strict_less_than / Asia/Tokyo）。
@@ -256,11 +260,22 @@ def _compute_source_asof_opponent_speed_figures(
     )
 
     if len(source_starters) == 0:
-        # source race の starter がいない（空）→ 空フレームを返す
+        # CR-01 (10-08 gap-closure): source_available_at_by_race が非空なのに starters が空は
+        # 「source race は存在するが全 source race が starter 不存在（kakuteijyuni > 0 の行が無い）」
+        # 状態・silent empty DataFrame 返却で後段に進むことを封印する（CYCLE-2 HIGH-C2-1 値レベル PIT 保証の
+        # silent fallback 経路・core value「リーク防止」の鏡像「silent fallback 禁止」違反）。
+        if len(source_available_at_by_race) > 0:
+            raise RuntimeError(
+                f"field_strength: source race {len(source_available_at_by_race)} 件中・"
+                "全 source race が starter 不存在（kakuteijyuni > 0 の行が無い）・"
+                "silent data loss を検知 (CR-01 fail-loud・CYCLE-2 HIGH-C2-1)"
+            )
+        # source_available_at_by_race も空の場合は正当な空入力・空 DataFrame を返す
         return pd.DataFrame(columns=["race_nkey", "kettonum", "speed_figure", "available_at"])
 
     # CYCLE-3 MEDIUM #3: per-source-race batch で compute_speed_figure_for_history を呼出し・H² 積 materialize を回避
     batches: list[pd.DataFrame] = []
+    n_empty_batches = 0  # CR-01 (10-08): 空 バッチ（synth_obs 空 or compute 結果空）を追跡
     # race_nkey 毎にグループ化し・SOURCE_RACE_BATCH_SIZE 件の race_nkey を1バッチにまとめる
     unique_source_races = list(dict.fromkeys(source_starters["race_nkey"].tolist()))
     for batch_start in range(0, len(unique_source_races), SOURCE_RACE_BATCH_SIZE):
@@ -278,11 +293,37 @@ def _compute_source_asof_opponent_speed_figures(
         # PIT filter 済み・par/variant/speed_figure が source-as-of で算出される）
         recomputed = compute_speed_figure_for_history(raw_history, observations=synth_obs)
         batches.append(recomputed)
+        if len(recomputed) == 0:
+            n_empty_batches += 1
 
     if not batches:
+        # 全バッチループが回らずにここに来ることは上記 len(source_starters)==0 チェックで構造的に到達不能だが・
+        # 防御的に fail-loud を置く（silent empty DataFrame 返却を封印・CR-01）。
+        if len(source_available_at_by_race) > 0:
+            raise RuntimeError(
+                f"field_strength: batches が空・source race {len(source_available_at_by_race)} 件が"
+                "全て starter 不存在の疑い (CR-01 fail-loud・CYCLE-2 HIGH-C2-1・到達不能経路)"
+            )
         return pd.DataFrame(columns=["race_nkey", "kettonum", "speed_figure", "available_at"])
 
-    result = pd.concat(batches, ignore_index=True)
+    # CR-01 (10-08 gap-closure): 空 バッチが混在する場合は silent な source race 欠落を可視化する。
+    # pd.concat は空 DataFrame を無視して結合するため・batches に空が含まれると当該 source race が
+    # 暗黙に欠落する（silent data loss）。non_empty_batches のみを結合対象にし・空 バッチ数を warning で記録。
+    if n_empty_batches > 0:
+        logger.warning(
+            "field_strength: %d / %d バッチが空（source race starter 欠損の疑い・CR-01 silent data loss 可視化）",
+            n_empty_batches, len(batches),
+        )
+    non_empty_batches = [b for b in batches if len(b) > 0]
+    if not non_empty_batches:
+        # 全バッチが空（source race は存在するが全 source race の opponent 過去走が PIT filter で全欠損等）。
+        # silent empty DataFrame 返却でなく fail-loud で後段に進むことを封印する。
+        raise RuntimeError(
+            f"field_strength: source race {len(source_available_at_by_race)} 件・"
+            f"{len(batches)} バッチ全てが空（opponent 過去走が全て欠損 or PIT filter で全除外）・"
+            "silent data loss を検知 (CR-01 fail-loud・CYCLE-2 HIGH-C2-1)"
+        )
+    result = pd.concat(non_empty_batches, ignore_index=True)
     return result
 
 
@@ -310,6 +351,36 @@ def _opponent_ability_latest_mean5(
       - layer 1: speed_figure 値自体が source-as-of で再計算済み（_compute_source_asof_opponent_speed_figures）
       - layer 2: opponent_vs_source filter で source 以後の opponent レースを行レベルで除外（本関数）
     target cutoff はいずれの layer にも現れない。
+
+    obs_id parse 契約（WR-01・10-08 gap-closure docstring 強化）:
+        obs_id 形式は ``SOURCE_ASOF_<source_race_nkey>_<opponent_kettonum>``。本関数は ``stripped = obs_id.str[len("SOURCE_ASOF_"):]`` の後に ``rsplit("_", n=1)`` で最後の ``_`` を境界として ``parts[0]`` を
+        ``source_race_nkey``・``parts[1]`` を ``opponent_kettonum`` として抽出する。
+
+        (1) **本番 ``make_race_nkey`` 形式が契約**: ``src/features/builder.py`` の ``make_race_nkey`` が生成する
+        race_nkey は ``YYYYJJJKKNN`` 形式（年/場/回/日/R 番号の零埋連結）で・**アンダースコア (``_``) を含まない**。
+        従って ``rsplit("_", n=1)`` は ``<source_race_nkey>`` と ``<opponent_kettonum>`` の境界（最後の ``_``）
+        を正しく分離できる。本番の ``make_race_nkey`` 契約（``_`` 含まない）が保たれる限り・本 parse は安全。
+
+        (2) **``rsplit("_", n=1)`` の安全性根拠**: ``rsplit`` を右から1回だけ実行するため・source_race_nkey 側に
+        ``_`` が含まれていても全部 parts[0] 側に残る。ただし ``make_race_nkey`` が ``_`` を含まない契約のため・
+        本来的な運用では parts[0] は単一の race_nkey 文字列全体になる（L341 既存コメントで配慮済み）。
+
+        (3) **``_`` 含み race_nkey 混入時の誤抽出リスク**: 万が一・本番 ``make_race_nkey`` が ``_`` を含む形式に
+        変更された場合・``rsplit`` は最後の ``_`` で分割するため parts[0] が正しくない source_race_nkey になる
+        （例: race_nkey='2024010_501' の場合 obs_id='SOURCE_ASOF_2024010_501_3' で parts[0]='2024010_501'・
+        parts[1]='3' は正しいが・race_nkey='202401050_1' の場合は parts[0]='202401050'・parts[1]='1' で
+        kettonum まで食われる）。これは ``make_race_nkey`` 契約違反時のリスク。
+
+        (4) **契約違反を検知する adversarial テスト**: ``tests/features/test_field_strength.py`` に
+        ``_`` 含み race_nkey 形式で parse が壊れるケースを意図的に起こして検知する adversarial テスト
+        が存在する。``make_race_nkey`` の ``_`` 無し契約が保たれる限り稼働環境では発火しないが・契約が壊れた
+        場合に本テストが RED で気付かせる。
+
+        **本 plan の scope（helper 大規模書き直しは backlog 化）**: ``tests/features/test_field_strength.py`` の
+        ``_fs_history_row`` helper は77箇所の呼出し（17テスト関数）で ``"R1_20230610"`` 形式（``_`` 含み）の
+        race_nkey を使い続ける。本番 ``make_race_nkey`` が ``_`` 無し形式である限り実害は無いが・helper 全面書き直し
+        （77箇所 + 17テスト assertion）は context budget 圧迫と CYCLE-2 adversarial テスト破壊リスクから backlog 化
+        （10-08-SUMMARY.md deferred セクション参照）。本 docstring + adversarial テストで契約を機械保証する。
 
     Parameters
     ----------
@@ -492,6 +563,19 @@ def compute_field_strength_profile(
     source_available_at_by_race = source_races.groupby("race_nkey", sort=False)[
         "available_at"
     ].first()
+
+    # CR-01 (10-08 gap-closure): starters 存在 source race 数 vs source_available_at_by_race 件数の
+    # fail-loud 検査。source_available_at_by_race は source_races の groupby 由来なので理論上は一致するが・
+    # drop_duplicates / groupby の境界で silent data quality 低下（一部 source race の starters が欠落し
+    # profile が過小評価される）を検知する（core value「リーク防止」の鏡像「silent fallback 禁止」）。
+    n_source_races_from_starters = int(source_races["race_nkey"].nunique())
+    n_source_races_in_cutoff = int(len(source_available_at_by_race))
+    if n_source_races_from_starters != n_source_races_in_cutoff:
+        raise RuntimeError(
+            f"field_strength: starters 存在 source race 数 ({n_source_races_from_starters}) と "
+            f"source_available_at_by_race 件数 ({n_source_races_in_cutoff}) が不一致・"
+            "silent data quality 低下の疑い (CR-01 fail-loud・CYCLE-2 HIGH-C2-1)"
+        )
 
     # (b) source-as-of full-pipeline 再計算・全 source race について source-as-of 再計算済み opponent
     #     speed_figure 値を一括取得（obs_id='SOURCE_ASOF_<race_nkey>_<kettonum>'・
