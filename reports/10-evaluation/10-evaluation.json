@@ -1,0 +1,172 @@
+{
+  "args": {
+    "baseline_snapshot_id": "20260620-1a-postreview-v2",
+    "bt_split": "BT-1",
+    "odds_snapshot_policy": "30min_before",
+    "phase10_snapshot_id": "20260626-1a-opponentstrength-v1"
+  },
+  "baseline_constants_reference": {
+    "BASELINE_AUC": 0.7323,
+    "BASELINE_BRIER": 0.15222,
+    "BASELINE_LOGLOSS": 0.47488,
+    "note": "Phase 6 D-07 当時参考値・gate 判定の delta 基準でない (B-3・baseline snapshot 実測値が delta 基準)"
+  },
+  "baseline_drift_warning": {
+    "auc_drift": -0.03521825331619688,
+    "brier_drift": 0.0032438774484309374,
+    "logloss_drift": 0.004979631863913481,
+    "warning": "baseline 実測値が BASELINE_* 参考値 (Phase 6 当時) と大きく乖離している場合・trainer 設定ドリフト (LightGBM version/hyperparams/seed/category_map/split_periods 揺らぎ) を疑う (feature ノイズ化と設定ドリフトの鑑別・§11.2 聖域)"
+  },
+  "baseline_metrics": {
+    "auc": 0.6970817466838031,
+    "brier": 0.15546387744843093,
+    "logloss": 0.4798596318639135
+  },
+  "binning_source": {
+    "CALIBRATION_CURVE_BINS": 10,
+    "CALIBRATION_CURVE_MIN_BIN_COUNT": 30,
+    "NINKI_BAND_EDGES": [
+      0.0,
+      3.0,
+      6.0,
+      9.0,
+      "Infinity"
+    ],
+    "ODDS_BAND_EDGES": [
+      0.0,
+      2.9,
+      4.9,
+      9.9,
+      "Infinity"
+    ],
+    "note": "§15.2 事前登録指標不変・evaluator/segment_eval から import 再利用 (再定義禁止)"
+  },
+  "d15_reference_segments": {
+    "error": "evaluate_all_segments: y_true_col='fukusho_hit' が df に存在しない",
+    "note": "D-15 参考記録 (Phase 12 EVAL-01 先行指標)・gate 判定には使わない"
+  },
+  "delta": {
+    "auc_delta": 0.0017991384081117445,
+    "brier_delta": -0.0002211809456504621,
+    "logloss_delta": 0.0048690729512921305
+  },
+  "gate_pass": true,
+  "model_versions": {
+    "baseline": "20260620-1a-postreview-v2-lgb-v1",
+    "phase10": "20260626-1a-opponentstrength-v1-lgb-v1"
+  },
+  "phase10_metrics": {
+    "auc": 0.6988808850919148,
+    "brier": 0.15524269650278047,
+    "logloss": 0.48472870481520564
+  },
+  "safe_01_note": "Phase 10 snapshot は PLAN 05 で odds-free を実証済み (registry derived FEATURE_COLUMNS・SAFE-01・SC#4 AST audit 対象)。run_phase10_evaluation.py は market データを diagnostic 層 (D-15 segment_eval) でのみ使用し FEATURE_COLUMNS には混入しない。",
+  "tolerance": {
+    "auc": 0.005,
+    "brier": 0.002,
+    "logloss": 0.005,
+    "note": "D-16 事前登録許容幅 (§11.2 聖域・Open Question #4 解決)・評価後変更しない"
+  },
+  "w2_candidate_score_diagnostics": {
+    "calib_path": "reports/10-evaluation/candidate_score_diagnostics_calib.json",
+    "diag_calib": {
+      "0.0": {
+        "adjusted_rank_mean": 6.954089506172839,
+        "adjusted_rank_std": 4.010093210290424,
+        "max": 514.6459999999998,
+        "mean": 8.371143288274656,
+        "min": -457.422,
+        "p10": -71.36720000000003,
+        "p50": 2.99200000000003,
+        "p90": 95.18080000000019,
+        "std": 77.62625348399781
+      },
+      "0.1": {
+        "adjusted_rank_mean": 6.7368102491677595,
+        "adjusted_rank_std": 3.9234032436799087,
+        "max": 518.9169264444442,
+        "mean": 9.072249558828698,
+        "min": -460.56828480586086,
+        "p10": -71.4768221719836,
+        "p50": 4.003580871794869,
+        "p90": 97.00012472722837,
+        "std": 78.5034948041823
+      },
+      "0.25": {
+        "adjusted_rank_mean": 6.7368102491677595,
+        "adjusted_rank_std": 3.9234032436799082,
+        "max": 525.3233161111109,
+        "mean": 10.123908964659762,
+        "min": -465.287712014652,
+        "p10": -73.23455727827722,
+        "p50": 5.227609519230766,
+        "p90": 100.18702924519935,
+        "std": 79.92922903999231
+      },
+      "0.5": {
+        "adjusted_rank_mean": 6.7368102491677595,
+        "adjusted_rank_std": 3.9234032436799087,
+        "max": 536.0006322222221,
+        "mean": 11.87667464104487,
+        "min": -473.15342402930406,
+        "p10": -74.88808022151002,
+        "p50": 7.11571494708997,
+        "p90": 105.87356668703872,
+        "std": 82.5811960570251
+      }
+    },
+    "diag_train": {
+      "0.0": {
+        "adjusted_rank_mean": 6.907856768100735,
+        "adjusted_rank_std": 4.006573755463388,
+        "max": 717.2880000000001,
+        "mean": 8.306795486311525,
+        "min": -469.63966666666664,
+        "p10": -77.35199999999998,
+        "p50": 2.4260000000000153,
+        "p90": 101.18400000000001,
+        "std": 82.11242888401718
+      },
+      "0.1": {
+        "adjusted_rank_mean": 6.731232811598139,
+        "adjusted_rank_std": 3.930110244915626,
+        "max": 721.2745560990677,
+        "mean": 8.957277883271493,
+        "min": -473.58066840740736,
+        "p10": -77.9074100281728,
+        "p50": 3.482814857142823,
+        "p90": 102.89923348920404,
+        "std": 83.03388822856883
+      },
+      "0.25": {
+        "adjusted_rank_mean": 6.731232811598139,
+        "adjusted_rank_std": 3.930110244915626,
+        "max": 727.2543902476691,
+        "mean": 9.93300147871145,
+        "min": -479.4921710185185,
+        "p10": -79.03111160612536,
+        "p50": 4.692995010926598,
+        "p90": 106.18849176420795,
+        "std": 84.51876553028764
+      },
+      "0.5": {
+        "adjusted_rank_mean": 6.731232811598139,
+        "adjusted_rank_std": 3.930110244915626,
+        "max": 737.2207804953381,
+        "mean": 11.559207471111378,
+        "min": -489.34467537037034,
+        "p10": -80.6047441919192,
+        "p50": 6.376032324134213,
+        "p90": 111.66228293981482,
+        "std": 87.25154152630894
+      }
+    },
+    "status": "ok",
+    "train_path": "reports/10-evaluation/candidate_score_diagnostics_train.json"
+  },
+  "w3_category_map_bit_identity": {
+    "baseline_cat_map_hash": "96b7cc5807604e7c6b23570b22cdaed2560b87111373f72c037ddd2d0c3099b6",
+    "bit_identical": true,
+    "phase10_cat_map_hash": "96b7cc5807604e7c6b23570b22cdaed2560b87111373f72c037ddd2d0c3099b6"
+  }
+}
