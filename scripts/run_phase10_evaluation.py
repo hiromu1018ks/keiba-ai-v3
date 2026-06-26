@@ -258,23 +258,28 @@ def _compute_w2_diagnostics(
         )
         return {"status": "skipped", "reason": f"import failed: {e}"}
 
-    # train/calib 窓の mask を構築 (split_periods=BT1_PERIODS から race_date で)
-    if "race_date" not in phase10_frame.columns:
-        logger.warning("W-2 skip: phase10_frame に race_date 列がない・mask 構築不能")
-        return {"status": "skipped", "reason": "race_date column missing"}
-    rd = pd.to_datetime(phase10_frame["race_date"], errors="coerce")
-    train_mask = rd.between(pd.to_datetime(BT1_PERIODS["train"][0]), pd.to_datetime(BT1_PERIODS["train"][1]))
-    calib_mask = rd.between(pd.to_datetime(BT1_PERIODS["calib"][0]), pd.to_datetime(BT1_PERIODS["calib"][1]))
-
-    # 必須列の存在確認 (compute_candidate_score_diagnostics が fail-loud する前に WARN 可能)
+    # CR-04 (10-08 gap-closure): phase10_frame が rolling 系 feature を含むことを assert する。
+    # W-2 diagnostic は §11.2 聖域（test 窓 rank すり替え禁止・W-2 候補集合 diagnostic）の履行証跡であり・
+    # rolling 系 feature が未伝播の frame を受け取った場合は WARNING skip でなく RuntimeError で
+    # 履行証跡欠損を構造的ブロックする（FEAT-02/03 未伝播・Phase 10 acceptance_criteria W-2 履行不能）。
     required = ("race_nkey", "rolling_speed_figure_mean_5", "rolling_field_strength_mean_mean_5")
     missing = [c for c in required if c not in phase10_frame.columns]
     if missing:
-        logger.warning(
-            "W-2 skip: phase10_frame に必須列 %s が無い・diagnostic は算出不能 (FEAT-02/03 未伝播?)",
-            missing,
+        raise RuntimeError(
+            f"W-2 必須列が phase10_frame に無い: {missing}・FEAT-02/03 未伝播・"
+            "Phase 10 acceptance_criteria W-2 が履行不能（§11.2 聖域・CR-04 fail-loud）"
         )
-        return {"status": "skipped", "reason": f"missing cols: {missing}"}
+
+    # train/calib 窓の mask を構築 (split_periods=BT1_PERIODS から race_date で)
+    # CR-04 (10-08 gap-closure): race_date 列欠損も RuntimeError に格上げ（mask 構築不能 = W-2 履行不能）。
+    if "race_date" not in phase10_frame.columns:
+        raise RuntimeError(
+            "W-2 mask 構築不能: phase10_frame に race_date 列がない・"
+            "Phase 10 acceptance_criteria W-2 が履行不能（§11.2 聖域・CR-04 fail-loud）"
+        )
+    rd = pd.to_datetime(phase10_frame["race_date"], errors="coerce")
+    train_mask = rd.between(pd.to_datetime(BT1_PERIODS["train"][0]), pd.to_datetime(BT1_PERIODS["train"][1]))
+    calib_mask = rd.between(pd.to_datetime(BT1_PERIODS["calib"][0]), pd.to_datetime(BT1_PERIODS["calib"][1]))
 
     diag_train = compute_candidate_score_diagnostics(phase10_frame, split_mask=train_mask)
     diag_calib = compute_candidate_score_diagnostics(phase10_frame, split_mask=calib_mask)
@@ -359,9 +364,23 @@ def main(argv: list[str] | None = None) -> int:
 
     # T-09-21: statement_timeout='30s' で重クエリの orphan CPU 張り付き防止
     # (MEMORY.md subagent-db-query-statement-timeout)
-    readonly_pool = make_pool(settings, role="readonly")
+    #
+    # WR-02 (10-08 gap-closure): psycopg_pool ConnectionPool の configure callback で
+    # SET statement_timeout='30s' を pool 全体に適用する。cursor 単位の SET は connection を
+    # pool に返した後に別 session になると引き継がれないが・configure callback は新規 connection
+    # checkout 毎に呼ばれるため・train_and_predict 内の別 session にも確実に適用される。
+    def _configure_statement_timeout(conn) -> None:  # noqa: ANN001
+        with conn.cursor() as cur:
+            cur.execute("SET statement_timeout = '30s'")
+        conn.commit()
+
+    readonly_pool = make_pool(
+        settings, role="readonly", configure=_configure_statement_timeout
+    )
     try:
         with readonly_cursor(readonly_pool) as cur:
+            # 二重防衛: configure callback と cursor 内 SET の両方で statement_timeout を設定。
+            # 主は configure callback（pool 全体適用）・本 cursor SET は defense-in-depth。
             cur.execute("SET statement_timeout = '30s'")
 
             # REVIEW H6 (5a): feature_df ロード (両 snapshot 明示的 snapshot_id で)

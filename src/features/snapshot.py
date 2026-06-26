@@ -46,6 +46,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import yaml
 
+from src.features.race_relative import _AXIS_TO_RANK_SUFFIX
 from src.features.rolling import _CATEGORICAL_SYSTEMS
 from src.utils.category_map import MISSING
 
@@ -81,14 +82,14 @@ _BYTE_REPRODUCIBLE_SCOPE = "parquet_data_only_metadata_excluded"
 # Phase 10 PLAN 05 (FEAT-03・Pitfall 5): rolling_ prefix 無しの rank/gap 列も
 # Parquet 直列化前に nullable Float64 に強制変換する（最終防衛線・builder Step6c が保証するが
 # snapshot 境界でも防御的に扱う）。sentinel 文字列は NaN になり D-09 欠損馬 NaN 保持と整合。
-_FEAT03_NUMERIC_COLUMNS: frozenset[str] = frozenset({
-    "speed_index_rank_mean5",
-    "speed_index_rank_best2_mean5",
-    "speed_index_rank_median5",
-    "gap_to_top",
-    "gap_to_3rd",
-    "field_strength_adjusted_rank",
-})
+#
+# WR-03 (10-08 gap-closure): _AXIS_TO_RANK_SUFFIX から動的導出する（frozenset ハードコードでなく）。
+# race_relative.py に新たな axis が追加された場合・snapshot.py 側の更新忘れを排除する
+# （実データでしか発覚しない Parquet 直列化 bug・memory feature-snapshot-regen-required）。
+# 循環 import は無し（race_relative.py は snapshot.py を import しない）。
+_FEAT03_NUMERIC_COLUMNS: frozenset[str] = frozenset(
+    {f"speed_index_rank_{suffix}" for suffix in _AXIS_TO_RANK_SUFFIX.values()}
+) | {"gap_to_top", "gap_to_3rd", "field_strength_adjusted_rank"}
 
 
 def _coerce_rolling_columns_for_parquet(df: pd.DataFrame) -> pd.DataFrame:

@@ -264,9 +264,16 @@ def test_feature_columns_contains_phase10_features_no_proxy() -> None:
             f"{forbidden_in_p10} (HIGH #9 違反・banned alias sneak-in)"
         )
     else:
-        # snapshot 未生成時は fail-loud（silent fallback で mask しない）
-        with pytest.raises(FileNotFoundError):
-            _derive_feature_columns(snapshot_id=_PHASE10_SNAPSHOT_ID)
+        # WR-06 (10-08 gap-closure): snapshot 未生成時は pytest.skip に変更。
+        # 旧実装は pytest.raises(FileNotFoundError) だったが・これでは「silent fallback で mask しない」
+        # 意図が test_data.py::test_phase10_derive_feature_columns_new_and_baseline_regression と重複し・
+        # CI/snapshot 無し環境では常に else 経路が走り 27 feature 含有検査が一度も実行されず ship される
+        # リスクがあった（silent fallback mask 経路）。実 snapshot 検証は test_data.py に一本化し・
+        # 本テストは snapshot が存在する環境でのみ 27 feature 含有検査を実行する。
+        pytest.skip(
+            f"Phase 10 snapshot ({_PHASE10_SNAPSHOT_ID}) 未生成・"
+            "実 snapshot 検証は test_data.py::test_phase10_* に一本化 (WR-06・silent fallback mask 排除)"
+        )
 
 
 # ---------------------------------------------------------------------------

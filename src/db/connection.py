@@ -9,10 +9,10 @@ legacy psycopg2 は import しない（CLAUDE.md What NOT to Use）。
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
-from psycopg import Cursor
+from psycopg import Connection, Cursor
 from psycopg_pool import ConnectionPool
 
 from src.config.settings import Settings
@@ -24,6 +24,7 @@ def make_pool(
     role: str = "readonly",
     min_size: int = 1,
     max_size: int = 8,
+    configure: Callable[[Connection], None] | None = None,
 ) -> ConnectionPool:
     """DB 接続 pool を構築する。
 
@@ -33,6 +34,14 @@ def make_pool(
               ``"etl"`` で normalized 書込ロール（Settings.etl_dsn・
               search_path=normalized,public）。それ以外は ValueError。
         min_size, max_size: pool サイズ
+        configure: psycopg_pool ConnectionPool の ``configure`` callback・新規 connection checkout
+            毎に呼ばれる。statement_timeout 等 session 設定の pool 全体適用に使用（WR-02・
+            memory subagent-db-query-statement-timeout）。``None`` の場合は ConnectionPool の
+            default 挙動（configure 無し）不変。既存呼出しは configure 未指定で非破壊。
+
+    Note:
+        ``configure`` は psycopg_pool ``ConnectionPool.__init__`` の引数であってインスタンスメソッドで
+        ない（``readonly_pool.configure(...)`` は存在しない・ AttributeError）。本関数経由で forward する。
     """
     if role == "readonly":
         conninfo = settings.dsn
@@ -60,6 +69,7 @@ def make_pool(
         max_size=max_size,
         kwargs={"options": f"-c search_path={search_path}"},
         open=True,
+        configure=configure,
     )
 
 
