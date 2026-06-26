@@ -6,14 +6,14 @@ current_phase: 10
 current_phase_name: opponent-strength-race-relative-features
 status: executing
 stopped_at: "Phase 10 context gathered（相手強度 field_strength 厳格版 as-of・レース内相対 rank 3軸+gap・SC#5 非劣化 gate）"
-last_updated: "2026-06-26T13:29:47.844Z"
+last_updated: "2026-06-26T13:46:40.828Z"
 last_activity: 2026-06-26
 last_activity_desc: Phase 10 execution started
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 13
-  completed_plans: 7
+  completed_plans: 8
   percent: 40
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 10 (opponent-strength-race-relative-features) — EXECUTING
-Plan: 2 of 7
+Plan: 3 of 7
 Status: Ready to execute
 Last activity: 2026-06-26 — Phase 10 execution started
 
@@ -126,6 +126,7 @@ Last activity: 2026-06-26 — Phase 10 execution started
 | Phase 09 P03 | 約12分 | 3 tasks | 7 files |
 | Phase 09 P04 | 約18分 | 2 tasks | 2 files |
 | Phase 10 P01 | 23min | 1 task tasks | 2 files files |
+| Phase 10 P02 | 11min | 1 task | 2 files |
 
 ### Decisions
 
@@ -263,6 +264,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 10 Plan 01: CYCLE-2 HIGH-C2-1 source-as-of full-pipeline recompute（obs_id=SOURCE_ASOF_<race_nkey>_<kettonum>・source_race.available_at cutoff で compute_speed_figure_for_history を raw history に再実行・値レベル source-vs-target-cutoff 保証）
 - [Phase ?]: Phase 10 Plan 01: CYCLE-3 MEDIUM #1/#2/#3（available_at 関数内導出・horse-level par via race×horse obs_id・per-source-race batch で H² 積回避）
 - [Phase ?]: Phase 10 Plan 01: D-02 Open Question #1 解決（OPPONENT_ROLLING_AXIS=rolling_speed_figure_mean_5 の1軸のみ・17倍計算量抑制）
+- [Phase ?]: Phase 10 Plan 02: rolling_field_strength 21 feature（D-06 第2段階）実装・D-13 意味サフィックス命名・CYCLE-2 HIGH-C2-2 downstream gate
 
 ### Pending Todos
 
@@ -296,7 +298,7 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-06-25:
 
 **Resume file:** .planning/phases/10-opponent-strength-race-relative-features/10-CONTEXT.md
 
-Last session: 2026-06-26T13:29:47.838Z
+Last session: 2026-06-26T13:45:35.516Z
 Stopped at: Phase 10 context gathered（相手強度 field_strength 厳格版 as-of・レース内相対 rank 3軸+gap・SC#5 非劣化 gate）
 Resume: `/gsd-execute-phase 9`（P04: SC#4 SAFE-01 AST audit + SC#5 ドメイン整合性可視化・rolling_speed_figure_* 6 feature を含む完成 feature_matrix が必要・本 P03 で生成可能に）
 
