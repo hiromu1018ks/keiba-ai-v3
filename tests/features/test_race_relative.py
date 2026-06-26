@@ -17,7 +17,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-
 # --- ヘルパ: 合成 feature_matrix 構築 ----------------------------------------
 
 def _build_race(
