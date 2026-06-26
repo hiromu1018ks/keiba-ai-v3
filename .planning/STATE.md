@@ -6,14 +6,14 @@ current_phase: 10
 current_phase_name: opponent-strength-race-relative-features
 status: executing
 stopped_at: None
-last_updated: "2026-06-26T14:23:24.184Z"
+last_updated: "2026-06-26T15:57:42.641Z"
 last_activity: 2026-06-26
 last_activity_desc: Phase 10 execution started
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 13
-  completed_plans: 10
+  completed_plans: 11
   percent: 40
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 10 (opponent-strength-race-relative-features) — EXECUTING
-Plan: 5 of 7
+Plan: 6 of 7
 Status: Ready to execute
 Last activity: 2026-06-26 — Phase 10 execution started
 
@@ -129,6 +129,7 @@ Last activity: 2026-06-26 — Phase 10 execution started
 | Phase 10 P02 | 11min | 1 task | 2 files |
 | Phase 10 P03 | 4min | 1 tasks | 2 files |
 | Phase 10 P04 | 38min | 1 tasks | 6 files |
+| Phase 10 P05 | 90min | 2 tasks | 5 files |
 
 ### Decisions
 
@@ -269,6 +270,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 10 Plan 02: rolling_field_strength 21 feature（D-06 第2段階）実装・D-13 意味サフィックス命名・CYCLE-2 HIGH-C2-2 downstream gate
 - [Phase 10]: Phase 10 Plan 03: FEAT-03 race_relative.py (target-only race_id group-by + competition ranking + W-5 §11.2 protection + W-2 diagnostic helper) — D-10 competition ranking via pandas Series.rank method=min ascending=False na_option=keep. D-12 coef 0.25 canonical pre-registered (candidates {0.0,0.1,0.25,0.5} for train/calib window only). REVIEW MEDIUM-7 gap_to_3rd tie spec: rank==3 empty -> all NaN. CYCLE-3 MEDIUM #2 horse-level par scale compatibility.
 - [Phase ?]: Phase 10 Plan 04: builder.py Step5c/6c/6d 統合 (FEAT-02 21 + FEAT-03 6 = 27 feature)・feature_availability.yaml schema_version 0.6.0・CYCLE-2 HIGH-C2-3 raw_history 受渡・A6 構成変更・registry parity GREEN
+- [Phase ?]: Phase 10 Plan 05: snapshot 20260626-1a-opponentstrength-v1 生成 (feature_count=106 Parquet, model FEATURE_COLUMNS=79, delta=+27, SHA256 byte-reproducible §19.1) + FEAT-03 snapshot 境界防御的 Float64 変換 + Rule 1 fix (Step6d adjusted_rank 誤 drop)
 
 ### Pending Todos
 
@@ -302,7 +304,7 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-06-25:
 
 **Resume file:** 
 
-Last session: 2026-06-26T14:23:24.178Z
+None
 Stopped at: None
 Resume: `/gsd-execute-phase 9`（P04: SC#4 SAFE-01 AST audit + SC#5 ドメイン整合性可視化・rolling_speed_figure_* 6 feature を含む完成 feature_matrix が必要・本 P03 で生成可能に）
 

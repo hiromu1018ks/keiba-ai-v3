@@ -110,7 +110,7 @@ Plans:
   4. オッズ/人気/過去人気/過去オッズ proxy の混入がないことを adversarial audit で証明できる（SAFE-01）
   5. live-DB で生成した snapshot が・v1.0 の主モデル（LightGBM）で再学習時に Brier/LogLoss/AUC の現行水準（Phase 6 D-07 数値）を悪化させない（特徴量ノイズ化の回帰検知）
 
-**Plans**: 4/7 plans executed
+**Plans**: 5/7 plans executed
 
 Plans:
 **Wave 1**
@@ -128,7 +128,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 10-05-PLAN.md — snapshot.py 拡張 + live-DB で snapshot 20260626-1a-opponentstrength-v1（feature_count=106）生成 + byte-reproducibility 検証（SC#3・§19.1・Pitfall 5）
+- [x] 10-05-PLAN.md — snapshot.py 拡張 + live-DB で snapshot 20260626-1a-opponentstrength-v1（feature_count=106）生成 + byte-reproducibility 検証（SC#3・§19.1・Pitfall 5）
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
@@ -180,6 +180,6 @@ Plans:
 | 8. Adversarial Audit Suite | v1.0 | 3/3 | Complete | 2026-06-25 |
 | 9. Speed Figure Foundation | v1.1 | 5/5 | Complete   | 2026-06-25 |
 | 9.1. Speed Ability Profile Expansion (INSERTED) | v1.1 | 1/1 | Complete | 2026-06-26 |
-| 10. Opponent Strength & Race-Relative Features | v1.1 | 4/7 | In Progress|  |
+| 10. Opponent Strength & Race-Relative Features | v1.1 | 5/7 | In Progress|  |
 | 11. Race-Relative Probability Model | v1.1 | 0/? | Not started | - |
 | 12. p_lower EV & Falsification Evaluation | v1.1 | 0/? | Not started | - |
