@@ -145,6 +145,13 @@ _OBS_DB_SELECT_COLUMNS: tuple[str, ...] = (
     "ur.kisyucode AS kisyucode",
     "ur.chokyosicode AS chokyosicode",
     "nr.class_code_normalized AS class_code_normalized",
+    # Phase 9.1 (D-09.1-05): target race の trackcd/kyori（same_surface/same_distance_bucket
+    # 計算用の中間値・rolling.build_rolling_features が observations から参照）。
+    # feature_matrix には出力しない（Step 6b で drop・snapshot 構成変更を speed profile
+    # 特徴量のみに抑制）。registry には race_context (both_allowed) として既登録だが
+    # v1.0/v1.1 でも feature として出力されていない（本 Phase も中間値のみ）。
+    "nr.trackcd AS trackcd",
+    "nr.kyori AS kyori",
 )
 _OBS_SELECT_COLUMN_NAMES: tuple[str, ...] = tuple(
     c.split(" AS ")[1] for c in _OBS_DB_SELECT_COLUMNS
@@ -516,11 +523,15 @@ def build_feature_matrix(
     # 位置は CR-01 merge（Step 5 rolling）の前・build_rolling_features が history["speed_figure"]
     # を numeric 系統として自動集約し rolling_speed_figure_* 6 feature を出力（P02 拡張済み）。
     from src.features.speed_figure import compute_speed_figure_for_history
-
+    import time as _time
+    _t_5b = _time.time()
     history = compute_speed_figure_for_history(history, observations=feature_matrix)
+    logger.info("build_feature_matrix: Step5b speed_figure %.1fs (history rows=%d)", _time.time() - _t_5b, len(history))
 
     if len(history) > 0 and len(feature_matrix) > 0:
+        _t_5 = _time.time()
         rolling_df = build_rolling_features(feature_matrix, history)
+        logger.info("build_feature_matrix: Step5 rolling %.1fs", _time.time() - _t_5)
         rolling_cols = [
             c for c in rolling_df.columns if c.startswith("rolling_")
         ]
@@ -608,7 +619,12 @@ def build_feature_matrix(
     # obs_id は rolling merge (CR-01) と推定脚質 groupby (WR-03) の中間キーで (race_nkey, kettonum)
     # の tuple。PyArrow が tuple を直列化できず write_snapshot で ArrowTypeError になる。
     # race_nkey + kettonum で復元可能なため最終 feature_matrix からは除外する。
-    feature_matrix = feature_matrix.drop(columns=["obs_id"], errors="ignore")
+    # Phase 9.1 (D-09.1-05): trackcd/kyori も same_surface/same_distance_bucket 計算用の中間値
+    # として feature snapshot に出力しない（speed profile 特徴量のみ追加・rolling_df から
+    # rolling_* のみ merge なので自動的に入らないが・feature_matrix 本体に残るため明示 drop）。
+    feature_matrix = feature_matrix.drop(
+        columns=["obs_id", "trackcd", "kyori"], errors="ignore"
+    )
 
     # --- Step 7: §13.2 metadata stamp（全行に定数列） ---
     feature_matrix["feature_snapshot_id"] = snapshot_id

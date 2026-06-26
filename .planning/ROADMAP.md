@@ -35,6 +35,7 @@
 ### v1.1 Ability Feature v2 & Conditional Calibration
 
 - [x] **Phase 9: Speed Figure Foundation** - 走破タイムを馬場/距離/トラック/クラス補正したスピード指数（Beyer 的）を自前構築し、能力特徴量の新たな主軸を据える (completed 2026-06-25)
+- [x] **Phase 9.1: Speed Ability Profile Expansion** (INSERTED) - Phase 9 の speed_figure 6→17 feature 拡張（median/best2/trend + same_surface/same_distance_bucket）・Phase 10 入力強化 (completed 2026-06-26)
 - [ ] **Phase 10: Opponent Strength & Race-Relative Features** - 相手強度（as-of）とレース内相対特徴量（rank/gap_to_top/gap_to_3rd）を追加し、複勝の相対競争を特徴量層で表現する
 - [ ] **Phase 11: Race-Relative Probability Model** - 独立二値分類から `sum(p)=払戻対象数(2/3)` 制約・race-level top-k calibration のレース内相対確率モデルへ移行する
 - [ ] **Phase 12: p_lower EV & Falsification Evaluation** - `p_lower` 下側信頼限界によるEV判定へ移行し、評価指標拡張（selected-only calibration / EV-decile ROI / disagreement ROI / snapshot slippage）と falsification test で market residual を統計検証する
@@ -76,10 +77,30 @@
 
 - [x] 09-05-PLAN.md — SC#6 stop gate(v1.0 baseline 比較・D-14 4指標+D-15 residual proxy・D-16 checkpoint)(FEAT-01)
 
+### Phase 09.1: Speed Ability Profile Expansion (INSERTED・完了 2026-06-26)
+
+**Goal:** Phase 9 の `speed_figure` 6 feature を 17 feature に拡張（median/best2/trend + same_surface/same_distance_bucket）。Phase 10（相手強度・レース内相対）の入力として十分な speed ability profile を確立。par/variant・float scale・PIT・stopgate の Phase 9 成果は壊さず、馬個人の speed profile 集約だけを拡張。
+**Depends on:** Phase 9
+**Requirements**: FEAT-01 (speed ability profile expansion), SAFE-01
+**Success Criteria** (what must be TRUE):
+
+  1. 新 11 特徴量（median_3/median_5/best2_mean_5/trend_last_minus_mean5/trend_mean3_minus_mean5 + same_surface/same_distance_bucket × mean/max/count）が live snapshot に存在し・欠損/count/coverage の挙動が説明できる（D-09.1-01/02/03）
+  2. registry↔Parquet parity GREEN（schema_version 0.5.0・`assert_matrix_columns_registered`）
+  3. unit tests GREEN（79 tests・Phase 9 回帰なし）
+  4. adversarial lookahead test GREEN（same_surface/distance_bucket が二重 PIT filter に依存・guard 無効化で混入検出）+ odds proxy audit GREEN（SAFE-01）
+  5. PIT-correct 維持（`available_at < feature_cutoff_datetime` strict `<`）
+  6. byte reproducibility 維持（snapshot `20260626-1a-speedprofile-v1`・features=79・2回 build で SHA256 一致）
+  7. stopgate 3-way 比較（v1.0 baseline / Phase 9 6-feature / Phase 9.1 expanded）が reports/09-stopgate + reports/09.1-stopgate に読める形で残る（D-16 verdict: Phase 10 進行候補）
+
+**Plans:** 1/1 complete
+Plans:
+
+- [x] 09.1-01-PLAN.md — rolling.py 拡張(median/best2/trend + same_surface/same_distance_bucket) + availability/feature_availability.yaml(schema 0.5.0) + builder(target trackcd/kyori) + snapshot/tests/stopgate (FEAT-01/SAFE-01)
+
 ### Phase 10: Opponent Strength & Race-Relative Features
 
 **Goal**: 過去走の相手の as-of 能力平均（`field_strength`）と、レース内相対特徴量（`speed_index_rank` / `gap_to_top` / `gap_to_3rd` / `field_strength_adjusted_rank`）を、Phase 9 のスピード指数を前提として odds-free・PIT-safe に追加する。複勝の「相対競争・各馬独立事象でない」性質を特徴量層で表現する。
-**Depends on**: Phase 9 (スピード指数が能力の基盤・相手強度・レース内相対の計算に使用)
+**Depends on**: Phase 9.1 (Phase 9.1 完了後の新 snapshot `20260626-1a-speedprofile-v1`・17 feature 拡張 speed profile を入力。Phase 9 スピード指数 + Phase 9.1 分布形状/趨勢/条件適性 profile が相手強度・レース内相対の基盤・Phase 10 後の speed profile 差し込み禁止)
 **Requirements**: FEAT-02, FEAT-03, SAFE-01 (特徴量追加時のリーク/市場回帰ガード)
 **Success Criteria** (what must be TRUE):
 
@@ -135,6 +156,7 @@
 | 7. Presentation | v1.0 | 3/3 | Complete | 2026-06-24 |
 | 8. Adversarial Audit Suite | v1.0 | 3/3 | Complete | 2026-06-25 |
 | 9. Speed Figure Foundation | v1.1 | 5/5 | Complete   | 2026-06-25 |
+| 9.1. Speed Ability Profile Expansion (INSERTED) | v1.1 | 1/1 | Complete | 2026-06-26 |
 | 10. Opponent Strength & Race-Relative Features | v1.1 | 0/? | Not started | - |
 | 11. Race-Relative Probability Model | v1.1 | 0/? | Not started | - |
 | 12. p_lower EV & Falsification Evaluation | v1.1 | 0/? | Not started | - |

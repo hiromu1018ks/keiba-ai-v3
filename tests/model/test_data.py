@@ -279,7 +279,7 @@ def test_make_X_y_uses_snapshot_feature_columns(tmp_path):
     v1_path, _v1_manifest, _v1_cat = _snapshot_paths(snapshot_id=None)
     df = pq.read_table(v1_path).to_pandas()
     n = len(df)
-    # rolling_speed_figure_* 6 列を数値で追加（registry 登録済み・P02）
+    # rolling_speed_figure_* 17 列を数値で追加（registry 登録済み・Phase 9 6 + Phase 9.1 11）
     speed_cols = [
         "rolling_speed_figure_last_1",
         "rolling_speed_figure_mean_3",
@@ -287,6 +287,19 @@ def test_make_X_y_uses_snapshot_feature_columns(tmp_path):
         "rolling_speed_figure_max_5",
         "rolling_speed_figure_sd_5",
         "rolling_speed_figure_count_5",
+        # Phase 9.1 (D-09.1-01): 分布形状・趨勢
+        "rolling_speed_figure_median_3",
+        "rolling_speed_figure_median_5",
+        "rolling_speed_figure_best2_mean_5",
+        "rolling_speed_figure_trend_last_minus_mean5",
+        "rolling_speed_figure_trend_mean3_minus_mean5",
+        # Phase 9.1 (D-09.1-02): 条件適性
+        "rolling_speed_figure_same_surface_mean_5",
+        "rolling_speed_figure_same_surface_max_5",
+        "rolling_speed_figure_same_surface_count_5",
+        "rolling_speed_figure_same_distance_bucket_mean_5",
+        "rolling_speed_figure_same_distance_bucket_max_5",
+        "rolling_speed_figure_same_distance_bucket_count_5",
     ]
     rng = np.random.default_rng(42)
     for col in speed_cols:

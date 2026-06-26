@@ -245,14 +245,21 @@ def test_registry_rolling_systems_match_rolling_impl():
     spec = load_feature_availability()
     # numeric 系統は mean_5・categorical 系統は mode_5 から系統名を抽出する。
     rolling_in_registry: set[str] = set()
+    # Phase 9.1: speed_figure 系統は axis が多様（mean_3/median_5/best2_mean_5/trend_*/
+    # same_surface_*/same_distance_bucket_*）のため・rolling_speed_figure_* を全て "speed_figure"
+    # 系統に正規化（_ROLLING_SYSTEMS は "speed_figure" 1系統・axis は系統でない・D-09.1-01/02）。
     for e in spec["features"]:
         name = e["feature_name"]
         if not name.startswith("rolling_"):
             continue
+        core = name.removeprefix("rolling_")
+        if core.startswith("speed_figure"):
+            rolling_in_registry.add("speed_figure")
+            continue
         if name.endswith("_mean_5"):
-            rolling_in_registry.add(name.removeprefix("rolling_").removesuffix("_mean_5"))
+            rolling_in_registry.add(core.removesuffix("_mean_5"))
         elif name.endswith("_mode_5"):
-            rolling_in_registry.add(name.removeprefix("rolling_").removesuffix("_mode_5"))
+            rolling_in_registry.add(core.removesuffix("_mode_5"))
     assert rolling_in_registry == set(_ROLLING_SYSTEMS), (
         f"registry↔rolling.py drift: {rolling_in_registry} != {set(_ROLLING_SYSTEMS)}"
     )

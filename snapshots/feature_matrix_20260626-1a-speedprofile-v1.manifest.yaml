@@ -1,0 +1,18 @@
+byte_reproducible_scope: parquet_data_only_metadata_excluded
+byte_size: 64661883
+category_map_artifact: snapshots/category_map_20260626-1a-speedprofile-v1.json
+created_at: '2026-06-26T04:05:07.723408+00:00'
+created_at_fixed: '2026-06-26T00:00:00Z'
+dataset_version: v1.0.0
+feature_availability_version: 0.5.0
+feature_count: 79
+feature_cutoff_rule: race_date - 1 day
+feature_snapshot_id: 20260626-1a-speedprofile-v1
+label_version: v1.0.0
+parquet_path: /Users/hart/develop/keiba-ai-v3/snapshots/feature_matrix_20260626-1a-speedprofile-v1.parquet
+prediction_timing: 1A
+row_count: 554267
+sha256: e367c58ba1278baaf632eb7511b4cff2c60e58ffa1616cc3262da6dd1f83e6aa
+snapshot_id: 20260626-1a-speedprofile-v1
+train_period: 2016-07-01/2023-12-31
+validation_period: 2024-01-01/2024-12-31

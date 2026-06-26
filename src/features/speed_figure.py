@@ -284,6 +284,42 @@ def _derive_surface(trackcd: pd.Series) -> pd.Series:
     return surface
 
 
+# ---------------------------------------------------------------------------
+# Phase 9.1 (D-09.1-04): distance bucket 定数（conservative 固定 bucket）
+# JRA 平地主距離を標準的な sprint/mile/classic/staying に分類。障害（trackcd 51-59・
+# surface=='obstacle'）は speed_figure で既に NaN 除外済み・本 bucket 対象外。
+# 境界は JRA 主距離（1000/1200/1400/1500/1600/1700/1800/2000/2200/2400/2500/2600/3000/3200）
+# の分布に基づく・same_distance_bucket feature（過去走の同距離帯適性）の分類に使用。
+# ---------------------------------------------------------------------------
+DISTANCE_BUCKETS: tuple[str, ...] = ("short", "mile", "middle", "long")
+
+
+def derive_distance_bucket(kyori: pd.Series) -> pd.Series:
+    """``kyori``（メートル）→ distance bucket (short/mile/middle/long) を派生（D-09.1-04）。
+
+    ``_derive_surface`` と対称な Series→Series 関数（rolling と speed_figure で共利用・
+    過去走と target race に同一関数を適用し分類の一貫性を保証）。
+
+    JRA 平地主距離を標準的な sprint/mile/classic/staying に分類:
+      - short:  kyori < 1400        (1000, 1200)
+      - mile:   1400 <= kyori <= 1799 (1400, 1500, 1600, 1700)
+      - middle: 1800 <= kyori <= 2199 (1800, 2000)
+      - long:   kyori >= 2200        (2200, 2400, 2500, 2600, 3000, 3200)
+      - NaN/未知/非数値 → ``None``（呼出側で ``__MISSING__`` sentinel 扱い・同条件 match しない）
+
+    障害（surface=='obstacle'）は ``speed_figure`` で既に NaN 除外済みのため・本関数には
+    平地完走の kyori が渡る前提。障害行が混入した場合も kyori 数値で分類されるが・
+    speed_figure が NaN なので same_distance_bucket 集約には寄与しない（安全）。
+    """
+    k_num = pd.to_numeric(kyori, errors="coerce")
+    bucket = pd.Series([None] * len(kyori), index=kyori.index, dtype=object)
+    bucket[k_num < 1400] = "short"
+    bucket[k_num.between(1400, 1799)] = "mile"
+    bucket[k_num.between(1800, 2199)] = "middle"
+    bucket[k_num >= 2200] = "long"
+    return bucket
+
+
 def get_points_per_second(kyori: int) -> float:
     """距離（メートル）→ ``points_per_second``。線形補間で中間距離に対応（端点クランプ）。
 

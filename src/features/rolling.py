@@ -46,7 +46,10 @@ from __future__ import annotations
 
 import pandas as pd
 
+import numpy as np
+
 from src.features.availability import CUTOFF_SEMANTICS
+from src.features.speed_figure import _derive_surface, derive_distance_bucket
 from src.utils.category_map import MISSING
 
 # HIGH #2: cutoff semantics 不変量の実行時参照（strict_less_than / Asia/Tokyo）。
@@ -124,8 +127,8 @@ def _pit_cutoff_prefilter(expanded: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Phase 9: speed_figure 系統は D-09 の6 feature で window が混在するため
-# (axis, window) ペアで明示指定。既存8系統（kakuteijyuni/harontimel3/
+# Phase 9/9.1: speed_figure 系統は D-09 6 feature + Phase 9.1 11 feature = 17 feature で
+# window が混在するため (axis, window) ペアで明示指定。既存8系統（kakuteijyuni/harontimel3/
 # jyuni3c_jyuni4c/kyori/jyocd/days_since_prev/timediff/babacd・M1 訂正）は
 # 従来通り axis 名のみで window=5 固定（_axes_for 経由・本仕組みは使わない）。
 # D-09 命名の正は rolling_speed_figure_{axis}_{window}（latest_5 でない・P03/P04 と完全一致）。
@@ -137,7 +140,56 @@ _SPEED_FIGURE_AXES: tuple[tuple[str, int], ...] = (
     ("max", 5),     # rolling_speed_figure_max_5    (潜在能力・window=5)
     ("sd", 5),      # rolling_speed_figure_sd_5     (不安定性・window=5)
     ("count", 5),   # rolling_speed_figure_count_5  (信頼度・window=5)
+    # NEW Phase 9.1 (D-09.1-01): 分布形状・趨勢。sentinel は count>=window 踏襲（best2_mean のみ count>=2）
+    ("median", 3),               # rolling_speed_figure_median_3   (外れ値頑健・中央値・window=3)
+    ("median", 5),               # rolling_speed_figure_median_5   (window=5)
+    ("best2_mean", 5),           # rolling_speed_figure_best2_mean_5 (上位2件の平均・count>=2)
+    # trend 系: axis 名に window 埋込（rolling_speed_figure_trend_last_minus_mean5 等）。
+    # 列名生成は _speed_figure_col_name で trend_ プレフィックスを特別扱い（_{window} を付けない）。
+    # window=5 は「mean5 を使う」意味・sentinel も count>=window(5) で mean5 必要。
+    ("trend_last_minus_mean5", 5),   # rolling_speed_figure_trend_last_minus_mean5  (last_1 - mean_5)
+    ("trend_mean3_minus_mean5", 5),  # rolling_speed_figure_trend_mean3_minus_mean5 (mean_3 - mean_5)
 )
+
+
+def _speed_figure_col_name(axis: str, window: int) -> str:
+    """``_SPEED_FIGURE_AXES`` の (axis, window) → 出力列名（D-09.1-01 命名）。
+
+    通常: ``rolling_speed_figure_{axis}_{window}``（D-09 踏襲）。
+    trend 系: axis 名に window が埋込（``trend_last_minus_mean5`` 等）のため ``_{window}``
+    を付与しない（ユーザー指定命名 ``rolling_speed_figure_trend_last_minus_mean5`` を正とする）。
+    """
+    if axis.startswith("trend_"):
+        return f"rolling_speed_figure_{axis}"
+    return f"rolling_speed_figure_{axis}_{window}"
+
+
+# ---------------------------------------------------------------------------
+# Phase 9.1 (D-09.1-02): same_surface / same_distance_bucket 系統。
+# 条件適性 profile・target race と同条件（surface / distance bucket）の過去走のみで集約。
+# _SPEED_FIGURE_AXES でなく別管理（count>=1 sentinel・D-09.1-03）。window=5 は直近5走窓固定。
+# ---------------------------------------------------------------------------
+_SPEED_FIGURE_CONDITIONAL_AXES: tuple[tuple[str, str], ...] = (
+    # (condition, stat_axis) → rolling_speed_figure_{condition}_{stat_axis}_5
+    ("same_surface", "mean"),
+    ("same_surface", "max"),
+    ("same_surface", "count"),
+    ("same_distance_bucket", "mean"),
+    ("same_distance_bucket", "max"),
+    ("same_distance_bucket", "count"),
+)
+
+
+def _best2_mean_of_group(values: pd.Series) -> float:
+    """group 内の上位2件（速い = ``speed_figure`` 大）の平均（best2_mean 軸・D-09.1-01）。
+
+    ``count < 2`` は ``NaN``（上位2件不能・sentinel 側で ``__MISSING__`` 化）。
+    決定論的: ``nlargest(2)`` は同値の場合安定順序で2件選ぶ（byte-reproducible）。
+    """
+    vals = values.dropna()
+    if len(vals) < 2:
+        return float("nan")
+    return float(vals.nlargest(2).mean())
 
 
 # 系統毎の出力 axis セット（mean/latest/sd/count または mode/latest/count）。
@@ -211,13 +263,16 @@ def build_rolling_features(
         - categorical 系統: ``rolling_<system>_{mode,latest,count}_5`` （jyocd 1系統 × 3 = 3 列）
         - 計 31 列（CR-02 で jyocd を mode/latest/count に変更・numeric 32→28 + categorical 3 = 31）
 
-        Phase 9 で追加: speed_figure 系統は D-09 の6 feature・``_SPEED_FIGURE_AXES`` で
-        (axis, window) を明示指定し window 1/3/5 が混在。列名形式は
+        Phase 9/9.1 で追加: speed_figure 系統は D-09 6 feature + Phase 9.1 11 feature = 17 feature。
+        ``_SPEED_FIGURE_AXES`` で (axis, window) を明示指定し window 1/3/5 が混在。列名形式は
         ``rolling_speed_figure_{axis}_{window}``（``latest_5`` でない・D-09 命名の正）。
-        既存8系統（kakuteijyuni/harontimel3/jyuni3c_jyuni4c/kyori/jyocd/
-        days_since_prev/timediff/babacd・M1 訂正）の ``rolling_<sys>_<axis>_5``
-        形式は不変（回帰リスク回避）。5走未満は ``__MISSING__`` sentinel（count_5 のみ
-        実際 count を出力・D-11 信頼度軸）。
+        Phase 9.1 (D-09.1-01) 追加: median_3/median_5/best2_mean_5/trend_last_minus_mean5/
+        trend_mean3_minus_mean5（trend 系は axis 名に window 埋込・_speed_figure_col_name で
+        ``_{window}`` 付与なし・ユーザー指定命名）。
+        Phase 9.1 (D-09.1-02) 追加: same_surface/same_distance_bucket の mean/max/count
+        （``_SPEED_FIGURE_CONDITIONAL_AXES``・target と同条件の過去走のみ・count>=1 sentinel・
+        D-09.1-03 文書化）。既存8系統の ``rolling_<sys>_<axis>_5`` 形式は不変（回帰回避）。
+        5走未満は ``__MISSING__`` sentinel（count_5 のみ実際 count を出力・D-11 信頼度軸）。
 
     Raises
     ------
@@ -262,7 +317,14 @@ def build_rolling_features(
     for system in _ROLLING_SYSTEMS:
         if system == "speed_figure":
             for axis, window in _SPEED_FIGURE_AXES:
-                col = f"rolling_speed_figure_{axis}_{window}"
+                col = _speed_figure_col_name(axis, window)
+                rolling_cols.append(col)
+                result[col] = pd.Series(
+                    [MISSING] * len(result), dtype=object, index=result.index
+                )
+            # NEW Phase 9.1 (D-09.1-02): same_surface / same_distance_bucket（条件適性 profile）
+            for cond, stat_axis in _SPEED_FIGURE_CONDITIONAL_AXES:
+                col = f"rolling_speed_figure_{cond}_{stat_axis}_5"
                 rolling_cols.append(col)
                 result[col] = pd.Series(
                     [MISSING] * len(result), dtype=object, index=result.index
@@ -282,14 +344,21 @@ def build_rolling_features(
     if "race_start_datetime" not in hist.columns:
         hist["race_start_datetime"] = hist["as_of_datetime"]
 
-    # --- Step 1b: expanded history（各 observation に kettonum で inner-join） ---
-    obs_keys = result[["obs_id", "kettonum", "feature_cutoff_datetime"]].copy()
-    expanded = hist.merge(obs_keys, on="kettonum", how="inner", suffixes=("", "_obs"))
-
-    # 同名列衝突回避: feature_cutoff_datetime は obs_keys 由来のみ使用
-    if "feature_cutoff_datetime_obs" in expanded.columns:
-        expanded["feature_cutoff_datetime"] = expanded["feature_cutoff_datetime_obs"]
-        expanded = expanded.drop(columns=["feature_cutoff_datetime_obs"])
+    # --- Step 1b: expanded history（各 observation に過去走を紐付け） ---
+    # history が既に obs_id + feature_cutoff_datetime を持つ場合（Phase 9 以降・
+    # compute_speed_figure_for_history が observation 毎に PIT filter 済みの obs_id 展開
+    # フレームを返す）は obs_keys merge をスキップする。merge すると同一馬が複数 observation
+    # に現れる際に history 行が observation 数だけ複製され行数が爆発（数十万 observation ×
+    # 過去走 で致命的低速化・Phase 9.1 で顕在化）。未展開 history（unit test 等）は従来通り merge。
+    if "obs_id" in hist.columns and "feature_cutoff_datetime" in hist.columns:
+        expanded = hist.copy()
+    else:
+        obs_keys = result[["obs_id", "kettonum", "feature_cutoff_datetime"]].copy()
+        expanded = hist.merge(obs_keys, on="kettonum", how="inner", suffixes=("", "_obs"))
+        # 同名列衝突回避: feature_cutoff_datetime は obs_keys 由来のみ使用
+        if "feature_cutoff_datetime_obs" in expanded.columns:
+            expanded["feature_cutoff_datetime"] = expanded["feature_cutoff_datetime_obs"]
+            expanded = expanded.drop(columns=["feature_cutoff_datetime_obs"])
 
     if len(expanded) == 0:
         return result  # 全 observation が新馬 → sentinel のまま
@@ -325,8 +394,10 @@ def build_rolling_features(
             # speed_figure 列が無い場合は次系統へ（sentinel 初期値維持・回帰安全和）
             continue
 
-        # --- Phase 9: speed_figure 系統専用集約ブロック（D-09 の6 feature） ---
+        # --- Phase 9/9.1: speed_figure 系統専用集約ブロック（D-09 6 + Phase 9.1 11 = 17 feature） ---
         # 既存8系統のロジック（categorical/numeric）は維持し・speed_figure は別経路で処理。
+        # Phase 9.1: median/best2_mean/trend_* は _SPEED_FIGURE_AXES 拡張・same_surface/
+        # same_distance_bucket は集約後の conditional 別サブブロック（D-09.1-02・count>=1 sentinel）。
         # recent は既に groupby("obs_id").head(5) 済み（LOOKBACK=5 窓）・
         # さらに head(window) で window<=5 に切詰める（PIT filter 後なので安全）。
         if system == "speed_figure":
@@ -381,42 +452,155 @@ def build_rolling_features(
                         .groupby(windowed["obs_id"]).sum().astype(int).to_dict()
                     )
                     count_check = None  # count 自身は sentinel 不要
+                # NEW Phase 9.1 (D-09.1-01): 分布形状・趨勢
+                elif axis == "median":
+                    val_per_obs = (
+                        windowed.groupby("obs_id")["_sf_value"].median().to_dict()
+                    )
+                    count_check = (
+                        windowed["_sf_value"].notna()
+                        .groupby(windowed["obs_id"]).sum().astype(int).to_dict()
+                    )
+                elif axis == "best2_mean":
+                    # 上位2件（速い = speed_figure 大）の平均・count>=2 で算出（D-09.1-01）。
+                    # vectorized: apply+nlargest は55万 group で致命的低速（cProfile で83%占有）・
+                    # sort 降順→groupby.head(2)→mean で置換（byte-reproducible・同一結果）。
+                    valid_windowed = windowed[windowed["_sf_value"].notna()]
+                    if len(valid_windowed) > 0:
+                        top2 = (
+                            valid_windowed.sort_values(
+                                ["obs_id", "_sf_value"], ascending=[True, False]
+                            )
+                            .groupby("obs_id", sort=False).head(2)
+                        )
+                        val_per_obs = top2.groupby("obs_id")["_sf_value"].mean().to_dict()
+                    else:
+                        val_per_obs = {}
+                    count_check = (
+                        windowed["_sf_value"].notna()
+                        .groupby(windowed["obs_id"]).sum().astype(int).to_dict()
+                    )
+                elif axis == "trend_last_minus_mean5":
+                    # last(直近1件) - mean(5件)・window=5（mean5 必要・count>=5 で算出）
+                    first_per_obs = windowed.groupby("obs_id", sort=False)["_sf_value"].first()
+                    mean_per_obs = windowed.groupby("obs_id")["_sf_value"].mean()
+                    val_per_obs = (first_per_obs - mean_per_obs).to_dict()
+                    count_check = (
+                        windowed["_sf_value"].notna()
+                        .groupby(windowed["obs_id"]).sum().astype(int).to_dict()
+                    )
+                elif axis == "trend_mean3_minus_mean5":
+                    # mean(直近3件) - mean(5件)・window=5（mean5 必要・count>=5 で算出）
+                    mean5_per_obs = windowed.groupby("obs_id")["_sf_value"].mean()
+                    # head(3): obs_id 毎に直近3件（recent_sf は race_start_datetime DESC sort 済み）
+                    windowed3 = recent_sf.groupby("obs_id", sort=False).head(3)
+                    mean3_per_obs = windowed3.groupby("obs_id")["_sf_value"].mean()
+                    val_per_obs = (mean3_per_obs - mean5_per_obs).to_dict()
+                    count_check = (
+                        windowed["_sf_value"].notna()
+                        .groupby(windowed["obs_id"]).sum().astype(int).to_dict()
+                    )
                 else:  # pragma: no cover - D-09 設計上到達不能
                     continue
 
-                col = f"rolling_speed_figure_{axis}_{window}"
-                for idx, obs_id in zip(result.index, result["obs_id"], strict=False):
-                    n = count_check.get(obs_id, 0) if count_check is not None else None
-                    if axis == "count":
-                        # 常に实际 count を出力（5走未満でも実際走数・D-11）
-                        result.at[idx, col] = val_per_obs.get(obs_id, 0)
-                    elif axis == "last":
-                        # count >= 1 で算出・未満 MISSING
-                        if n is not None and n >= 1:
-                            v = val_per_obs.get(obs_id)
-                            result.at[idx, col] = v if pd.notna(v) else MISSING
-                        else:
-                            result.at[idx, col] = MISSING
-                    elif axis == "mean":
-                        # count >= window で算出・未満 MISSING（D-11）
-                        if n is not None and n >= window:
-                            v = val_per_obs.get(obs_id)
-                            result.at[idx, col] = v if pd.notna(v) else MISSING
-                        else:
-                            result.at[idx, col] = MISSING
-                    elif axis == "max":
-                        if n is not None and n >= window:
-                            v = val_per_obs.get(obs_id)
-                            result.at[idx, col] = v if pd.notna(v) else MISSING
-                        else:
-                            result.at[idx, col] = MISSING
-                    elif axis == "sd":
-                        # sd は n>=window (>=2) で算出・未満 MISSING（既存 sd_per_obs と同一）
-                        if n is not None and n >= window:
-                            v = val_per_obs.get(obs_id)
-                            result.at[idx, col] = v if pd.notna(v) else MISSING
-                        else:
-                            result.at[idx, col] = MISSING
+                col = _speed_figure_col_name(axis, window)
+                # vectorized 設定（result.at 行ごと設定は数十万行で致命的に低速化・Phase 9.1 最適化）。
+                # byte-reproducibility 維持: map + np.where で axis 毎の sentinel ルールを一括適用。
+                val_series = result["obs_id"].map(val_per_obs)
+                if axis == "count":
+                    # count 軸は常に実際 count（0〜window・D-11）・MISSING でなく数値
+                    result[col] = val_series.fillna(0).astype(int)
+                else:
+                    count_series = (
+                        result["obs_id"].map(count_check).fillna(0).astype(int)
+                        if count_check is not None
+                        else pd.Series([0] * len(result), index=result.index, dtype=int)
+                    )
+                    # sentinel threshold（axis 毎・D-09/D-09.1-01）
+                    if axis == "last":
+                        threshold = 1
+                    elif axis == "best2_mean":
+                        threshold = 2
+                    else:  # mean/max/median/sd/trend_* は count>=window
+                        threshold = window
+                    valid = (count_series >= threshold) & val_series.notna()
+                    result[col] = pd.Series(
+                        np.where(valid, val_series, MISSING),
+                        index=result.index, dtype=object,
+                    )
+
+            # --- NEW Phase 9.1 (D-09.1-02/03): same_surface / same_distance_bucket ---
+            # recent_sf は PIT filter + head(5) 済み（LOOKBACK=5 窓）。target race と同条件の
+            # 過去走のみで mean/max/count を集約。PIT 保証: recent の部分集合なので維持。
+            # target surface/bucket は observations（result）の trackcd/kyori から派生
+            # （_derive_surface / derive_distance_bucket・過去走と同一関数で一貫性保証）。
+            # sentinel: mean/max は count>=1（同条件走が少ない・D-09.1-03 文書化）。
+            # count_5 は直近5走窓での同条件走数（実際 count 0-5・D-11 信頼度軸）。
+            _has_target_cond = (
+                "trackcd" in result.columns
+                and "kyori" in result.columns
+                and "obs_id" in result.columns
+                and "surface" in recent_sf.columns
+                and "kyori" in recent_sf.columns
+            )
+            if _has_target_cond and len(recent_sf) > 0:
+                tgt_surface = _derive_surface(result["trackcd"])
+                tgt_bucket = derive_distance_bucket(result["kyori"])
+                target_surface_map = dict(zip(
+                    result["obs_id"].tolist(), tgt_surface.tolist(), strict=False
+                ))
+                target_bucket_map = dict(zip(
+                    result["obs_id"].tolist(), tgt_bucket.tolist(), strict=False
+                ))
+                cond_frame = recent_sf.copy()
+                cond_frame["_target_surface"] = cond_frame["obs_id"].map(target_surface_map)
+                cond_frame["_target_bucket"] = cond_frame["obs_id"].map(target_bucket_map)
+                cond_frame["_past_bucket"] = derive_distance_bucket(cond_frame["kyori"])
+                # match mask（過去走条件 == target 条件・None/NaN は除外）
+                same_surface_mask = (
+                    cond_frame["surface"].notna()
+                    & cond_frame["_target_surface"].notna()
+                    & (cond_frame["surface"].astype(str) == cond_frame["_target_surface"].astype(str))
+                )
+                same_bucket_mask = (
+                    cond_frame["_past_bucket"].notna()
+                    & cond_frame["_target_bucket"].notna()
+                    & (cond_frame["_past_bucket"].astype(str) == cond_frame["_target_bucket"].astype(str))
+                )
+                for cond_name, cond_mask in (
+                    ("same_surface", same_surface_mask),
+                    ("same_distance_bucket", same_bucket_mask),
+                ):
+                    matched = cond_frame[cond_mask.fillna(False)]
+                    count_col = f"rolling_speed_figure_{cond_name}_count_5"
+                    mean_col = f"rolling_speed_figure_{cond_name}_mean_5"
+                    max_col = f"rolling_speed_figure_{cond_name}_max_5"
+                    if len(matched) > 0:
+                        matched_count = (
+                            matched["_sf_value"].notna()
+                            .groupby(matched["obs_id"]).sum().astype(int).to_dict()
+                        )
+                        matched_mean = matched.groupby("obs_id")["_sf_value"].mean().to_dict()
+                        matched_max = matched.groupby("obs_id")["_sf_value"].max().to_dict()
+                    else:
+                        matched_count, matched_mean, matched_max = {}, {}, {}
+                    # vectorized 設定（result.at 行ごと設定は数十万行で致命的に低速化）
+                    count_series = result["obs_id"].map(matched_count).fillna(0).astype(int)
+                    result[count_col] = count_series  # count_5: 常に実際同条件走数（D-11）
+                    has_match = count_series >= 1
+                    mean_series = result["obs_id"].map(matched_mean)
+                    max_series = result["obs_id"].map(matched_max)
+                    # count>=1 で算出（D-09.1-03）・未満 or NaN は MISSING
+                    mean_valid = has_match & mean_series.notna()
+                    max_valid = has_match & max_series.notna()
+                    result[mean_col] = pd.Series(
+                        np.where(mean_valid, mean_series, MISSING),
+                        index=result.index, dtype=object,
+                    )
+                    result[max_col] = pd.Series(
+                        np.where(max_valid, max_series, MISSING),
+                        index=result.index, dtype=object,
+                    )
             continue
 
         is_categorical = system in _CATEGORICAL_SYSTEMS

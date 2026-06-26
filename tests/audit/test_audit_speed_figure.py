@@ -111,7 +111,10 @@ def _scan_module_for_forbidden_tokens(module_obj) -> tuple[list[str], list[str]]
 # ---------------------------------------------------------------------------
 # P04 SC#5 snapshot_id 候補（P03 SUMMARY で決定・本 audit が消費）
 # ---------------------------------------------------------------------------
-_SPEED_FIGURE_SNAPSHOT_ID = "20260625-1a-speedfigure-v1"
+# Phase 9.1: speed_figure snapshot を Phase 9 の 6-feature (20260625-1a-speedfigure-v1) から
+# Phase 9.1 の 17-feature 拡張 snapshot (20260626-1a-speedprofile-v1) に切り替え。
+# 新 snapshot は Phase 9.1 P01 build で生成（未生成時は else 節 FileNotFoundError 検査で GREEN）。
+_SPEED_FIGURE_SNAPSHOT_ID = "20260626-1a-speedprofile-v1"
 
 
 # ---------------------------------------------------------------------------
@@ -220,11 +223,24 @@ def test_feature_columns_contains_speed_figure_no_proxy() -> None:
             "rolling_speed_figure_max_5",
             "rolling_speed_figure_sd_5",
             "rolling_speed_figure_count_5",
+            # Phase 9.1 (D-09.1-01): 分布形状・趨勢
+            "rolling_speed_figure_median_3",
+            "rolling_speed_figure_median_5",
+            "rolling_speed_figure_best2_mean_5",
+            "rolling_speed_figure_trend_last_minus_mean5",
+            "rolling_speed_figure_trend_mean3_minus_mean5",
+            # Phase 9.1 (D-09.1-02): 条件適性
+            "rolling_speed_figure_same_surface_mean_5",
+            "rolling_speed_figure_same_surface_max_5",
+            "rolling_speed_figure_same_surface_count_5",
+            "rolling_speed_figure_same_distance_bucket_mean_5",
+            "rolling_speed_figure_same_distance_bucket_max_5",
+            "rolling_speed_figure_same_distance_bucket_count_5",
         }
         actual_speed = {c for c in speed_cols if c.startswith("rolling_speed_figure_")}
         missing = expected_speed_features - actual_speed
         assert not missing, (
-            f"speed_figure snapshot FEATURE_COLUMNS に期待の6 feature のうち欠落: {missing} "
+            f"speed_figure snapshot FEATURE_COLUMNS に期待の17 feature のうち欠落: {missing} "
             f"(actual speed features: {sorted(actual_speed)})"
         )
         # FEATURE_COLUMNS の各要素は forbidden prefix で始まらない（HIGH #9 banned alias sneak-in 防止）

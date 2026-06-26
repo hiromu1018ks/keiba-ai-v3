@@ -152,6 +152,9 @@ _ROLLING_SYSTEMS_FOR_RESERVED: tuple[str, ...] = (
     # NEW Phase 9 (rolling.py::_ROLLING_SYSTEMS と同一順序・二重定義の危険を下げるため
     # 再定義・循環依存回避)。speed_figure は D-09 が count_5 を feature(信頼度) と定義するため
     # L179 の reserved 自動展開からは除外（REVIEW H3b）。
+    # Phase 9.1 拡張: speed_figure の conditional axis（same_surface / same_distance_bucket の
+    # count_5）は _ROLLING_SYSTEMS の系統でなく conditional axis のため本 reserved 自動展開の
+    # 対象外・feature_availability.yaml に feature として個別登録（schema 0.5.0・D-09.1-02）。
     "speed_figure",
 )
 

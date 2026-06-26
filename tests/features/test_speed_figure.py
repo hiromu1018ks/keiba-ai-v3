@@ -451,7 +451,7 @@ def test_byte_reproducible_snapshot_with_speed_figure(tmp_path) -> None:
     history_with_sf = compute_speed_figure_for_history(history, observations=obs)
     fm = build_rolling_features(obs, history_with_sf)
 
-    # rolling_speed_figure_* 6 列が含まれることを確認（前提）
+    # rolling_speed_figure_* 17 列が含まれることを確認（前提・Phase 9 6 feature + Phase 9.1 11 feature）
     expected_sf_cols = [
         "rolling_speed_figure_last_1",
         "rolling_speed_figure_mean_3",
@@ -459,9 +459,22 @@ def test_byte_reproducible_snapshot_with_speed_figure(tmp_path) -> None:
         "rolling_speed_figure_max_5",
         "rolling_speed_figure_sd_5",
         "rolling_speed_figure_count_5",
+        # Phase 9.1 (D-09.1-01): 分布形状・趨勢
+        "rolling_speed_figure_median_3",
+        "rolling_speed_figure_median_5",
+        "rolling_speed_figure_best2_mean_5",
+        "rolling_speed_figure_trend_last_minus_mean5",
+        "rolling_speed_figure_trend_mean3_minus_mean5",
+        # Phase 9.1 (D-09.1-02): 条件適性
+        "rolling_speed_figure_same_surface_mean_5",
+        "rolling_speed_figure_same_surface_max_5",
+        "rolling_speed_figure_same_surface_count_5",
+        "rolling_speed_figure_same_distance_bucket_mean_5",
+        "rolling_speed_figure_same_distance_bucket_max_5",
+        "rolling_speed_figure_same_distance_bucket_count_5",
     ]
     for col in expected_sf_cols:
-        assert col in fm.columns, f"{col} が rolling 出力に含まれない（P02 拡張不備の可能性）"
+        assert col in fm.columns, f"{col} が rolling 出力に含まれない（Phase 9.1 拡張不備の可能性）"
 
     # 同一 DataFrame で snapshot_id/created_at_fixed を変えて2回書出し
     fixed_ts = FIXED_REPRODUCE_TS.isoformat()
@@ -507,7 +520,20 @@ def test_registry_parquet_parity_speed_figure() -> None:
         "rolling_speed_figure_max_5",
         "rolling_speed_figure_sd_5",
         "rolling_speed_figure_count_5",
-    ]), f"registry の rolling_speed_figure_* が D-09 の6 feature と不一致: {speed_cols_in_registry}"
+        # Phase 9.1 (D-09.1-01): 分布形状・趨勢
+        "rolling_speed_figure_median_3",
+        "rolling_speed_figure_median_5",
+        "rolling_speed_figure_best2_mean_5",
+        "rolling_speed_figure_trend_last_minus_mean5",
+        "rolling_speed_figure_trend_mean3_minus_mean5",
+        # Phase 9.1 (D-09.1-02): 条件適性
+        "rolling_speed_figure_same_surface_mean_5",
+        "rolling_speed_figure_same_surface_max_5",
+        "rolling_speed_figure_same_surface_count_5",
+        "rolling_speed_figure_same_distance_bucket_mean_5",
+        "rolling_speed_figure_same_distance_bucket_max_5",
+        "rolling_speed_figure_same_distance_bucket_count_5",
+    ]), f"registry の rolling_speed_figure_* が Phase 9.1 の17 feature と不一致: {speed_cols_in_registry}"
 
     # REVIEW H1: _derive_feature_columns(snapshot_id=None) は v1.0 snapshot を読むため
     # rolling_speed_figure_* を含まない（v1.0 は Phase 9 直前の snapshot）。これは H1-a/H1-b で

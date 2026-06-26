@@ -4,6 +4,9 @@
 # schema_version 0.1.0 → 0.2.0 → 0.3.0（Phase 3 features 拡充後・CR-02 で rolling_jyocd を
 # categorical 化し obs_id を中間処理用に除外・feature 定義が変わった印・§19.1 再現性）。
 # Phase 9: schema_version 0.3.0 → 0.4.0（rolling_speed_figure 6 feature 追加 + 旧 course 区分エントリ削除）。
+# Phase 9.1: schema_version 0.4.0 → 0.5.0（rolling_speed_figure 6 → 17 feature 拡張:
+#            median_3/median_5/best2_mean_5/trend_last_minus_mean5/trend_mean3_minus_mean5
+#            + same_surface_{mean,max,count}_5 + same_distance_bucket_{mean,max,count}_5）。
 # 各 feature エントリは7項目スキーマ（feature_name / feature_group / available_from_timing /
 # source_role / source_table / cutoff_rule / leakage_risk_level）を持つ。
 #
@@ -13,7 +16,7 @@
 #                  registry 未登録・babacd（過去走 source）は history_allowed_post_race。
 # D-07: available_from_timing は {entry_confirmed, post_position_confirmed} のみ許可。
 
-schema_version: "0.4.0"
+schema_version: "0.5.0"
 
 # ---------------------------------------------------------------------------
 # REVIEWS HIGH #2: cutoff semantics の仕様化（厳密 `<`・JST midnight 解釈）
@@ -374,6 +377,93 @@ features:
     available_from_timing: entry_confirmed
     source_role: history_allowed_post_race
     source_table: "normalized.n_uma_race (history) + derived speed_figure"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  # --- rolling_speed_figure Phase 9.1 拡張（D-09.1-01: 分布形状・趨勢 5 feature）---
+  # sentinel は D-09 踏襲（count>=window・best2_mean のみ count>=2）。trend 系は axis 名に
+  # window 埋込（rolling_speed_figure_trend_last_minus_mean5 等・_{window} 付与なし）。
+  # odds-free・PIT-correct（過去走 speed_figure のみ集約・当日情報不使用）。
+  - feature_name: rolling_speed_figure_median_3
+    feature_group: rolling_speed_figure
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived speed_figure"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_speed_figure_median_5
+    feature_group: rolling_speed_figure
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived speed_figure"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_speed_figure_best2_mean_5
+    feature_group: rolling_speed_figure
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived speed_figure"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_speed_figure_trend_last_minus_mean5
+    feature_group: rolling_speed_figure
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived speed_figure"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_speed_figure_trend_mean3_minus_mean5
+    feature_group: rolling_speed_figure
+    available_from_timing: entry_confirmed
+    source_role: history_allowed_post_race
+    source_table: "normalized.n_uma_race (history) + derived speed_figure"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  # --- rolling_speed_figure Phase 9.1 拡張（D-09.1-02/03: 条件適性 6 feature）---
+  # same_surface / same_distance_bucket: 直近5走窓のうち target race と同条件（surface /
+  # distance bucket）の過去走のみで mean/max/count。target trackcd/kyori は entry_confirmed
+  # で確定（both_allowed・target 静的属性 + history 過去走）。sentinel は mean/max count>=1
+  # （同条件走が少ない・D-09.1-03 文書化）・count_5 は直近5走窓の同条件走数（実際 count）。
+  # PIT-correct（recent = PIT filter 済みの部分集合・当日結果混入なし）。
+  - feature_name: rolling_speed_figure_same_surface_mean_5
+    feature_group: rolling_speed_figure
+    available_from_timing: entry_confirmed
+    source_role: both_allowed
+    source_table: "normalized.n_uma_race (history) + derived speed_figure/surface + target trackcd"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_speed_figure_same_surface_max_5
+    feature_group: rolling_speed_figure
+    available_from_timing: entry_confirmed
+    source_role: both_allowed
+    source_table: "normalized.n_uma_race (history) + derived speed_figure/surface + target trackcd"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_speed_figure_same_surface_count_5
+    feature_group: rolling_speed_figure
+    available_from_timing: entry_confirmed
+    source_role: both_allowed
+    source_table: "normalized.n_uma_race (history) + derived speed_figure/surface + target trackcd"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_speed_figure_same_distance_bucket_mean_5
+    feature_group: rolling_speed_figure
+    available_from_timing: entry_confirmed
+    source_role: both_allowed
+    source_table: "normalized.n_uma_race (history) + derived speed_figure + target kyori"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_speed_figure_same_distance_bucket_max_5
+    feature_group: rolling_speed_figure
+    available_from_timing: entry_confirmed
+    source_role: both_allowed
+    source_table: "normalized.n_uma_race (history) + derived speed_figure + target kyori"
+    cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
+    leakage_risk_level: low
+  - feature_name: rolling_speed_figure_same_distance_bucket_count_5
+    feature_group: rolling_speed_figure
+    available_from_timing: entry_confirmed
+    source_role: both_allowed
+    source_table: "normalized.n_uma_race (history) + derived speed_figure + target kyori"
     cutoff_rule: "race_date - 1 day (strict < cutoff, JST midnight)"
     leakage_risk_level: low
 

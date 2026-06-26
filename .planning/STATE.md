@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Ability Feature v2 & Conditional Calibration
-current_phase: 09
-current_phase_name: speed-figure-foundation
+current_phase: 10
+current_phase_name: opponent-strength-race-relative-features
 status: completed
 stopped_at: "Phase 9 P03 完了: builder Step 5b 統合 + SC#1/SC#3 + REVIEW H1-a/H1-b/H1-c data.py/orchestrator snapshot parameterization（34 テスト GREEN）"
-last_updated: "2026-06-25T23:59:04.586Z"
+last_updated: "2026-06-26T04:14:19.586Z"
 last_activity: 2026-06-25
 last_activity_desc: "Phase 09 P05 Task 1/2 完了 (SC#6 stop gate script + 合成 E2E smoke 9 tests GREEN)"
 progress:
-  total_phases: 4
-  completed_phases: 0
-  total_plans: 5
-  completed_plans: 4
-  percent: 0
+  total_phases: 5
+  completed_phases: 2
+  total_plans: 6
+  completed_plans: 6
+  percent: 40
 ---
 
 # Project State
@@ -24,12 +24,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-16)
 
 **Core value:** オッズ非依存の確率 `p_fukusho_hit` と固定オッズ時点のEVで、過小評価されている馬の複勝払戻対象入り可能性をリークなく検出し、race_id単位・時系列順の再現可能バックテストで定量評価できること。リーク防止と再現性だけは必ず守る。
-**Current focus:** Phase 09 — speed-figure-foundation
+**Current focus:** Phase 10 — opponent-strength-race-relative-features (Phase 9.1 完了後・新 snapshot 20260626-1a-speedprofile-v1 入力)
 
 ## Current Position
 
-Phase: 09 (speed-figure-foundation) — EXECUTING
-Plan: 5 of 5
+Phase: 10 (opponent-strength-race-relative-features) — PLANNING (Phase 9.1 完了・17-feature 拡張 snapshot 入力)
+Plan: 0 of ? (Phase 10 未計画)
 Status: Phase 9 実質完了(09-01〜04 complete・09-05 学習通過確認・SC#6 完全化は別タスク 260626-09-05-stopgate-completion)
 Last activity: 2026-06-25 — Phase 09 P05 Task 1/2 完了 (SC#6 stop gate script + 合成 E2E smoke 9 tests GREEN)
 
@@ -300,3 +300,10 @@ Resume: `/gsd-execute-phase 9`（P04: SC#4 SAFE-01 AST audit + SC#5 ドメイン
 
 - `/gsd-execute-phase 9` で Phase 9 Speed Figure Foundation を実行（5 plans・wave 1-5 直列依存・P01=speed_figure.py 新規→P05=stop gate）
 - Phase 9 完了後、Phase 10 → 11 → 12 の順で厳格に実行（依存関係 DAG・各 Phase の完了が次の前提）
+
+## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 9.1 inserted after Phase 9: Speed Ability Profile Expansion (rolling speed figure 6-> expanded profile: median/best2/trend + same_surface/same_distance_bucket) (URGENT)
+- Phase 9.1 completed after Phase 9: Speed Ability Profile Expansion 完了 (speed_figure 6→17 feature・snapshot 20260626-1a-speedprofile-v1・D-16 Phase 10 進行候補・3-way stopgate 比較)

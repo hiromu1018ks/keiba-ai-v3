@@ -145,7 +145,9 @@ def _is_categorical_rolling_col(col: str) -> bool:
     *system_parts, axis = parts
     if axis == "mode":
         return True
-    if axis in ("mean", "sd", "count", "last", "max"):
+    # Phase 9.1: median を numeric 軸に追加（best2_mean/trend_*/same_surface_*/same_distance_bucket_*
+    # は末尾 axis が mean/max/count で既存リストカバー・median のみ明示追加で誤判定を防止）。
+    if axis in ("mean", "sd", "count", "last", "max", "median"):
         return False
     # latest 軸: system が categorical 系統か（jyuni3c_jyuni4c 等 _ 含み対応）
     system = "_".join(system_parts)
