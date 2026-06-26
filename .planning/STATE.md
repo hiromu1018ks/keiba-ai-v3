@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Ability Feature v2 & Conditional Calibration
-current_phase: 10
-current_phase_name: opponent-strength-race-relative-features
-status: phase_complete
+current_phase: 11
+current_phase_name: Race-Relative Probability Model
+status: completed
 stopped_at: None
-last_updated: "2026-06-27T03:30:00.000Z"
-last_activity: 2026-06-27
-last_activity_desc: Phase 10 Plan 07 完了 (SC#4 SAFE-01 proxy 排除証明 + PIT lookahead 注入 + W-3 cProfile GREEN・W-3 縮小版は PLAN 01 設計と構造的矛盾で default skip)
+last_updated: "2026-06-26T22:41:45.563Z"
+last_activity: 2026-06-26
+last_activity_desc: Phase 10 complete, transitioned to Phase 11
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 13
   completed_plans: 13
-  percent: 100
+  percent: 60
 ---
 
 # Project State
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 
 ## Current Position
 
-Phase: 10 (opponent-strength-race-relative-features) — COMPLETE
-Plan: 7 of 7 (all complete)
+Phase: 11 — Race-Relative Probability Model
+Plan: Not started
 Status: Phase 10 fully complete
-Last activity: 2026-06-27 — Phase 10 Plan 07 完了 (SC#4 SAFE-01 proxy 排除証明 + PIT lookahead 注入 + W-3 cProfile GREEN・W-3 縮小版は PLAN 01 設計と構造的矛盾で default skip)
+Last activity: 2026-06-26 — Phase 10 complete, transitioned to Phase 11
 
 ## v1.1 Milestone Context
 
@@ -52,7 +52,7 @@ Last activity: 2026-06-27 — Phase 10 Plan 07 完了 (SC#4 SAFE-01 proxy 排除
 
 **Velocity:**
 
-- Total plans completed: 40 (v1.0) + 0 (v1.1)
+- Total plans completed: 47 (v1.0) + 0 (v1.1)
 - Average duration: — min
 - Total execution time: 0.0 hours
 
@@ -70,7 +70,7 @@ Last activity: 2026-06-27 — Phase 10 Plan 07 完了 (SC#4 SAFE-01 proxy 排除
 | 07 | 3 | - | - |
 | 08 | 3 | - | - |
 | 09 | 0/5 | - | - |
-| 10 | 0/? | - | - |
+| 10 | 7 | - | - |
 | 11 | 0/? | - | - |
 | 12 | 0/? | - | - |
 
