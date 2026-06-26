@@ -1,0 +1,15 @@
+{
+  "feature_snapshot_id": "20260625-1a-speedfigure-v1",
+  "row_count": 554267,
+  "rolling_speed_figure_mean_5_non_null_count": 441389,
+  "rolling_speed_figure_mean_5_min": -621.5666666666667,
+  "rolling_speed_figure_mean_5_max": 1193.28,
+  "rolling_speed_figure_mean_5_mean": 5.090834335472791,
+  "rolling_speed_figure_mean_5_std": 111.55917073826127,
+  "rolling_speed_figure_mean_5_median": 0.0,
+  "outlier_check": {
+    "abs_max_below_1000": false,
+    "domain_range_note": "rolling_speed_figure_mean_5 は 0-100 程度に収まることが期待（過去5走平均・Pitfall 4・外れ値 ±1000 は points_per_seconds 不正の疑い）"
+  },
+  "generated_at_utc": "2026-06-25T22:56:11.576896+00:00"
+}
