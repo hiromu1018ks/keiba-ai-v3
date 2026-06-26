@@ -192,3 +192,498 @@ def test_jyocd_categorical_mode_aggregation():
     assert int(row["rolling_jyocd_count_5"]) == 4, (
         f"jyocd count が不正: {row['rolling_jyocd_count_5']}（期待値 4・cutoff strict < で最新1件除外）"
     )
+
+
+# ===========================================================================
+# Phase 10 PLAN 02: rolling_field_strength_* 21 feature（D-06 第2段階・D-13）
+#
+# PLAN 01 が history に付与した field_strength profile 8値（中間値）を入力に・
+# target 馬の過去走にわたり latest-K rolling（obs_id group・strict < cutoff・LOOKBACK=5）で
+# 集約し 21 feature を生成する。既存 speed_figure 17 feature と完全に対称な idiom で拡張する。
+#
+# D-13 命名規則（_SPEED_FIGURE_AXES と異なり window 番号でなく意味サフィックス）:
+#   - latest_1 系6: rolling_field_strength_{mean,median,top3_mean,top5_mean,max,sd}_latest_1
+#   - mean_3 系5:   rolling_field_strength_{mean,median,top3_mean,top5_mean,max}_mean_3
+#   - mean_5 系6:   rolling_field_strength_{mean,median,top3_mean,top5_mean,max,sd}_mean_5
+#   - trend 系2:    rolling_field_strength_mean_trend_last_minus_mean5 / _trend_mean3_minus_mean5
+#   - count/coverage 系2: rolling_field_strength_valid_count_mean_5 / coverage_mean_5
+#   合計 6+5+6+2+2 = 21 feature
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# 合成 field_strength history builder（PLAN 01 出力形式の profile 8値を手動設定）
+# ---------------------------------------------------------------------------
+_FS_PROFILE_COLS = (
+    "field_strength_mean",
+    "field_strength_median",
+    "field_strength_top3_mean",
+    "field_strength_top5_mean",
+    "field_strength_max",
+    "field_strength_sd",
+    "field_strength_valid_count",
+    "field_strength_coverage",
+)
+
+
+def _build_fs_history_row(
+    kettonum: int,
+    race_date: str,
+    *,
+    fs_mean: float,
+    fs_median: float,
+    fs_top3: float,
+    fs_top5: float,
+    fs_max: float,
+    fs_sd: float,
+    fs_valid_count: int,
+    fs_coverage: float,
+) -> dict:
+    """合成 history 行（field_strength profile 8値を手動設定・PLAN 01 出力形式）。
+
+    PLAN 01 の compute_field_strength_profile を呼ばず・直接 profile 列を設定する（unit test として独立）。
+    """
+    row = _build_se_history_row(
+        kettonum=kettonum,
+        race_date=race_date,
+    )
+    # field_strength profile 8値（PLAN 01 出力形式・rolling source 列）
+    row["field_strength_mean"] = fs_mean
+    row["field_strength_median"] = fs_median
+    row["field_strength_top3_mean"] = fs_top3
+    row["field_strength_top5_mean"] = fs_top5
+    row["field_strength_max"] = fs_max
+    row["field_strength_sd"] = fs_sd
+    row["field_strength_valid_count"] = fs_valid_count
+    row["field_strength_coverage"] = fs_coverage
+    return row
+
+
+def _build_fs_5start_history(
+    kettonum: int = 7007,
+    obs_race_date: str = "2023-06-04",
+    base_mean: float = 50.0,
+) -> pd.DataFrame:
+    """5走の過去走（cutoff 以前・全て eligible）を持つ field_strength history builder.
+
+    各 row の field_strength_mean を区別値（base_mean + i）に設定し・
+    rolling_field_strength_mean_mean_5 が (base+1 + base+2 + base+3 + base+4 + base+5)/5 = base+3
+    になることで window 完全性を機械検出する。
+    """
+    obs_rd = pd.to_datetime(obs_race_date)
+    rows = []
+    # 5走・全て cutoff 以前（2〜6日前）・降順で直近1件目が最新
+    for i in range(1, 6):
+        rd = obs_rd - pd.Timedelta(days=i + 1)  # cutoff は obs_rd - 1day strict < なので -2日以前が eligible
+        rows.append(
+            _build_fs_history_row(
+                kettonum=kettonum,
+                race_date=(rd).strftime("%Y-%m-%d"),
+                fs_mean=base_mean + i,
+                fs_median=base_mean + i + 0.5,
+                fs_top3=base_mean + i + 1.0,
+                fs_top5=base_mean + i + 1.5,
+                fs_max=base_mean + i + 2.0,
+                fs_sd=float(i),
+                fs_valid_count=10 + i,
+                fs_coverage=0.8 + i * 0.01,
+            )
+        )
+    return pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------------------
+# Test 1 (D-13 21 feature 完全性)
+# ---------------------------------------------------------------------------
+def test_field_strength_21_features_completeness():
+    """D-13: rolling_field_strength_* 21 feature が全て生成される（列名完全性）.
+
+    命名規則:
+      - latest_1 系6: rolling_field_strength_{mean,median,top3_mean,top5_mean,max,sd}_latest_1
+      - mean_3 系5:   rolling_field_strength_{mean,median,top3_mean,top5_mean,max}_mean_3
+      - mean_5 系6:   rolling_field_strength_{mean,median,top3_mean,top5_mean,max,sd}_mean_5
+      - trend 系2:    rolling_field_strength_mean_trend_{last_minus_mean5,mean3_minus_mean5}
+      - count/coverage 系2: rolling_field_strength_{valid_count_mean_5,coverage_mean_5}
+    """
+    rolling = _get_rolling()
+
+    # 21 feature の列名リスト（D-13 命名）
+    expected_cols = [
+        # latest_1 系6
+        "rolling_field_strength_mean_latest_1",
+        "rolling_field_strength_median_latest_1",
+        "rolling_field_strength_top3_mean_latest_1",
+        "rolling_field_strength_top5_mean_latest_1",
+        "rolling_field_strength_max_latest_1",
+        "rolling_field_strength_sd_latest_1",
+        # mean_3 系5
+        "rolling_field_strength_mean_mean_3",
+        "rolling_field_strength_median_mean_3",
+        "rolling_field_strength_top3_mean_mean_3",
+        "rolling_field_strength_top5_mean_mean_3",
+        "rolling_field_strength_max_mean_3",
+        # mean_5 系6
+        "rolling_field_strength_mean_mean_5",
+        "rolling_field_strength_median_mean_5",
+        "rolling_field_strength_top3_mean_mean_5",
+        "rolling_field_strength_top5_mean_mean_5",
+        "rolling_field_strength_max_mean_5",
+        "rolling_field_strength_sd_mean_5",
+        # trend 系2
+        "rolling_field_strength_mean_trend_last_minus_mean5",
+        "rolling_field_strength_mean_trend_mean3_minus_mean5",
+        # count/coverage 系2
+        "rolling_field_strength_valid_count_mean_5",
+        "rolling_field_strength_coverage_mean_5",
+    ]
+    assert len(expected_cols) == 21, f"expected_cols の要素数が21でない: {len(expected_cols)}"
+
+    # _FIELD_STRENGTH_AXES の要素数が21
+    assert len(rolling._FIELD_STRENGTH_AXES) == 21, (
+        f"_FIELD_STRENGTH_AXES の要素数が21でない: {len(rolling._FIELD_STRENGTH_AXES)}"
+    )
+
+    # _ROLLING_SYSTEMS に "field_strength" が含まれる
+    assert "field_strength" in rolling._ROLLING_SYSTEMS, (
+        "_ROLLING_SYSTEMS に field_strength が含まれない"
+    )
+
+    # _SYSTEM_SOURCE["field_strength"] が 8 source 列
+    expected_sources = {
+        "field_strength_mean",
+        "field_strength_median",
+        "field_strength_top3_mean",
+        "field_strength_top5_mean",
+        "field_strength_max",
+        "field_strength_sd",
+        "field_strength_valid_count",
+        "field_strength_coverage",
+    }
+    assert set(rolling._SYSTEM_SOURCE["field_strength"]) == expected_sources, (
+        f"_SYSTEM_SOURCE['field_strength'] が8 source 列でない: "
+        f"{rolling._SYSTEM_SOURCE['field_strength']}"
+    )
+
+    # 実行して全列が生成されることを確認
+    history = _build_fs_5start_history()
+    obs = pd.DataFrame([{
+        "kettonum": 7007,
+        "feature_cutoff_datetime": pd.Timestamp("2023-06-03"),
+    }])
+    result = rolling.build_rolling_features(obs, history)
+    for col in expected_cols:
+        assert col in result.columns, f"生成結果に列が存在しない: {col}"
+
+
+# ---------------------------------------------------------------------------
+# Test 2 (PIT strict <・obs_id group)
+# ---------------------------------------------------------------------------
+def test_field_strength_pit_strict_less_obs_id_group():
+    """PIT strict <・obs_id group・LOOKBACK=5 窓で cutoff 以前の最新5件のみで集約・未来行は混入しない.
+
+    CYCLE-2 HIGH#1: 同一 horse が複数 observation に現れた場合・obs 毎に独立 window。
+    """
+    rolling = _get_rolling()
+
+    # 5走 eligible + 2行 adversarial（当日・未来）で構成
+    obs_rd = pd.to_datetime("2023-06-04")
+    rows = []
+    # eligible 5走（cutoff=6/3 以前・2〜6日前）
+    for i in range(1, 6):
+        rd = obs_rd - pd.Timedelta(days=i + 1)
+        rows.append(_build_fs_history_row(
+            kettonum=8008,
+            race_date=rd.strftime("%Y-%m-%d"),
+            fs_mean=10.0 + i,  # 11..15 → mean_5 = 13.0
+            fs_median=0.0, fs_top3=0.0, fs_top5=0.0, fs_max=0.0, fs_sd=0.0,
+            fs_valid_count=5, fs_coverage=0.5,
+        ))
+    # adversarial: 当日（target・除外）・未来（除外）・cutoff同日（除外）
+    for off, label in [(0, "target"), (2, "future"), (-1, "cutoff_day")]:
+        rd = obs_rd + pd.Timedelta(days=off)
+        rows.append(_build_fs_history_row(
+            kettonum=8008,
+            race_date=rd.strftime("%Y-%m-%d"),
+            fs_mean=999.0,  # 混入検出用の識別値
+            fs_median=999.0, fs_top3=999.0, fs_top5=999.0, fs_max=999.0, fs_sd=999.0,
+            fs_valid_count=999, fs_coverage=0.99,
+        ))
+    history = pd.DataFrame(rows)
+    obs = pd.DataFrame([{"kettonum": 8008, "feature_cutoff_datetime": pd.Timestamp("2023-06-03")}])
+
+    result = rolling.build_rolling_features(obs, history)
+    row = result.iloc[0]
+    # mean_5 = (11+12+13+14+15)/5 = 13.0（adversarial 999.0 が混入しない）
+    assert abs(float(row["rolling_field_strength_mean_mean_5"]) - 13.0) < 1e-9, (
+        f"PIT strict < 違反: mean_mean_5 = {row['rolling_field_strength_mean_mean_5']}"
+        f"（期待値 13.0・adversarial 999.0 が混入）"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 3 (sentinel ルール)
+# ---------------------------------------------------------------------------
+def test_field_strength_sentinel_rule_count_below_window():
+    """count>=window で算出・未満は sentinel（NaN→MISSING）・best2_mean 系は使わない.
+
+    3走のみの馬: mean_mean_5 / sd_mean_5 / max_mean_5 は sentinel（count<5）・
+    mean_mean_3 / max_mean_3 は算出（count>=3）・mean_latest_1 は算出（count>=1）。
+    """
+    from src.utils.category_map import MISSING
+
+    rolling = _get_rolling()
+
+    obs_rd = pd.to_datetime("2023-06-04")
+    rows = []
+    # 3走のみ（cutoff 以前）
+    for i in range(1, 4):
+        rd = obs_rd - pd.Timedelta(days=i + 1)
+        rows.append(_build_fs_history_row(
+            kettonum=9009,
+            race_date=rd.strftime("%Y-%m-%d"),
+            fs_mean=20.0 + i,  # 21..23
+            fs_median=20.0 + i, fs_top3=20.0 + i, fs_top5=20.0 + i,
+            fs_max=20.0 + i, fs_sd=1.0,
+            fs_valid_count=8, fs_coverage=0.8,
+        ))
+    history = pd.DataFrame(rows)
+    obs = pd.DataFrame([{"kettonum": 9009, "feature_cutoff_datetime": pd.Timestamp("2023-06-03")}])
+
+    result = rolling.build_rolling_features(obs, history)
+    row = result.iloc[0]
+
+    # window=5 系は sentinel（count=3 < 5）
+    assert row["rolling_field_strength_mean_mean_5"] == MISSING, (
+        f"count<5 なのに mean_mean_5 が sentinel でない: {row['rolling_field_strength_mean_mean_5']}"
+    )
+    assert row["rolling_field_strength_sd_mean_5"] == MISSING
+    assert row["rolling_field_strength_max_mean_5"] == MISSING
+    # trend 系も count>=5 で算出（window=5）なので sentinel
+    assert row["rolling_field_strength_mean_trend_last_minus_mean5"] == MISSING
+
+    # window=3 系は算出（count=3 >= 3）
+    # mean_mean_3 = (21+22+23)/3 = 22.0
+    assert abs(float(row["rolling_field_strength_mean_mean_3"]) - 22.0) < 1e-9
+    # window=1 系は算出（count>=1）・最新1件目（race_start_datetime 降順で最初）= 23
+    assert abs(float(row["rolling_field_strength_mean_latest_1"]) - 23.0) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Test 4 (count/coverage 軸は常に実際数値・sentinel 化しない)
+# ---------------------------------------------------------------------------
+def test_field_strength_count_coverage_always_real():
+    """rolling_field_strength_valid_count_mean_5 / coverage_mean_5 は常に実際数値（0〜window）を出力.
+
+    sentinel 化しない（D-11 信頼度軸・Phase 9.1 idiom 踏襲）。
+    """
+    rolling = _get_rolling()
+
+    # 3走のみの場合でも count/coverage は実際数値
+    obs_rd = pd.to_datetime("2023-06-04")
+    rows = []
+    for i in range(1, 4):
+        rd = obs_rd - pd.Timedelta(days=i + 1)
+        rows.append(_build_fs_history_row(
+            kettonum=1010,
+            race_date=rd.strftime("%Y-%m-%d"),
+            fs_mean=30.0,
+            fs_median=30.0, fs_top3=30.0, fs_top5=30.0,
+            fs_max=30.0, fs_sd=1.0,
+            fs_valid_count=12,  # 各 source race の opponent 有効数
+            fs_coverage=0.75,
+        ))
+    history = pd.DataFrame(rows)
+    obs = pd.DataFrame([{"kettonum": 1010, "feature_cutoff_datetime": pd.Timestamp("2023-06-03")}])
+
+    result = rolling.build_rolling_features(obs, history)
+    row = result.iloc[0]
+
+    # valid_count_mean_5 = (12+12+12)/3 = 12.0（3走のみ・count>=5 でないが sentinel でない）
+    vc = row["rolling_field_strength_valid_count_mean_5"]
+    assert vc != MISSING, f"valid_count_mean_5 が sentinel 化した（D-11 違反）: {vc}"
+    assert abs(float(vc) - 12.0) < 1e-9, f"valid_count_mean_5 が不正: {vc}"
+
+    # coverage_mean_5 = 0.75（同様）
+    cov = row["rolling_field_strength_coverage_mean_5"]
+    assert cov != MISSING, f"coverage_mean_5 が sentinel 化した（D-11 違反）: {cov}"
+    assert abs(float(cov) - 0.75) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Test 5 (trend 系)
+# ---------------------------------------------------------------------------
+def test_field_strength_trend_axes():
+    """trend 系: trend_last_minus_mean5 = latest_1 の mean - mean_5 の mean・
+    trend_mean3_minus_mean5 = mean_3 の mean - mean_5 の mean.
+    """
+    rolling = _get_rolling()
+
+    # 5走で構成・field_strength_mean = [41, 42, 43, 44, 45]（直近1件目=45・3件=[45,44,43]・5件=全て）
+    history = _build_fs_5start_history(kettonum=1111, base_mean=40.0)
+    obs = pd.DataFrame([{"kettonum": 1111, "feature_cutoff_datetime": pd.Timestamp("2023-06-03")}])
+
+    result = rolling.build_rolling_features(obs, history)
+    row = result.iloc[0]
+
+    # field_strength_mean の5走 = 41..45（直近1件=45・mean3=(45+44+43)/3=44・mean5=(41+42+43+44+45)/5=43）
+    # trend_last_minus_mean5 = latest_1.mean - mean_5.mean = 45 - 43 = 2.0
+    trend_last = row["rolling_field_strength_mean_trend_last_minus_mean5"]
+    assert abs(float(trend_last) - 2.0) < 1e-9, (
+        f"trend_last_minus_mean5 が不正: {trend_last}（期待値 2.0）"
+    )
+    # trend_mean3_minus_mean5 = mean_3 - mean_5 = 44 - 43 = 1.0
+    trend_m3 = row["rolling_field_strength_mean_trend_mean3_minus_mean5"]
+    assert abs(float(trend_m3) - 1.0) < 1e-9, (
+        f"trend_mean3_minus_mean5 が不正: {trend_m3}（期待値 1.0）"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 6 (top-k source: top3_mean/top5_mean は profile → rolling の2段階で正常動作)
+# ---------------------------------------------------------------------------
+def test_field_strength_topk_source_two_stage():
+    """source 列の top3_mean/top5_mean（PLAN 01 出力）を rolling で更に mean 化する場合も正常動作.
+
+    profile → rolling の2段階構造（top3/top5 は各 source race 内の opponent top-k 平均・
+    rolling はその target 馬の過去走にわたる mean）。
+    """
+    rolling = _get_rolling()
+
+    # 5走の top3_mean = [51, 52, 53, 54, 55]・top5_mean = [61, 62, 63, 64, 65]
+    obs_rd = pd.to_datetime("2023-06-04")
+    rows = []
+    for i in range(1, 6):
+        rd = obs_rd - pd.Timedelta(days=i + 1)
+        rows.append(_build_fs_history_row(
+            kettonum=1212,
+            race_date=rd.strftime("%Y-%m-%d"),
+            fs_mean=0.0,
+            fs_median=0.0,
+            fs_top3=50.0 + i,  # 51..55
+            fs_top5=60.0 + i,  # 61..65
+            fs_max=0.0, fs_sd=0.0,
+            fs_valid_count=10, fs_coverage=0.5,
+        ))
+    history = pd.DataFrame(rows)
+    obs = pd.DataFrame([{"kettonum": 1212, "feature_cutoff_datetime": pd.Timestamp("2023-06-03")}])
+
+    result = rolling.build_rolling_features(obs, history)
+    row = result.iloc[0]
+
+    # top3_mean_mean_5 = (51+52+53+54+55)/5 = 53.0
+    assert abs(float(row["rolling_field_strength_top3_mean_mean_5"]) - 53.0) < 1e-9
+    # top5_mean_mean_5 = (61+62+63+64+65)/5 = 63.0
+    assert abs(float(row["rolling_field_strength_top5_mean_mean_5"]) - 63.0) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Test 7 (byte-reproducible)
+# ---------------------------------------------------------------------------
+def test_field_strength_byte_reproducible():
+    """byte-reproducible（§19.1）: 同一 history で2回呼出すと21 feature 全て bit-identical."""
+    import numpy as np
+
+    rolling = _get_rolling()
+
+    history = _build_fs_5start_history(kettonum=1313, base_mean=70.0)
+    obs = pd.DataFrame([{"kettonum": 1313, "feature_cutoff_datetime": pd.Timestamp("2023-06-03")}])
+
+    result1 = rolling.build_rolling_features(obs, history)
+    result2 = rolling.build_rolling_features(obs, history)
+
+    fs_cols = [c for c in result1.columns if c.startswith("rolling_field_strength_")]
+    assert len(fs_cols) == 21
+    for col in fs_cols:
+        v1 = result1.iloc[0][col]
+        v2 = result2.iloc[0][col]
+        # 数値の場合は np.array_equal・MISSING sentinel の場合は同値
+        if isinstance(v1, (int, float)) and isinstance(v2, (int, float)):
+            assert np.array_equal([v1], [v2]), f"{col} が bit-identical でない: {v1} vs {v2}"
+        else:
+            assert v1 == v2, f"{col} が bit-identical でない: {v1} vs {v2}"
+
+
+# ---------------------------------------------------------------------------
+# Test 8 (copy-not-rename・HIGH#5)
+# ---------------------------------------------------------------------------
+def test_field_strength_copy_not_rename():
+    """HIGH#5: 入力 history の既存列は破壊されず・21 列が copy 追加される."""
+    rolling = _get_rolling()
+
+    history = _build_fs_5start_history(kettonum=1414, base_mean=80.0)
+    history_cols_before = set(history.columns)
+    history_rows_before = len(history)
+    obs = pd.DataFrame([{"kettonum": 1414, "feature_cutoff_datetime": pd.Timestamp("2023-06-03")}])
+
+    result = rolling.build_rolling_features(obs, history)
+
+    # history は破壊されない（copy-not-rename）
+    assert set(history.columns) == history_cols_before, "入力 history の列が破壊された（HIGH#5 違反）"
+    assert len(history) == history_rows_before, "入力 history の行数が破壊された（HIGH#5 違反）"
+
+    # result に 21 列が追加されている（observations 側に付与）
+    fs_cols = [c for c in result.columns if c.startswith("rolling_field_strength_")]
+    assert len(fs_cols) == 21
+
+
+# ---------------------------------------------------------------------------
+# Test 9 (CYCLE-2 HIGH-C2-2 downstream gate・10-REVIEWS.md L94-99, L211-217, L296)
+# ---------------------------------------------------------------------------
+def test_field_strength_high_c22_downstream_propagation():
+    """CYCLE-2 HIGH-C2-2 downstream gate・両方向検証.
+
+    PLAN 02 の入力 profile が PLAN 01 の source-as-of full-pipeline 再計算（C2-1 fix）に依存することを
+    機械表示:
+      (a) 汚染 profile（target-cutoff-contaminated opponent 混入想定の汚染値）→ rolling 出力も汚染される（伝播）
+      (b) クリーン profile（source-as-of full-pipeline 再計算）→ rolling も正しい値
+
+    これにより PLAN 01 の C2-1 fix が PLAN 02 の前提であることが機械的に表示される
+    （PLAN 02 単体では C2-1 を解決せず・PLAN 01 の source-as-of full-pipeline 再計算 profile が前提）。
+    """
+    rolling = _get_rolling()
+
+    obs_rd = pd.to_datetime("2023-06-04")
+    # クリーン profile: 5走・mean = [11, 12, 13, 14, 15] → mean_5 = 13.0
+    clean_rows = []
+    for i in range(1, 6):
+        rd = obs_rd - pd.Timedelta(days=i + 1)
+        clean_rows.append(_build_fs_history_row(
+            kettonum=1515,
+            race_date=rd.strftime("%Y-%m-%d"),
+            fs_mean=10.0 + i,
+            fs_median=0.0, fs_top3=0.0, fs_top5=0.0,
+            fs_max=0.0, fs_sd=0.0,
+            fs_valid_count=9, fs_coverage=0.9,
+        ))
+    clean_history = pd.DataFrame(clean_rows)
+
+    # 汚染 profile: クリーン profile に (source, target] 区間の汚染 opponent 混入を想定した値を人為的に入れる
+    # → mean = 999.0 の行を1件追加（target-cutoff-contaminated speed_figure 流用を想定）
+    dirty_history = pd.concat([
+        clean_history,
+        pd.DataFrame([_build_fs_history_row(
+            kettonum=1515,
+            race_date=(obs_rd - pd.Timedelta(days=10)).strftime("%Y-%m-%d"),
+            fs_mean=999.0,  # 汚染値（target-cutoff-contaminated 由来を想定）
+            fs_median=0.0, fs_top3=0.0, fs_top5=0.0,
+            fs_max=0.0, fs_sd=0.0,
+            fs_valid_count=9, fs_coverage=0.9,
+        )]),
+    ], ignore_index=True)
+
+    obs = pd.DataFrame([{"kettonum": 1515, "feature_cutoff_datetime": pd.Timestamp("2023-06-03")}])
+
+    result_clean = rolling.build_rolling_features(obs, clean_history)
+    result_dirty = rolling.build_rolling_features(obs, dirty_history)
+
+    # (a) 汚染伝播: dirty 側は rolling_field_strength_mean_mean_5 が 999.0 の影響で変化
+    clean_mean5 = float(result_clean.iloc[0]["rolling_field_strength_mean_mean_5"])
+    dirty_mean5 = float(result_dirty.iloc[0]["rolling_field_strength_mean_mean_5"])
+    assert abs(clean_mean5 - 13.0) < 1e-9, f"クリーン profile の mean_5 が不正: {clean_mean5}"
+    assert abs(dirty_mean5 - 13.0) > 1e-9, (
+        f"汚染 profile なのに rolling 出力が変わらない（伝播なし・C2-2 検出力不足）: "
+        f"clean={clean_mean5}, dirty={dirty_mean5}"
+    )
+
+    # (b) クリーン profile なら rolling 出力も正しい値（mean_5 = 13.0）
+    # 上記 clean_mean5 assert で立証済み
