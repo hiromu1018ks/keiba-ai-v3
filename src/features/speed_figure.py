@@ -429,18 +429,21 @@ def _compute_pit_par(expanded_filtered: pd.DataFrame) -> pd.DataFrame:
         out.loc[selected, "fallback_level"] = "trackcd_kyori"
 
     # Stage 3: それでも未確定の行は obs_id 単位の all-history median へ fallback
+    # vectorized reindex で Stage 1/2 と対称に（WR-02 対策・決定論性監査容易化）。
+    # 元の row-by-row `out.at[idx, ...]` と等価: grp3 は pending 行の obs_id を group key
+    # に持つため reindex で NaN にはならないが、fillna(0) で安全側に倒す（int 化のため）。
     pending = out["par_sec"].isna()
     if pending.any():
         grp3 = out.loc[pending].groupby("obs_id", sort=False)["time_sec"]
         size3 = grp3.size()
         median3 = grp3.median()
-        for idx in out.index[pending]:
-            obs_id = out.at[idx, "obs_id"]
-            n = int(size3.get(obs_id, 0))
-            m = median3.get(obs_id, float("nan"))
-            out.at[idx, "par_sec"] = m
-            out.at[idx, "sample_count"] = n
-            out.at[idx, "fallback_level"] = "all_day"
+        idx3 = out.loc[pending].set_index(["obs_id"]).index
+        size3_map = size3.reindex(idx3)
+        median3_map = median3.reindex(idx3)
+        pending_indices = out.index[pending]
+        out.loc[pending_indices, "par_sec"] = median3_map.values
+        out.loc[pending_indices, "sample_count"] = size3_map.fillna(0).astype(int).values
+        out.loc[pending_indices, "fallback_level"] = "all_day"
 
     # par_sec が依然 NaN の行（obs_id の全 time_sec が NaN 等）は fallback_level="all_day"
     # を維持したまま par_sec=NaN とする（silent fill 禁止・D-13）
@@ -525,18 +528,17 @@ def _compute_leave_one_out_variant(expanded_with_par: pd.DataFrame) -> pd.DataFr
     out.loc[eligible_s1, "variant_sec"] = approx[eligible_s1]
 
     # Stage 2: 未確定行を obs_id 単位の all-history robust variant へ fallback
+    # vectorized reindex で Stage 1/par の idiom と対称に（WR-02 対策）。
+    # `median2.get(obs_id, NaN)` + `pd.notna(m) ? m : 0.0` は `reindex(...).fillna(0.0)` と等価。
     pending = out["variant_sec"].isna()
     if pending.any():
         grp2 = out.loc[pending].groupby("obs_id", sort=False)["residual"]
         median2 = grp2.median()
-        for idx in out.index[pending]:
-            obs_id = out.at[idx, "obs_id"]
-            m = median2.get(obs_id, float("nan"))
-            if pd.notna(m):
-                out.at[idx, "variant_sec"] = float(m)
-            else:
-                # Stage 3: residual が全て NaN（par_sec NaN 等）→ 中立 0.0
-                out.at[idx, "variant_sec"] = 0.0
+        idx2 = out.loc[pending].set_index(["obs_id"]).index
+        median2_map = median2.reindex(idx2)
+        pending_indices = out.index[pending]
+        # Stage 3: residual が全て NaN（par_sec NaN 等）→ 中立 0.0（fillna で体現）
+        out.loc[pending_indices, "variant_sec"] = median2_map.fillna(0.0).values
     return out
 
 
