@@ -78,6 +78,19 @@ _METADATA_KEYS = (
 _BYTE_REPRODUCIBLE_SCOPE = "parquet_data_only_metadata_excluded"
 
 
+# Phase 10 PLAN 05 (FEAT-03・Pitfall 5): rolling_ prefix 無しの rank/gap 列も
+# Parquet 直列化前に nullable Float64 に強制変換する（最終防衛線・builder Step6c が保証するが
+# snapshot 境界でも防御的に扱う）。sentinel 文字列は NaN になり D-09 欠損馬 NaN 保持と整合。
+_FEAT03_NUMERIC_COLUMNS: frozenset[str] = frozenset({
+    "speed_index_rank_mean5",
+    "speed_index_rank_best2_mean5",
+    "speed_index_rank_median5",
+    "gap_to_top",
+    "gap_to_3rd",
+    "field_strength_adjusted_rank",
+})
+
+
 def _coerce_rolling_columns_for_parquet(df: pd.DataFrame) -> pd.DataFrame:
     """rolling 出力の object dtype 列を Parquet 直列化可能な nullable dtype に統一する。
 
@@ -91,24 +104,35 @@ def _coerce_rolling_columns_for_parquet(df: pd.DataFrame) -> pd.DataFrame:
         （sentinel → ``<NA>``）。varchar(2) 競馬場コードを ``"06"→6.0`` のように数値化しない
         （CR-02 の「文字列の最頻値」意図を完遂・実データ検証で ``_coerce`` の数値化副作用を発見）。
 
+    Phase 10 PLAN 05 (FEAT-03・Pitfall 5): ``rolling_`` prefix 無しの rank/gap 列
+    （``speed_index_rank_*`` / ``gap_to_top`` / ``gap_to_3rd`` / ``field_strength_adjusted_rank``）
+    も数値 + sentinel の場合 nullable ``Float64`` に強制変換する。builder Step6c が
+    ``Float64`` を保証するが・snapshot 境界でも防御的に扱う（実データの Parquet 直列化 bug は
+    unit test では発覚しない・memory feature-snapshot-regen-required・Pitfall 5）。
+
     値の「数値化可能性」では判定しない（``"06"`` は数字文字列で ``to_numeric`` 可能だが categorical）。
     rolling.py の ``_CATEGORICAL_SYSTEMS`` で系統を明示判定する。D-13 契約（object + sentinel）は
     不変・本関数は Parquet 出力前の直列化変換のみ。byte-reproducibility は維持（決定論的 cast）。
     """
     result = df.copy()
     for col in result.columns:
-        if not col.startswith("rolling_"):
-            continue
         series = result[col]
         if series.dtype != object:
             continue
         non_sentinel_mask = series.ne(MISSING)
-        if _is_categorical_rolling_col(col):
-            # categorical 列（jyocd mode/latest）→ sentinel を <NA> にして nullable string。
-            # "06" 等の競馬場コードを数値化せず文字列カテゴリとして保持（Phase 4 categorical 制御用）。
-            result[col] = series.where(non_sentinel_mask).astype("string")
-        else:
-            # numeric 列 → sentinel を NaN にして nullable Float64（従来通り）。
+        if col.startswith("rolling_"):
+            if _is_categorical_rolling_col(col):
+                # categorical 列（jyocd mode/latest）→ sentinel を <NA> にして nullable string。
+                # "06" 等の競馬場コードを数値化せず文字列カテゴリとして保持（Phase 4 categorical 制御用）。
+                result[col] = series.where(non_sentinel_mask).astype("string")
+            else:
+                # numeric 列 → sentinel を NaN にして nullable Float64（従来通り）。
+                result[col] = pd.to_numeric(series.where(non_sentinel_mask), errors="coerce").astype("Float64")
+        elif col in _FEAT03_NUMERIC_COLUMNS:
+            # Phase 10 PLAN 05 (FEAT-03・Pitfall 5): rolling_ prefix 無しの rank/gap 列。
+            # builder Step6c が Float64 を保証するが・snapshot 境界でも防御的に nullable Float64
+            # に変換する（実データ Parquet 直列化 bug の最終防衛線・memory feature-snapshot-regen-required）。
+            # sentinel 文字列は NaN になり D-09 欠損馬 NaN 保持と整合。
             result[col] = pd.to_numeric(series.where(non_sentinel_mask), errors="coerce").astype("Float64")
     return result
 

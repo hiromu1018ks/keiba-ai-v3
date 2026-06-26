@@ -272,3 +272,251 @@ def test_cr04_sha256_independent_of_snapshot_id(tmp_path: Path):
         f"異なる snapshot_id/created_at で SHA256 が変化した: {sha1} != {sha2}"
         "・CR-04 SHA256 scope（metadata 無し schema bytes）違反"
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 10 PLAN 05: FEAT-02/03 新 feature (27) + snapshot_id 事前登録 + REVIEW H5
+# ---------------------------------------------------------------------------
+# Open Question #3 事前登録: Phase 10 の feature snapshot id。
+# v1.0 20260620-1a-postreview-v2 系統継承・make_model_version 形式・PLAN 06 が消費。
+PHASE10_SNAPSHOT_ID = "20260626-1a-opponentstrength-v1"
+
+# FEAT-02 rolling_field_strength 21 feature（rolling.py::_FIELD_STRENGTH_AXES と同一順序・D-13）
+_FEAT02_COLUMNS: tuple[str, ...] = (
+    # latest_1 系6
+    "rolling_field_strength_mean_latest_1",
+    "rolling_field_strength_median_latest_1",
+    "rolling_field_strength_top3_mean_latest_1",
+    "rolling_field_strength_top5_mean_latest_1",
+    "rolling_field_strength_max_latest_1",
+    "rolling_field_strength_sd_latest_1",
+    # mean_3 系5
+    "rolling_field_strength_mean_mean_3",
+    "rolling_field_strength_median_mean_3",
+    "rolling_field_strength_top3_mean_mean_3",
+    "rolling_field_strength_top5_mean_mean_3",
+    "rolling_field_strength_max_mean_3",
+    # mean_5 系6
+    "rolling_field_strength_mean_mean_5",
+    "rolling_field_strength_median_mean_5",
+    "rolling_field_strength_top3_mean_mean_5",
+    "rolling_field_strength_top5_mean_mean_5",
+    "rolling_field_strength_max_mean_5",
+    "rolling_field_strength_sd_mean_5",
+    # trend 系2（window 埋込・_5 無し）
+    "rolling_field_strength_mean_trend_last_minus_mean5",
+    "rolling_field_strength_mean_trend_mean3_minus_mean5",
+    # count/coverage 系2（window=5 固定・信頼度軸・D-11）
+    "rolling_field_strength_valid_count_mean_5",
+    "rolling_field_strength_coverage_mean_5",
+)
+
+# FEAT-03 race_relative 6 feature（rolling_ prefix 無し・target-only）
+_FEAT03_COLUMNS: tuple[str, ...] = (
+    "speed_index_rank_mean5",
+    "speed_index_rank_best2_mean5",
+    "speed_index_rank_median5",
+    "gap_to_top",
+    "gap_to_3rd",
+    "field_strength_adjusted_rank",
+)
+
+
+def _build_phase10_synthetic_matrix() -> pd.DataFrame:
+    """Phase 10 PLAN 05: 27 新 feature を含む合成行列（FEAT-02 21 + FEAT-03 6）。
+
+    FEAT-02 は ``rolling_`` prefix のため snapshot.py::_coerce_rolling_columns_for_parquet
+    が自動的に nullable Float64 に変換する。FEAT-03 は ``rolling_`` prefix 無し・
+    builder Step6c が nullable Float64 を保証するが・snapshot 境界でも防御的に Float64 変換
+    する（Pitfall 5・ArrowTypeError 回避の最終防衛線）。
+    """
+    base = {
+        "race_nkey": ["2023A0610-R1", "2023A0610-R1", "2023A0610-R2"],
+        "kettonum": [1001, 1002, 1003],
+        "race_date": [
+            pd.Timestamp("2023-06-04"),
+            pd.Timestamp("2023-06-04"),
+            pd.Timestamp("2023-06-05"),
+        ],
+        "rolling_kakuteijyuni_mean_5": [3.0, 5.0, 1.0],  # 既存 feature
+    }
+    # FEAT-02: 数値 + __MISSING__ sentinel 混在（object dtype）→ Float64 変換対象
+    from src.utils.category_map import MISSING
+
+    for col in _FEAT02_COLUMNS:
+        base[col] = [1.5, MISSING, 3.0]
+    # FEAT-03: 数値 + sentinel 混在（object dtype）→ Float64 変換対象（防御的）
+    for col in _FEAT03_COLUMNS:
+        base[col] = [2.0, 1.0, MISSING]
+    return pd.DataFrame(base)
+
+
+def test_phase10_snapshot_id_preregistered():
+    """Open Question #3: Phase 10 snapshot_id = 20260626-1a-opponentstrength-v1 が事前登録される。
+
+    PLAN 06 (run_phase10_evaluation.py) が本 id を消費する。make_model_version 形式
+    （feature_snapshot_id 全体を prefix・二重 postfix 回帰防止・review HIGH#4）。
+    """
+    # 文字列リテラルで検査（typo 検出・誤 id で false-pass しない）
+    assert PHASE10_SNAPSHOT_ID == "20260626-1a-opponentstrength-v1"
+    # 系統継承: v1.0 20260620-1a-postreview-v2 → Phase 9.1 20260625-1a-speedprofile-v1 →
+    # Phase 10 20260626-1a-opponentstrength-v1（日付 + ability kind + v1）
+    assert PHASE10_SNAPSHOT_ID.startswith("20260626-1a-")
+    assert PHASE10_SNAPSHOT_ID.endswith("-v1")
+
+
+def test_phase10_byte_reproducible_with_27_new_features(tmp_path: Path):
+    """SC#3 byte-reproducible: 27 新 feature を含む同一 DataFrame で SHA256 が完全一致。
+
+    Pitfall 5 (Parquet 直列化失敗) 回避: FEAT-02/03 列が object dtype + sentinel の場合でも
+    snapshot 境界で nullable Float64 に変換され・PyArrow ArrowTypeError を起こさない。
+    """
+    snapshot = _get_snapshot()
+    df = _build_phase10_synthetic_matrix()
+    sha1 = snapshot.write_snapshot(
+        df, out_dir=tmp_path, snapshot_id=PHASE10_SNAPSHOT_ID,
+        created_at_fixed="2026-06-26T00:00:00",
+        fa_version="0.6.0",  # PLAN 04 で bump した schema_version と対応
+    )
+    sha2 = snapshot.write_snapshot(
+        df, out_dir=tmp_path, snapshot_id=PHASE10_SNAPSHOT_ID,
+        created_at_fixed="2026-06-26T00:00:00",
+        fa_version="0.6.0",
+    )
+    assert sha1 == sha2, (
+        f"Phase 10 27 新 feature で byte-reproducibility 違反: {sha1} != {sha2} "
+        "(Pitfall 5・Parquet 直列化が非決定論的)"
+    )
+
+
+def test_phase10_feat02_columns_coerced_to_nullable_float64():
+    """Pitfall 5・FEAT-02: rolling_field_strength_* 21 feature が nullable Float64 で直列化される。
+
+    _coerce_rolling_columns_for_parquet が rolling_ prefix で自動的に対象とし・
+    object dtype + __MISSING__ sentinel を nullable Float64（sentinel → NaN）に変換する。
+    """
+    from src.utils.category_map import MISSING
+
+    snapshot = _get_snapshot()
+    df_obj = pd.DataFrame({
+        col: [1.5, MISSING, 3.0] for col in _FEAT02_COLUMNS
+    })
+    out = snapshot._coerce_rolling_columns_for_parquet(df_obj)
+    for col in _FEAT02_COLUMNS:
+        assert str(out[col].dtype) == "Float64", (
+            f"FEAT-02 列 {col} が nullable Float64 に変換されていない: {out[col].dtype} "
+            "(Pitfall 5・ArrowTypeError 発生リスク)"
+        )
+        # sentinel は NaN に変換される（D-09 欠損馬 NaN 保持と整合）
+        assert pd.isna(out[col].iloc[1]), (
+            f"FEAT-02 列 {col} の sentinel が NaN に変換されていない（D-09 整合違反）"
+        )
+
+
+def test_phase10_feat03_columns_coerced_to_nullable_float64():
+    """Pitfall 5・FEAT-03: speed_index_rank_*/gap_to_*/field_strength_adjusted_rank が
+    nullable Float64 で直列化される（rolling_ prefix 無し・防御的変換）。
+
+    builder Step6c が pd.to_numeric(..., errors='coerce').astype('Float64') を保証するが・
+    snapshot 境界でも防御的に nullable Float64 変換する（最終防衛線・Pitfall 5）。
+    sentinel 文字列は NaN になり D-09 欠損馬 NaN 保持と整合。
+    """
+    from src.utils.category_map import MISSING
+
+    snapshot = _get_snapshot()
+    df_obj = pd.DataFrame({
+        col: [2.0, 1.0, MISSING] for col in _FEAT03_COLUMNS
+    })
+    out = snapshot._coerce_rolling_columns_for_parquet(df_obj)
+    for col in _FEAT03_COLUMNS:
+        assert str(out[col].dtype) == "Float64", (
+            f"FEAT-03 列 {col} が nullable Float64 に変換されていない: {out[col].dtype} "
+            "(Pitfall 5・rolling_ prefix 無しの防御的変換が欠落)"
+        )
+        # sentinel は NaN に変換される（D-09 欠損馬 NaN 保持と整合）
+        assert pd.isna(out[col].iloc[2]), (
+            f"FEAT-03 列 {col} の sentinel が NaN に変換されていない（D-09 整合違反）"
+        )
+
+
+def test_phase10_metadata_feature_availability_version(tmp_path: Path):
+    """§12.4 metadata・REVIEW H5: feature_availability_version='0.6.0'（schema 無し・実キー検査）。
+
+    REVIEW H5 (10-REVIEWS.md L120, L199): metadata キーは ``feature_availability_version``
+    （``feature_availability_schema_version`` でない）。src/features/snapshot.py L62-72 の
+    _METADATA_KEYS タプル実値と完全一致する。誤キー文字列で assert すると KeyError または
+    false-pass になるため・実キー文字列そのものを検査する。
+    """
+    import pyarrow.parquet as pq
+
+    snapshot = _get_snapshot()
+    df = _build_phase10_synthetic_matrix()
+    snapshot.write_snapshot(
+        df, out_dir=tmp_path, snapshot_id=PHASE10_SNAPSHOT_ID,
+        created_at_fixed="2026-06-26T00:00:00",
+        fa_version="0.6.0",  # PLAN 04 で bump・schema_version 0.6.0 と対応
+    )
+    parquet_path = tmp_path / f"feature_matrix_{PHASE10_SNAPSHOT_ID}.parquet"
+    assert parquet_path.exists(), "Parquet ファイルが書き込まれていない"
+
+    table = pq.read_table(parquet_path)
+    metadata = table.schema.metadata or {}
+    decoded = {k.decode(): v.decode() for k, v in metadata.items()}
+
+    # REVIEW H5 実キー検査: 'feature_availability_version'（schema 無し）
+    assert "feature_availability_version" in decoded, (
+        "metadata に feature_availability_version キーが無い（REVIEW H5・schema 無し・"
+        "src/features/snapshot.py L62-72 の _METADATA_KEYS 実値と不一致）"
+    )
+    assert decoded["feature_availability_version"] == "0.6.0", (
+        f"feature_availability_version が 0.6.0 でない: "
+        f"{decoded.get('feature_availability_version')!r}（PLAN 04 schema_version 0.6.0 と対応）"
+    )
+    # 誤キーが存在しないことを検査（REVIEW H5・誤キー false-pass 回避）
+    assert "feature_availability_schema_version" not in decoded, (
+        "metadata に誤キー feature_availability_schema_version が存在する（REVIEW H5 違反・"
+        "正キーは feature_availability_version・schema 無し）"
+    )
+
+
+def test_phase10_metadata_keys_literal_in_metadata_keys_tuple():
+    """REVIEW H5 厳格対応: snapshot.py._METADATA_KEYS タプル実値に 'feature_availability_version'
+    が含まれ・'feature_availability_schema_version' は含まれないことを検査する。
+
+    inspect.getsource でなく実値検査（誤キー文字列を含む docstring/comment の false positive
+    を回避・REVIEW H5・PLAN 05 Task 1 acceptance criteria・実キー文字列リテラル検査）。
+    """
+    snapshot = _get_snapshot()
+    keys = snapshot._METADATA_KEYS
+    assert "feature_availability_version" in keys, (
+        "snapshot._METADATA_KEYS に feature_availability_version が含まれない（REVIEW H5・"
+        "src/features/snapshot.py L62-72 の実キー文字列）"
+    )
+    assert "feature_availability_schema_version" not in keys, (
+        "snapshot._METADATA_KEYS に誤キー feature_availability_schema_version が含まれる"
+        "（REVIEW H5 違反・正キーは feature_availability_version・schema 無し）"
+    )
+
+
+def test_phase10_fixed_reproduce_ts_sha256_independent_of_created_at(tmp_path: Path):
+    """FIXED_REPRODUCE_TS: timestamp 等の非決定論的要素が metadata 除外で SHA256 に影響しない。
+
+    created_at_fixed を変化させても同一 DataFrame なら SHA256 は同一（§19.1 聖域・
+    SHA256 計算は metadata 無し schema bytes のみ）。Phase 10 27 新 feature でも保証される。
+    """
+    snapshot = _get_snapshot()
+    df = _build_phase10_synthetic_matrix()
+    sha1 = snapshot.write_snapshot(
+        df, out_dir=tmp_path, snapshot_id=PHASE10_SNAPSHOT_ID,
+        created_at_fixed="2026-06-26T00:00:00",
+        fa_version="0.6.0",
+    )
+    sha2 = snapshot.write_snapshot(
+        df, out_dir=tmp_path, snapshot_id=PHASE10_SNAPSHOT_ID,
+        created_at_fixed="2026-06-27T12:34:56",  # 異なる created_at
+        fa_version="0.6.0",
+    )
+    assert sha1 == sha2, (
+        "Phase 10 27 新 feature で created_at 変化時に SHA256 が変化した"
+        "（FIXED_REPRODUCE_TS 違反・SHA256 は metadata 無し schema bytes のみ依存）"
+    )
