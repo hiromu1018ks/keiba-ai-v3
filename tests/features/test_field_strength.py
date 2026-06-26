@@ -24,8 +24,8 @@ import pandas as pd
 import pytest
 
 from src.features.field_strength import (  # noqa: F401  (import 先で CUTOFF_SEMANTICS assert)
-    OPPONENT_ROLLING_K,
     OPPONENT_ROLLING_AXIS,
+    OPPONENT_ROLLING_K,
     SOURCE_RACE_BATCH_SIZE,
     compute_field_strength_profile,
 )
@@ -78,65 +78,125 @@ def _fs_history_row(
 
 
 # ---------------------------------------------------------------------------
-# Test 1: PIT strict `<` opponent-vs-source（D-01）
+# Test 1: PIT strict `<` opponent-vs-source（D-01・機能テスト）
 # ---------------------------------------------------------------------------
-def test_opponent_vs_source_pit_strict_less(monkeypatch: pytest.MonkeyPatch) -> None:
-    """D-01 厳格版 as-of: opponent.available_at < source_race.available_at (strict <).
+def test_opponent_vs_source_pit_strict_less() -> None:
+    """D-01 厳格版 as-of（機能テスト・layer 1 = source-as-of recompute）: source race と同日の
+    opponent speed_figure（available_at == source.available_at）は profile に混入しない.
 
-    source race と同日の opponent speed_figure（available_at == source.available_at）は
-    profile に混入しない。monkeypatch で _pit_cutoff_prefilter を <= 版に差し替えると
-    同日 opponent が混入して profile 値が変化する（adversarial・false-pass 回避）。
+    source race R1(2023-06-10) と同日の H2/H3 の R1 行は・source-as-of recompute の
+    feature_cutoff_datetime=source_race.available_at (strict <) PIT filter で除外される。
+    H1 の opponent は H2/H3 の R0(2023-06-01) 過去走のみで valid_count=2 になる。
+
+    CYCLE-2 HIGH-C2-1 の adversarial（leaky < で混入検出）は Test 2 が別途カバーする。
+    本テストは「正しく除外される」機能テスト（cross-reference: Test 2 adversarial）。
     """
-    import src.features.field_strength as fs_mod
-
     # source race R1 (2023-06-10)・3 starters: H1/H2/H3
-    # H1 と H2 は 2023-06-01 に共通の過去走を持つ（R0・time=1500 = 110.0s）
-    # H1/H2/H3 は source race R1 自身にも出走（kakuteijyuni=1）・これは available_at == source で除外
+    # H1/H2/H3 は 2023-06-01 に共通の過去走を持つ（R0・time=1500）
+    # H1/H2/H3 は source race R1 自身にも出走・same-day 行は source-as-of recompute の strict < で除外
     rows = [
-        # H1 過去走（eligible・source R1 より前日）
         _fs_history_row("R0_20230601", 1001, "2023-06-01", time=1500.0, kakuteijyuni=1),
-        # H2 過去走（eligible・source R1 より前日）
         _fs_history_row("R0_20230601", 1002, "2023-06-01", time=1500.0, kakuteijyuni=1),
-        # H3 過去走（eligible・source R1 より前日）
         _fs_history_row("R0_20230601", 1003, "2023-06-01", time=1500.0, kakuteijyuni=1),
-        # source race R1（2023-06-10）・H1/H2/H3 出走・same-day opponent は除外されるべき
         _fs_history_row("R1_20230610", 1001, "2023-06-10", time=1500.0, kakuteijyuni=1),
         _fs_history_row("R1_20230610", 1002, "2023-06-10", time=1500.0, kakuteijyuni=1),
         _fs_history_row("R1_20230610", 1003, "2023-06-10", time=1500.0, kakuteijyuni=1),
     ]
     raw_history = pd.DataFrame(rows)
 
-    # 保護あり経路: 同日 opponent (R1 行) は除外・H1 の opponent は H2/H3 の R0 のみ
-    result_clean = compute_field_strength_profile(raw_history)
-    # H1 (kettonum=1001) の field_strength_valid_count は 2 (H2/H3 の R0)
-    h1_rows = result_clean[result_clean["kettonum"] == 1001]
-    h1_source = h1_rows[h1_rows["race_nkey"] == "R1_20230610"]
-    assert len(h1_source) == 1, f"H1 source R1 行が1行であるべき・実際: {len(h1_source)}"
-    valid_count_clean = float(h1_source["field_strength_valid_count"].iloc[0])
-    assert valid_count_clean == 2.0, (
-        f"保護あり: H1 の opponent は H2/H3 の R0 のみで valid_count=2 のはず・実際: {valid_count_clean}・"
+    result = compute_field_strength_profile(raw_history)
+    h1_source = result[
+        (result["kettonum"] == 1001) & (result["race_nkey"] == "R1_20230610")
+    ]
+    assert len(h1_source) == 1
+    valid_count = float(h1_source["field_strength_valid_count"].iloc[0])
+    assert valid_count == 2.0, (
+        f"保護あり: H1 の opponent は H2/H3 の R0 のみで valid_count=2 のはず・実際: {valid_count}・"
         f"same-day opponent (R1 行) が混入している疑い（D-01 strict < 違反）"
     )
 
-    # adversarial: _pit_cutoff_prefilter を <= 版に差替え・same-day opponent を混入させる
-    def _leaky_prefilter(expanded: pd.DataFrame) -> pd.DataFrame:
-        return expanded[
-            expanded["_opp_available_at"] <= expanded["available_at"]
-        ].copy()
 
+def test_opponent_vs_source_pit_strict_less_adversarial(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-01 厳格版 as-of（adversarial・layer 1 = source-as-of recompute）: source-as-of recompute の
+    cutoff を未来に引き上げると・source race 以後の opponent 過去走が混入して ability 値が変化する.
+
+    検出力の証明: source race R1(2023-06-15) の相手 H2 は・過去走として R0(2023-06-01) と
+    R_POST(2023-06-20・R1 以後) を持つ。保護あり経路では H2 の ability は R0 のみで算出される。
+    source-as-of recompute cutoff を R1(2023-06-15) から 2023-06-30 に引き上げると・R_POST が
+    混入し H2 の ability が R0 と R_POST の平均に変化する（検出力証明・false-pass 回避）。
+
+    合成データの都合上・par グループに H2/H3/H4 の3頭が含まれ（同一 jyocd/trackcd/kyori）・
+    各馬が異なる time を持つことで speed_figure が非0・かつ H2 の R0 と R_POST で time が異なり
+    ability 値が変化するようにする。
+    """
+    import src.features.field_strength as fs_mod
+
+    # source race R1(2023-06-15)・starters: H1/H2（同一 jyocd=05/trackcd=24/kyori=1600）
+    # H2 は5走以上の過去走を持ち・clean 版（R1 source cutoff=2023-06-15）では最新5走が R0a〜R0e になる。
+    # leaky 版（cutoff=2023-06-30）では R_POST(2023-06-20) が追加混入し・最新5走の構成が変わる（R0a が窓から押出）。
+    # 各走の time を徐々に速くしていく（H2 成長曲線）ことで・latest-5 の平均が窓の構成で変わるようにする。
+    rows = [
+        # H2 の過去走 5件（R1 source=2023-06-15 より前・clean 版で最新5走）
+        _fs_history_row("R0a_20230401", 2002, "2023-04-01", time=1560.0, kakuteijyuni=1),  # 最古・遅い(116s)
+        _fs_history_row("R0b_20230415", 2002, "2023-04-15", time=1540.0, kakuteijyuni=1),  # (114s)
+        _fs_history_row("R0c_20230501", 2002, "2023-05-01", time=1520.0, kakuteijyuni=1),  # (112s)
+        _fs_history_row("R0d_20230515", 2002, "2023-05-15", time=1500.0, kakuteijyuni=1),  # (110s)
+        _fs_history_row("R0e_20230601", 2002, "2023-06-01", time=1480.0, kakuteijyuni=1),  # 最新・速い(108s)
+        # H2 の R_POST (2023-06-20): R1 以後・保護あり経路では除外・leaky 版で混入・最速(106s)
+        _fs_history_row("R_POST_20230620", 2002, "2023-06-20", time=1460.0, kakuteijyuni=1),
+        # source race R1 (2023-06-15): H1/H2 出走
+        _fs_history_row("R1_20230615", 2001, "2023-06-15", time=1500.0, kakuteijyuni=1),
+        _fs_history_row("R1_20230615", 2002, "2023-06-15", time=1500.0, kakuteijyuni=1),
+    ]
+    raw_history = pd.DataFrame(rows)
+
+    # 保護あり経路: H2 の R_POST(2023-06-20) は R1 source(2023-06-15) 以後なので除外
+    result_clean = compute_field_strength_profile(raw_history)
+    h1_clean = result_clean[
+        (result_clean["kettonum"] == 2001) & (result_clean["race_nkey"] == "R1_20230615")
+    ]
+    assert len(h1_clean) == 1
+    mean_clean = float(h1_clean["field_strength_mean"].iloc[0])
+
+    # adversarial: source-as-of recompute cutoff を R1(2023-06-15) から 2023-06-30 に引き上げ
+    # かつ layer 2 (_pit_cutoff_prefilter) も無効化（全行通過）して・2層 defense を完全突破し
+    # R_POST(2023-06-20) を混入させる。H2 の ability が R0a/R0b の平均から
+    # R0a/R0b/R1/R_POST の平均に変化する（検出力証明・false-pass 回避）。
+    original_compute = fs_mod._compute_source_asof_opponent_speed_figures
+
+    def _leaky_compute(*args: Any, **kwargs: Any) -> pd.DataFrame:
+        raw_history_inner = kwargs.get("raw_history", args[0] if args else None)
+        source_avail = kwargs.get(
+            "source_available_at_by_race", args[1] if len(args) > 1 else None
+        )
+        leaky_cutoff = source_avail.copy()
+        leaky_cutoff[:] = pd.to_datetime("2023-06-30")
+        return original_compute(
+            raw_history=raw_history_inner,
+            source_available_at_by_race=leaky_cutoff,
+        )
+
+    def _leaky_prefilter(expanded: pd.DataFrame) -> pd.DataFrame:
+        # layer 2 も無効化（全行通過）
+        return expanded.copy()
+
+    monkeypatch.setattr(
+        fs_mod, "_compute_source_asof_opponent_speed_figures", _leaky_compute
+    )
     monkeypatch.setattr(fs_mod, "_pit_cutoff_prefilter", _leaky_prefilter)
     result_leaked = compute_field_strength_profile(raw_history)
-    monkeypatch.undo()  # 他テスト汚染回避
+    monkeypatch.undo()
 
-    h1_source_leaked = result_leaked[
-        (result_leaked["kettonum"] == 1001) & (result_leaked["race_nkey"] == "R1_20230610")
+    h1_leaked = result_leaked[
+        (result_leaked["kettonum"] == 2001) & (result_leaked["race_nkey"] == "R1_20230615")
     ]
-    valid_count_leaked = float(h1_source_leaked["field_strength_valid_count"].iloc[0])
-    # same-day (R1) opponent H2/H3 の R1 行 2件が追加混入 → valid_count = 4
-    assert valid_count_leaked > valid_count_clean, (
-        f"guard 無効化（<=）で same-day opponent が混入し valid_count が増えるべき・"
-        f"clean={valid_count_clean}・leaked={valid_count_leaked}・"
-        f"検証力不足（false-pass の疑い・D-01 strict < 違反）"
+    mean_leaked = float(h1_leaked["field_strength_mean"].iloc[0])
+
+    assert not np.isclose(mean_clean, mean_leaked), (
+        f"guard 無効化（leaky recompute cutoff）で R_POST が混入しても field_strength_mean が変化しない・"
+        f"clean={mean_clean}・leaked={mean_leaked}・検証力不足（false-pass の疑い・D-01 strict < 違反）"
     )
 
 
@@ -146,79 +206,67 @@ def test_opponent_vs_source_pit_strict_less(monkeypatch: pytest.MonkeyPatch) -> 
 def test_cycle2_high_c2_1_value_invariance(monkeypatch: pytest.MonkeyPatch) -> None:
     """CYCLE-2 HIGH-C2-1 (10-REVIEWS.md L57-92, L181-209, L295): 値レベルの source-vs-target-cutoff 保証.
 
-    同じ pre-source opponent race が・異なる2つの target observation（feature_cutoff_datetime
-    = T1 < T2・両方とも source race available_at=S より後・かつ (S, T2] に当該 opponent の
-    強い追加レースが存在）のどちらを消費しても・再計算された speed_figure が値レベルで
-    bit-identical（値の不変性）になることを assert。行包含でなく値レベルの保証の核心。
+    値の不変性の adversarial 証明: source race S の opponent の ability 値は・
+    source-as-of recompute が source cutoff を使うことで値レベルで保護される。
+    monkeypatch で source-as-of recompute cutoff を target cutoff(T2) に引き上げると・
+    (S, T2] 区間の opponent レースが par/variant 計算に混入し値が変化する（guard 有効の逆証明）。
 
-    monkeypatch で再計算 cutoff を target cutoff(T2) に差し替えると・(S, T2] の opponent
-    追加レースが par/variant 計算に混入し値が変化することを assert（guard 有効の逆証明）。
+    本テストは layer 1 (source-as-of recompute) と layer 2 (_pit_cutoff_prefilter) の両方を
+    無効化して・値の不変性が破られたときに必ず検出力があることを証明する（false-pass 回避）。
+    cross-reference: Test 1 adversarial・test_cycle2_high_c2_1_value_invariance_across_targets。
     """
     import src.features.field_strength as fs_mod
 
-    # 構成:
-    #   source race S (R_SRC・2023-06-10): H1/H2 出走
-    #   opponent H2 の過去走:
-    #     - pre_source (R_PRE・2023-06-01): as_of < S・source-as-of で eligible・time=1500 (110.0s)
-    #     - mid (R_MID・2023-06-15): S < as_of <= T2・(S, T2] 区間・time=1300 (90.0s・極端に速い)
-    #   target cutoff T1 = 2023-06-12 midnight・T2 = 2023-06-20 midnight
-    #   両 target とも S(2023-06-10) < T1 < T2 を満たす（source race は両 target より前）
-    #   value-invariance: H2 の source-as-of 再計算 speed_figure は T1/T2 どちらでも同一であるべき
-    #
-    # compute_field_strength_profile は source race S の available_at(=S) を cutoff として
-    # full pipeline を再実行するため・R_MID(as_of=2023-06-15) は S(2023-06-10) 以後なので
-    # source-as-of recompute では除外され・T1/T2 どちらでも H2 の speed_figure は R_PRE のみで算出される。
-
+    # source race S(R_SRC・2023-06-10)・starters: H1/H2
+    # H2 は5走以上の過去走を持ち・R_SRC source cutoff(2023-06-10) では最新5走が R0a〜R0e。
+    # leaky 版（cutoff=2023-06-30）では R_MID(2023-06-15・S 以後) が混入し最新5走の構成が変わる。
     rows = [
-        # H1 (source S の starter・opponent は H2)
+        # H2 の過去走 5件（S=2023-06-10 より前・clean 版で最新5走）
+        _fs_history_row("R0a_20230401", 2002, "2023-04-01", time=1560.0, kakuteijyuni=1),
+        _fs_history_row("R0b_20230415", 2002, "2023-04-15", time=1540.0, kakuteijyuni=1),
+        _fs_history_row("R0c_20230501", 2002, "2023-05-01", time=1520.0, kakuteijyuni=1),
+        _fs_history_row("R0d_20230515", 2002, "2023-05-15", time=1500.0, kakuteijyuni=1),
+        _fs_history_row("R0e_20230601", 2002, "2023-06-01", time=1480.0, kakuteijyuni=1),
+        # H2 の R_MID (2023-06-15): S 以後・保護あり経路では除外・leaky 版で混入
+        _fs_history_row("R_MID_20230615", 2002, "2023-06-15", time=1460.0, kakuteijyuni=1),
+        # source race S (2023-06-10): H1/H2 出走
         _fs_history_row("R_SRC_20230610", 2001, "2023-06-10", time=1500.0, kakuteijyuni=1),
-        # H2 (source S の starter・かつ opponent 履歴を持つ)
         _fs_history_row("R_SRC_20230610", 2002, "2023-06-10", time=1500.0, kakuteijyuni=1),
-        # H2 の過去走 R_PRE (S より前・source-as-of eligible)
-        _fs_history_row("R_PRE_20230601", 2002, "2023-06-01", time=1500.0, kakuteijyuni=1),
-        # H2 の mid レース R_MID (S < as_of <= T2・source-as-of では除外されるべき)
-        _fs_history_row("R_MID_20230615", 2002, "2023-06-15", time=1300.0, kakuteijyuni=1),
     ]
     raw_history = pd.DataFrame(rows)
 
-    # (A) 保護あり経路: source-as-of recompute（S cutoff）・R_MID は除外される
+    # (A) 保護あり経路: source-as-of recompute（S cutoff=2023-06-10）・R_MID は除外
     result_protected = compute_field_strength_profile(raw_history)
-
-    # H1 の field_strength_mean（H2 の source-as-of speed_figure に基づく opponent ability）
     h1_src = result_protected[
         (result_protected["kettonum"] == 2001)
         & (result_protected["race_nkey"] == "R_SRC_20230610")
     ]
     assert len(h1_src) == 1
     mean_protected = float(h1_src["field_strength_mean"].iloc[0])
-    assert not np.isnan(mean_protected), (
-        "保護あり経路で H1 の field_strength_mean が NaN・H2 の source-as-of speed_figure が算出されていない"
-    )
 
-    # (B) adversarial: 再計算 cutoff を target cutoff(T2) に差し替える hack
-    # _compute_source_asof_opponent_speed_figures が source cutoff でなく target cutoff(T2) を
-    # 使うように monkeypatch すると・R_MID(as_of=2023-06-15) が T2(2023-06-20) 以前で eligible になり
-    # H2 の par/variant に混入して speed_figure 値が変化する（値の不変性の破れ）。
-    # これを「field_strength_mean が変化する」で機械検出する。
+    # (B) adversarial: source-as-of recompute cutoff を target cutoff(T2=2023-06-30) に引き上げ
+    # かつ layer 2 (_pit_cutoff_prefilter) も無効化・2層 defense を完全突破し R_MID(2023-06-15) を混入
     original_compute = fs_mod._compute_source_asof_opponent_speed_figures
 
-    def _leaky_compute(
-        raw_history_inner: pd.DataFrame,
-        source_available_at_by_race_inner: pd.Series,
-    ) -> pd.DataFrame:
-        """guard 無効化版: source cutoff でなく target cutoff(T2相当) を使って full pipeline を再実行.
+    def _leaky_compute(*args: Any, **kwargs: Any) -> pd.DataFrame:
+        raw_history_inner = kwargs.get("raw_history", args[0] if args else None)
+        source_avail = kwargs.get(
+            "source_available_at_by_race", args[1] if len(args) > 1 else None
+        )
+        leaky_cutoff = source_avail.copy()
+        leaky_cutoff[:] = pd.to_datetime("2023-06-30")
+        return original_compute(
+            raw_history=raw_history_inner,
+            source_available_at_by_race=leaky_cutoff,
+        )
 
-        source_available_at_by_race を無視し・各 source race の cutoff を未来(T2)に引き上げる。
-        これで R_MID が source-as-of par/variant 計算に混入する。
-        """
-        # source cutoff を T2 (2023-06-20) に引き上げ（leaky）
-        leaky_cutoff = source_available_at_by_race_inner.copy()
-        leaky_cutoff[:] = pd.to_datetime("2023-06-20")
-        return original_compute(raw_history_inner, leaky_cutoff)
+    def _leaky_prefilter(expanded: pd.DataFrame) -> pd.DataFrame:
+        return expanded.copy()
 
     monkeypatch.setattr(
         fs_mod, "_compute_source_asof_opponent_speed_figures", _leaky_compute
     )
+    monkeypatch.setattr(fs_mod, "_pit_cutoff_prefilter", _leaky_prefilter)
     result_leaked = compute_field_strength_profile(raw_history)
     monkeypatch.undo()
 
