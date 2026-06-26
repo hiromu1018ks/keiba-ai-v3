@@ -628,22 +628,27 @@ feature_matrix = feature_matrix.drop(
 | A5 | field_strength_adjusted_rank の係数 0.25 は train/calib 窓内の感度分析で 0.0（baseline）との差が有意かは未検証・事前登録値として採用 | FEAT-03 / D-12 | 低：候補集合 {0.0, 0.1, 0.25, 0.5} を事前登録済・test 窓ですり替えない限り聖域違反なし・0.0 が baseline として効かない場合はモデルが無視できる（D-11 安全策） |
 | A6 | builder.py の既存 Step 5 rolling 呼出位置を Step 5c の後に移動する構成変更が必要（field_strength profile が history に揃った後で rolling する必要があるため） | Pattern 4 / builder 拡張 | 中：構成変更は既存テスト（test_speed_figure_builder_integration.py 等）に影響・copy-not-rename と hardcode feature list 更新で対応 |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> 全質問は実装レベルで各 PLAN の事前登録により解決済み（Phase goal 影響なし）。各質問末尾の `RESOLVED:` 行に要約と解決PLANを明記。
 
 1. **D-02 相手の「当時 rolling 能力」の具象化**
    - What we know: source race 時点 `available_at` 以前の相手の latest-K `speed_figure` profile（17 feature のいずれか）を使う・D-03 の profile 8値は「source race 内の opponent 集約」であって「相手個人の rolling」は別軸。
    - What's unclear: 相手個人の rolling は17 feature 全てか、canonical（mean_5・best2_mean_5 等）の一部か。計算量 viewpoint からは少なくしたいが情報量 viewpoint からは多い方がよい。D-02 は「rolling 安定能力 profile」と曖昧。
    - Recommendation: planner が PLAN 内で「相手個人の rolling は canonical の mean_5（Phase 9.1 D-09.1-01 踏襲）1軸のみ」と事前登録することを推奨（計算量抑制・feature 膨張抑制・rolling_speed_figure_mean_5 が Phase 9 D-09 の安定能力の代表値）。これにより field_strength_mean は「source race 内の opponent の mean_5 の平均」という明確な意味を持つ。もし17 feature 全てを使う場合は計算量が17倍膨らむ（6.7M × 17 = 1億ペア）ため非現実的。
+   - RESOLVED: 相手個人の rolling は `rolling_speed_figure_mean_5` の1軸のみ（Phase 9.1 D-09.1-01 踏襲）で事前登録。PLAN 02（opponent_strength.py・field_strength_mean は opponent の mean_5 平均）と PLAN 03（race_relative.py・adjusted_rank の主軸も mean_5）で実装。
 
 2. **FEAT-03 gap_to_top/gap_to_3rd の "top/3位" の定義**
    - What we know: D-08 は「top/3位の mean_5 − self」・mean_5 主軸。
    - What's unclear: top は1位（max）・3rd は3位（median 的）か・competition ranking（D-10 同着）と整合するか・欠損馬が3位以下にどう影響するか。
    - Recommendation: planner が PLAN 内で「top = mean_5 降順1位（max）・3rd = 降順3位・同着は competition ranking で順位確定後・欠損馬は母集団除外（D-09）・出走馬 < 3 の場合は gap_to_3rd は NaN」と明文化すること。3位未満の出走馬（5-7頭）でも gap_to_3rd は意味を持つ（複勝払戻対象2頭でも相手強度評価として）。
+   - RESOLVED: top = mean_5 降順1位（competition ranking で順位確定後の1位馬）・3rd = competition ranking で rank==3 の馬（同着2位がいると rank 3 は空位 → gap_to_3rd は NaN・REVIEW MEDIUM-7 tie 仕様として明文化）・欠損馬は母集団除外（D-09・na_option="keep"）・出走馬 < 3 は NaN。PLAN 03（race_relative.py）の truth/action/behavior で事前登録、同着 tie テスト（Test 5b）で機械保証。
 
 3. **snapshot feature_snapshot_id 命名**
    - What we know: v1.0 `20260620-1a-postreview-v2` → Phase 9 `20260625-1a-speedfigure-v1` → Phase 9.1 `20260626-1a-speedprofile-v1` 系統。
    - What's unclear: Phase 10 の snapshot_id 文字列（`make_model_version` 形式）。
    - Recommendation: `20260626-1a-opponentstrength-v1`（Phase 9.1 完成日 same day・opponent strength の機能名・v1）を推奨。planner が決定。
+   - RESOLVED: `20260626-1a-opponentstrength-v1` を採用（feature_count=106）。PLAN 05（snapshot 生成・make_model_version idiom）と PLAN 06（SC#5 非劣化 gate・両 snapshot 同一 trainer 設定で delta）の CLI default および acceptance_criteria で事前登録。
 
 ## Environment Availability
 
