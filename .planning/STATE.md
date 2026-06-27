@@ -5,8 +5,8 @@ milestone_name: Ability Feature v2 & Conditional Calibration
 current_phase: 11
 current_phase_name: Race-Relative Probability Model
 status: executing
-stopped_at: None
-last_updated: "2026-06-27T00:37:56.240Z"
+stopped_at: Phase 11 context gathered
+last_updated: "2026-06-27T02:18:02.809Z"
 last_activity: 2026-06-27
 last_activity_desc: Phase 10 complete, transitioned to Phase 11
 progress:
@@ -306,10 +306,12 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-06-25:
 
 ## Session Continuity
 
+**Last session:** 2026-06-27T02:18:02.802Z
+
 **Resume file:** 
 
-None
-Stopped at: None
+.planning/phases/11-race-relative-probability-model/11-CONTEXT.md
+Stopped at: Phase 11 context gathered
 Resume: `/gsd-execute-phase 9`（P04: SC#4 SAFE-01 AST audit + SC#5 ドメイン整合性可視化・rolling_speed_figure_* 6 feature を含む完成 feature_matrix が必要・本 P03 で生成可能に）
 
 ## Operator Next Steps
