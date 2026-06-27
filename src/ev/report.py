@@ -52,6 +52,18 @@ REPORT_COLUMNS: tuple[str, ...] = (
     "hit_rate",
 )
 
+# Phase 12 SC#1 / EV-01 [C-12-02-4 MEDIUM]: Phase 12 専用 report 列契約.
+# REPORT_COLUMNS (Phase 5 既存・11列) に p_lower 系 3列を追加した拡張 tuple.
+# generate_report は ``_format_comparison_table_md`` が ``row.get(c)`` で欠損キーを
+# NaN/省略で許容するため・p_lower 系キーが欠損した Phase 5 既存 backtest dict を渡しても
+# KeyError にならない (regression 回避). Phase 12 専用 reports (reports/12-evaluation/*) で
+# 本 tuple を使って p_lower 系を表示する想定.
+REPORT_COLUMNS_PHASE12: tuple[str, ...] = REPORT_COLUMNS + (
+    "p_fukusho_hit_lower",
+    "p_lower_q_level",
+    "p_lower_q_shrink",
+)
+
 # report の section title（BACK-04・§11.2）
 REPORT_TITLE: str = "Phase 5 Backtest Report"
 
@@ -103,28 +115,40 @@ def _format_float(v: Any) -> str:
     return f"{fv:.4f}"
 
 
-def _format_comparison_table_md(rows: list[dict[str, Any]]) -> str:
+def _format_comparison_table_md(
+    rows: list[dict[str, Any]],
+    *,
+    report_columns: tuple[str, ...] = REPORT_COLUMNS,
+) -> str:
     """comparison_table (list of dict) を markdown 表に変換する。
 
-    列は REPORT_COLUMNS 順に固定。``run_train_predict.py:516-523`` の手動マークダウン表パターン
-    (tabulate 非依存・evaluator._df_to_markdown_table と同一方針)。
+    列は ``report_columns`` 順に固定 (既定 ``REPORT_COLUMNS``・Phase 5 互換).
+    ``run_train_predict.py:516-523`` の手動マークダウン表パターン
+    (tabulate 非依存・evaluator._df_to_markdown_table と同一方針).
+
+    Phase 12 SC#1 / EV-01 [C-12-02-4 MEDIUM]: ``row.get(col)`` で欠損キーを NaN/省略で許容.
+    これにより ``report_columns=REPORT_COLUMNS_PHASE12`` を指定した場合でも・p_lower 系キーが
+    欠損した Phase 5 既存 backtest dict で KeyError にならない (regression 回避).
     """
-    header = "| " + " | ".join(REPORT_COLUMNS) + " |"
-    separator = "| " + " | ".join("---" for _ in REPORT_COLUMNS) + " |"
+    float_cols = {"recovery_rate", "hit_rate", "p_fukusho_hit_lower", "p_lower_q_level", "p_lower_q_shrink"}
+    int_cols = {"P/L", "max_DD"}
+    int_default_zero_cols = {"selected", "effective_bet", "refund"}
+    header = "| " + " | ".join(report_columns) + " |"
+    separator = "| " + " | ".join("---" for _ in report_columns) + " |"
     body_lines: list[str] = []
     for row in rows:
         cells: list[str] = []
-        for col in REPORT_COLUMNS:
+        for col in report_columns:
             v = row.get(col)
-            if col in {"recovery_rate", "hit_rate"}:
+            if col in float_cols:
                 cells.append(_format_float(v))
-            elif col in {"P/L", "max_DD"}:
+            elif col in int_cols:
                 # int 系
                 try:
                     cells.append(str(int(v)))
                 except (TypeError, ValueError):
                     cells.append("nan")
-            elif col in {"selected", "effective_bet", "refund"}:
+            elif col in int_default_zero_cols:
                 try:
                     cells.append(str(int(v)))
                 except (TypeError, ValueError):
@@ -179,14 +203,19 @@ def generate_report(
     output_dir: str | Path = "reports",
     jodds_status: str = "synthetic",
     coverage_summary: list[dict[str, Any]] | None = None,
+    # Phase 12 SC#1 / EV-01 [C-12-02-4 MEDIUM]: report_columns 切替で Phase 12 専用 reports で
+    # p_lower 系を表示可能にしつつ・Phase 5 既存 backtest dict (p_lower 系キー欠損) の regression を回避.
+    # 既定 REPORT_COLUMNS は Phase 5 互換. Phase 12 専用 reports は REPORT_COLUMNS_PHASE12 を指定.
+    report_columns: tuple[str, ...] = REPORT_COLUMNS,
+    report_basename: str = "05-backtest",
 ) -> tuple[Path, Path]:
-    """全 backtest 結果を reports/05-backtest.{md,json} に一括報告する (BACK-04)。
+    """全 backtest 結果を reports/<basename>.{md,json} に一括報告する (BACK-04)。
 
     Parameters
     ----------
     all_backtests : list[dict]
         各 backtest の metrics dict リスト (run_backtest.py が構築)。
-        各 dict は REPORT_COLUMNS の全キーを含むこと。
+        各 dict は ``report_columns`` のキーを含むこと (欠損キーは ``.get(c)`` で NaN/省略表示).
     output_dir : str | Path
         出力ディレクトリ (既定 ``'reports'``)。
     jodds_status : str
@@ -194,6 +223,13 @@ def generate_report(
     coverage_summary : list[dict] | None
         BT窓 × policy 毎の horse-level/race-level coverage サマリ (MEDIUM-B cycle-2)。
         None の場合は coverage サマリセクションを省略。
+    report_columns : tuple[str, ...]
+        比較表の列契約 (既定 ``REPORT_COLUMNS``・Phase 5 互換). Phase 12 専用 reports では
+        ``REPORT_COLUMNS_PHASE12`` を指定して p_lower 系を追加表示 (C-12-02-4 MEDIUM).
+        ``_format_comparison_table_md`` が ``row.get(c)`` で欠損キーを許容するため・
+        Phase 5 既存 dict に p_lower 系キーが無くても KeyError にならない (regression 回避).
+    report_basename : str
+        出力ファイルの basename (既定 ``'05-backtest'`・Phase 12 は ``'12-evaluation'`` 等に切替可能).
 
     Returns
     -------
@@ -207,8 +243,8 @@ def generate_report(
     - sort は backtest_id の昇順 (辞書順・決定論的・seed 非依存)。
     """
     out_dir = Path(output_dir)
-    md_path = out_dir / "05-backtest.md"
-    json_path = out_dir / "05-backtest.json"
+    md_path = out_dir / f"{report_basename}.md"
+    json_path = out_dir / f"{report_basename}.json"
 
     # BACK-04: backtest_id 辞書順 (決定論的・winner 強調禁止)
     sorted_rows = sorted(all_backtests, key=lambda r: str(r.get("backtest_id", "")))
@@ -219,7 +255,7 @@ def generate_report(
     md_lines.append("\n")
     md_lines.append("## 比較表 (全候補一括提示・winner 強調なし・BACK-04)\n")
     md_lines.append("\n")
-    md_lines.append(_format_comparison_table_md(sorted_rows))
+    md_lines.append(_format_comparison_table_md(sorted_rows, report_columns=report_columns))
     md_lines.append("\n\n")
 
     md_lines.append("## §11.2 odds policy 固定履行確認\n")
@@ -255,7 +291,7 @@ def generate_report(
                 str(r.get("backtest_id", "")): r for r in sorted_rows
             },
             "constants": {
-                "REPORT_COLUMNS": list(REPORT_COLUMNS),
+                "REPORT_COLUMNS": list(report_columns),
                 "FUKUSHO_EV_V1_STRATEGY": "fukusho_ev_v1",
                 "ODDS_SNAPSHOT_POLICIES": {
                     "30min_before": 30,
@@ -294,6 +330,7 @@ def _format_coverage_table_md(coverage_summary: list[dict[str, Any]]) -> str:
 
 __all__ = [
     "REPORT_COLUMNS",
+    "REPORT_COLUMNS_PHASE12",
     "REPORT_TITLE",
     "ODDS_POLICY_FIXED_NOTE",
     "NO_WINNER_OVERRIDE_NOTE",

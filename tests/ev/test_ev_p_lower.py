@@ -122,11 +122,17 @@ def test_rank_p_col_propagation_changes_threshold_base():
     p_col='p_fukusho_hit' では S・p_col='p_fukusho_hit_lower' では S でない (A/B/D のいずれか) ことを検証.
     """
     # 境界 row: p=0.30・p_lower=0.10・EV_lower と odds_lower は十分高い
+    # EV_lower は事前計算しておく (_rank は df.apply 経由で呼ばれる前提で row 単体の EV_lower を参照).
+    # EV_lower を p=0.30 でも p_lower=0.10 でも十分高い (S の ev_lower_min=1.20 を超える) ように
+    # fuku_odds_lower=10.0 とする・p=0.30 の場合は EV_lower=3.0・p_lower=0.10 の場合は EV_lower=1.0.
     boundary_row_p_high = {
         "race_key": "test-r1",
         "umaban": 1,
         "p_fukusho_hit": 0.30,  # >= 0.25 (S rank p_min)
         "p_fukusho_hit_lower": 0.10,  # < 0.25 (S rank p_min を満たさない)
+        # p_col='p_fukusho_hit' の場合の EV_lower = 0.30 * 10 = 3.0
+        # p_col='p_fukusho_hit_lower' の場合の EV_lower = 0.10 * 10 = 1.0 (★これは呼出側で計算し直す)
+        "EV_lower": 3.0,  # 初期値は p_col='p_fukusho_hit' 相当
         "fuku_odds_lower": 10.0,
         "fuku_odds_upper": 15.0,
         "is_fukusho_sale_available": True,
@@ -142,7 +148,11 @@ def test_rank_p_col_propagation_changes_threshold_base():
     # p_col='p_fukusho_hit_lower' の場合: rank 条件の p_min 判定は p_fukusho_hit_lower (0.10) に対して
     # → S の p_min=0.25 も A の p_min=0.20 も B の p_min=0.15 も満たさない → C or D
     # (EV_lower=0.10*10=1.0 >= C の ev_lower_min=1.00 → C rank)
-    rank_lower = _rank(df.iloc[0], p_col="p_fukusho_hit_lower")
+    # 注: EV_lower も p_col='p_fukusho_hit_lower' 相当 (0.10*10=1.0) に更新する
+    # (compute_ev_and_rank が p_col で EV 計算と rank 判定を整合させるため・row 単体テストでも再現).
+    df_lower = df.copy()
+    df_lower.loc[0, "EV_lower"] = 0.10 * 10.0  # p_lower ベースの EV_lower
+    rank_lower = _rank(df_lower.iloc[0], p_col="p_fukusho_hit_lower")
     assert rank_lower != "S", (
         f"p_col='p_fukusho_hit_lower' では S rank でない (p_lower=0.10 < 0.25). got={rank_lower}"
     )
@@ -286,6 +296,8 @@ def test_report_phase12_p_lower_columns_display(tmp_path):
     """[C-12-02-4 MEDIUM] Phase 12 専用 reports または REPORT_COLUMNS 拡張で・p_lower 系
     (p_fukusho_hit_lower・q_level・q_shrink) が表示可能. Phase 12 専用 dict を渡した場合に
     これらのキーが表示されるか・REPORT_COLUMNS に含まれるかを検証."""
+    from src.ev.report import REPORT_COLUMNS_PHASE12
+
     # Phase 12 専用 report dict (p_lower 系キーを含む)
     phase12_dict = {
         "backtest_id": "bt1-lgbrr-v1",
@@ -304,20 +316,34 @@ def test_report_phase12_p_lower_columns_display(tmp_path):
         "p_lower_q_shrink": 0.07,
     }
     md_path, json_path = generate_report(
-        [phase12_dict], output_dir=str(tmp_path), jodds_status="complete"
+        [phase12_dict],
+        output_dir=str(tmp_path),
+        jodds_status="complete",
+        report_columns=REPORT_COLUMNS_PHASE12,
+        report_basename="12-evaluation",
     )
     assert md_path.exists()
     assert json_path.exists()
+    # basename 切替で reports/12-evaluation.{md,json} が生成される
+    assert md_path.name == "12-evaluation.md"
+    assert json_path.name == "12-evaluation.json"
     # Phase 12 dict の p_lower 系キーが JSON comparison_table で参照可能であること
-    # (REPORT_COLUMNS に含まれていれば自動的に metrics row に入る)
     import json
 
     with json_path.open(encoding="utf-8") as f:
         payload = json.load(f)
     row = payload["comparison_table"][0]
-    # p_lower 系キーは存在すれば保持される (REPORT_COLUMNS に含まれていれば metrics dict にも)
+    # p_lower 系キーは存在すれば保持される (REPORT_COLUMNS_PHASE12 に含まれる)
     assert "p_fukusho_hit_lower" in row
     assert row["p_fukusho_hit_lower"] == 0.18
+    assert row["p_lower_q_level"] == 0.90
+    assert row["p_lower_q_shrink"] == 0.07
+    # JSON constants の REPORT_COLUMNS に p_lower 系が含まれる (Phase 12 専用 tuple 使用)
+    assert "p_fukusho_hit_lower" in payload["constants"]["REPORT_COLUMNS"]
+    assert "p_lower_q_level" in payload["constants"]["REPORT_COLUMNS"]
+    # markdown にも p_lower 系ヘッダが含まれる
+    md_content = md_path.read_text(encoding="utf-8")
+    assert "p_fukusho_hit_lower" in md_content
 
 
 # ===========================================================================

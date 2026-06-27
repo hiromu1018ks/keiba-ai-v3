@@ -34,13 +34,19 @@ RANK_THRESHOLDS: dict[str, dict[str, float]] = {
 }
 
 
-def _rank(row: pd.Series) -> str:
+def _rank(row: pd.Series, *, p_col: str = "p_fukusho_hit") -> str:
     """§11.5 階層判定（上から順に最初に満たした rank を返す）。
 
     ``EV_lower`` が NaN の場合は早期 'D' 返却（no_bet・選択対象外・§3.3）。
+
+    Phase 12 SC#1 / EV-01 [C-12-02-3 MEDIUM]: ``p_col`` 引数で rank 条件の p_min 判定に使う
+    確率列を切替可能 (投票層定義の明示). 既定 ``'p_fukusho_hit'`` は従来互換 (v1.0 binary 呼出).
+    ``p_col='p_fukusho_hit_lower'`` の場合は S/A/B rank の p_min 判定が p_fukusho_hit_lower に対して
+    行われ・EV 計算 (compute_ev_and_rank の ``EV_lower = out[p_col] * odds_lower``) と rank 条件の
+    確率基準が一致する (投票層定義の分裂回避・Pitfall 7).
     """
     ev_lower = row.get("EV_lower")
-    p = row.get("p_fukusho_hit")
+    p = row.get(p_col)
     odds_lower = row.get("fuku_odds_lower")
 
     # EV_lower / p / odds_lower が NaN の場合は早期 'D'（no_bet 対策・RESEARCH §3.3）
@@ -77,37 +83,52 @@ def _rank(row: pd.Series) -> str:
     return "D"
 
 
-def compute_ev_and_rank(df: pd.DataFrame) -> pd.DataFrame:
+def compute_ev_and_rank(df: pd.DataFrame, *, p_col: str = "p_fukusho_hit") -> pd.DataFrame:
     """§11.1 EV 計算 + §11.5 推奨ランク付与（純粋関数・DB 不要）。
+
+    Phase 12 SC#1 / EV-01 [D-03・入力列差し替え]: ``p_col`` keyword-only 引数 (既定
+    ``'p_fukusho_hit'``・後方互換) で EV 計算に使う確率列を切替可能. ``p_col='p_fukusho_hit_lower'``
+    の場合は ``EV_lower = p_fukusho_hit_lower × fuku_odds_lower`` となり・[C-12-02-3 MEDIUM]
+    ``_rank`` にも p_col が伝播し rank 条件の p_min 判定も p_fukusho_hit_lower ベースになる
+    (EV 計算と rank 条件の確率基準一致・投票層定義の分裂回避).
 
     Parameters
     ----------
     df : pd.DataFrame
         以下の列を持つ予測+オッズ結合済み DataFrame:
         - ``p_fukusho_hit`` (float): キャリブレーション済み複勝払戻対象確率
+        - ``p_fukusho_hit_lower`` (float, optional): Phase 12 の下側信頼限界
+          (``p_col='p_fukusho_hit_lower'`` 指定時に必須).
         - ``fuku_odds_lower`` (float): 固定 snapshot の複勝最低オッズ
           （``no_bet`` の場合は NaN・§11.3）
         - ``fuku_odds_upper`` (float): 固定 snapshot の複勝最高オッズ
           （``no_bet`` の場合は NaN・§11.3）
+    p_col : str
+        EV 計算と rank 判定に使う確率列名 (keyword-only・既定 ``'p_fukusho_hit'``).
+        Phase 12 では ``'p_fukusho_hit_lower'`` を指定して下側信頼限界ベースの EV に切替 (D-03).
+        既定値は v1.0 binary 呼出互換 (A5 後方互換).
 
     Returns
     -------
     pd.DataFrame
         入力の copy に以下の列を付与した DataFrame:
-        - ``EV_lower``: ``p_fukusho_hit * fuku_odds_lower``（§11.1 直線積）
-        - ``EV_upper``: ``p_fukusho_hit * fuku_odds_upper``（§11.1 直線積）
-        - ``recommend_rank``: 'S' / 'A' / 'B' / 'C' / 'D'（§11.5 階層判定）
+        - ``EV_lower``: ``df[p_col] * fuku_odds_lower``（§11.1 直線積・p_col 切替可能）
+        - ``EV_upper``: ``df[p_col] * fuku_odds_upper``（§11.1 直線積・p_col 切替可能）
+        - ``recommend_rank``: 'S' / 'A' / 'B' / 'C' / 'D'（§11.5 階層判定・p_col 伝播）
 
     Notes
     -----
     - 入力 DataFrame は破壊しない（``df.copy()`` で純粋関数保証・compute_bl1 と同一パターン）。
     - ``fuku_odds_lower`` が NaN (``no_bet``) の行の ``EV_lower`` / ``EV_upper`` は NaN となり・
       ``recommend_rank`` は 'D' になる（選択対象外・§3.3）。
+    - SAFE-01 聖域: 本関数は FEATURE_COLUMNS / build_training_frame / load_feature_matrix 構築経路を
+      import しない (EV 計算層で odds を消費するが feature 構築経路からは切り離されている).
     """
     out = df.copy()
     # §11.1 直線積（pandas Series 演算）・NaN は伝播して EV_lower/upper も NaN
-    out["EV_lower"] = out["p_fukusho_hit"] * out["fuku_odds_lower"]
-    out["EV_upper"] = out["p_fukusho_hit"] * out["fuku_odds_upper"]
-    # §11.5 階層判定
-    out["recommend_rank"] = out.apply(_rank, axis=1)
+    # Phase 12 D-03: p_col で確率列を差し替え (既定 'p_fukusho_hit'・後方互換).
+    out["EV_lower"] = out[p_col] * out["fuku_odds_lower"]
+    out["EV_upper"] = out[p_col] * out["fuku_odds_upper"]
+    # §11.5 階層判定 (C-12-02-3: _rank に p_col を伝播・EV 計算と rank 条件の確率基準一致)
+    out["recommend_rank"] = out.apply(lambda row: _rank(row, p_col=p_col), axis=1)
     return out
