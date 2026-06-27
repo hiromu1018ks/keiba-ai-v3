@@ -54,12 +54,17 @@ import numpy as np
 import pandas as pd
 
 # ---------------------------------------------------------------------------
-# 定数 — schema.py PREDICTION_TABLE_DDL + PREDICTION_ADD_IS_PRIMARY_SQL の列順と 1:1
-# (review HIGH#1: 11カラム PK / Phase 6 D-09: is_primary 末尾追加)
+# 定数 — schema.py PREDICTION_TABLE_DDL + PREDICTION_ADD_IS_PRIMARY_SQL +
+# PREDICTION_ADD_PROVENANCE_SQL の列順と 1:1
+# (review HIGH#1: 11カラム PK / Phase 6 D-09: is_primary 末尾追加 /
+#  Phase 11 codex HIGH#3: SC#5 §19.1 metadata 3列追加・DEFAULT 'unspecified' sentinel)
 # ---------------------------------------------------------------------------
-# provenance (5) + PK RACE_KEY (7) + 予測値 (1) + 補助メタ (2) + is_primary (1) = 16 列
-# schema.py の PREDICTION_TABLE_DDL + PREDICTION_ADD_IS_PRIMARY_SQL の定義順と完全一致する
-# こと (prediction_load.py がこの順序で INSERT する・Pitfall 4 3ファイル連鎖)。
+# provenance (5) + PK RACE_KEY (7) + 予測値 (1) + 補助メタ (2) +
+# §19.1 metadata (3・codex HIGH#3) + is_primary (1) = 19 列
+# schema.py の PREDICTION_TABLE_DDL + PREDICTION_ADD_IS_PRIMARY_SQL +
+# PREDICTION_ADD_PROVENANCE_SQL の定義順と完全一致すること
+# (prediction_load.py がこの順序で INSERT する・Pitfall 4 3ファイル連鎖)。
+# §19.1 metadata 3列の既定値は sentinel 'unspecified' (codex cycle-2 NEW HIGH#3・空文字 '' でない)。
 PREDICTION_COLUMNS: list[str] = [
     # provenance (§19.1 再現性・NOT NULL)
     "model_type",
@@ -80,6 +85,13 @@ PREDICTION_COLUMNS: list[str] = [
     # 補助メタ (Phase 5/6/7 が参照)
     "race_date",
     "split",
+    # Phase 11 codex HIGH#3: SC#5 §19.1 metadata (NOT NULL DEFAULT 'unspecified' sentinel)
+    # codex cycle-2 NEW HIGH#3: sentinel 既定値で loader (_df_to_prediction_tuples L175-176)
+    # の空文字→None 変換を経由しても NOT NULL 違反回避。run_phase11_evaluation.py が
+    # 事前登録値を明示的に渡し・v1.0 binary 呼出 (theta=None/3引数省略) は sentinel で安全。
+    "label_version",
+    "odds_snapshot_policy",
+    "backtest_strategy_version",
     # Phase 6 D-09 追加（bool・NOT NULL DEFAULT false・予測生成時は False で正規化・
     # Phase 6 set_primary_model で True に UPDATE・REVIEW HIGH#8）
     "is_primary",
@@ -177,6 +189,9 @@ def predict_p_fukusho(
     split_label: str,
     as_of_datetime: datetime | None = None,
     pred_proba: np.ndarray | pd.Series | None = None,
+    label_version: str = "unspecified",
+    odds_snapshot_policy: str = "unspecified",
+    backtest_strategy_version: str = "unspecified",
 ) -> pd.DataFrame:
     """calibrated estimator から provenance 付き予測 DataFrame を構築する (MODL-01/D-05/D-10).
 
@@ -220,6 +235,16 @@ def predict_p_fukusho(
         ``np.ndarray`` の場合は ``len == len(X)`` を assert し ``pd.Series(index=X.index)``
         に正規化。``pd.Series`` の場合は ``index.equals(X.index)`` を assert。
         違反は ``RuntimeError`` (silent wrong-horse prediction 防止・Cycle 2 NEW HIGH-1)。
+    label_version : str
+        §19.1 再現性 metadata。既定値 ``"unspecified"`` sentinel (codex cycle-2 NEW HIGH#3・
+        空文字 ``''`` でない・loader 空文字→None 変換回避・NOT NULL 違反回避)。
+        race-relative model は run_phase11_evaluation.py が事前登録値を渡し・
+        v1.0 binary 呼出 (theta=None/3引数省略) でも sentinel が入り安全。
+    odds_snapshot_policy : str
+        §19.1 再現性 metadata。既定値 ``"unspecified"`` sentinel (codex cycle-2 NEW HIGH#3)。
+        orchestrator は値を推測せず呼出側から受け取った値をそのまま付与。
+    backtest_strategy_version : str
+        §19.1 再現性 metadata。既定値 ``"unspecified"`` sentinel (codex cycle-2 NEW HIGH#3)。
 
     Returns
     -------
@@ -289,6 +314,10 @@ def predict_p_fukusho(
     df["p_fukusho_hit"] = pred_series.values
     df["race_date"] = race_df["race_date"].values
     df["split"] = split_label
+    # Phase 11 codex HIGH#3: SC#5 §19.1 metadata (sentinel/事前登録値で付与・codex cycle-2 NEW HIGH#3)
+    df["label_version"] = label_version
+    df["odds_snapshot_policy"] = odds_snapshot_policy
+    df["backtest_strategy_version"] = backtest_strategy_version
     # Phase 6 D-09 (REVIEW HIGH#8): 予測生成時は主モデル未確定のため is_primary=False で正規化。
     # NOT NULL DEFAULT false 制約と整合し・DB INSERT で NOT NULL 違反にならない。
     # 主モデル確定は set_primary_model が UPDATE で行う（本関数は予測時の初期化のみ）。

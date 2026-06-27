@@ -52,7 +52,9 @@ CREATE_SCHEMAS_SQL = "\n".join(f"CREATE SCHEMA IF NOT EXISTS {schema};" for sche
 #
 # 3つの CHECK 制約で不正レコード挿入を DB 側で拒否（review HIGH#1/Cross-Plan #3）:
 #   (1) p_fukusho_hit ∈ [0, 1]   — 確率値の範囲
-#   (2) model_type IN ('lightgbm','catboost','logreg')  — 既知の model_type のみ
+#   (2) model_type IN ('lightgbm','catboost','logreg','lightgbm_rr','catboost_rr')
+#       — 既知の model_type のみ・Phase 11 race-relative (lightgbm_rr/catboost_rr) を含む
+#       （codex cycle-2 NEW HIGH#1・PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL で idempotent 拡張）
 #   (3) calib_method IN ('isotonic','sigmoid')          — 既知の calib_method のみ
 #       （将来の未キャリブレーション baseline は別テーブル/別 model_type で扱う・Cycle 3 NEW-L2）
 # ---------------------------------------------------------------------------
@@ -80,7 +82,7 @@ CREATE TABLE IF NOT EXISTS prediction.fukusho_prediction (
     PRIMARY KEY (model_type, model_version, feature_snapshot_id, as_of_datetime,
                  year, jyocd, kaiji, nichiji, racenum, umaban, kettonum),
     CONSTRAINT prediction_fukusho_hit_range CHECK (p_fukusho_hit >= 0 AND p_fukusho_hit <= 1),
-    CONSTRAINT prediction_model_type_domain CHECK (model_type IN ('lightgbm','catboost','logreg')),
+    CONSTRAINT prediction_model_type_domain CHECK (model_type IN ('lightgbm','catboost','logreg','lightgbm_rr','catboost_rr')),
     CONSTRAINT prediction_calib_method_domain CHECK (calib_method IN ('isotonic','sigmoid'))
 );
 COMMENT ON TABLE prediction.fukusho_prediction IS
@@ -120,6 +122,56 @@ COMMENT ON COLUMN prediction.fukusho_prediction.is_primary IS
     'etl ロールで model_type+model_version+feature_snapshot_id+as_of_datetime スコープ UPDATE '
     '(src/db/prediction_load.py::set_primary_model・0 行 UPDATE は RuntimeError post-condition). '
     'GRANT: reader SELECT / etl SELECT+INSERT+UPDATE+DELETE は GRANT_ETL_SQL で既に付与済.';
+"""
+
+# ---------------------------------------------------------------------------
+# Phase 11 Plan 11-05: SC#5 §19.1 metadata 3列追加 ALTER (codex review HIGH#3)
+#   - label_version / odds_snapshot_policy / backtest_strategy_version
+#   - **DEFAULT 'unspecified' sentinel (codex cycle-2 NEW HIGH#3・空文字 '' でない)**
+#     空文字 '' を仮に採用すると・_df_to_prediction_tuples (prediction_load.py L175-176) の
+#     `v if v != "" else None` 変換で None 化され NOT NULL 違反になる。sentinel 'unspecified'
+#     を採用することで loader を経由しても None 化せず NOT NULL 違反を回避（対策 (c) sentinel・
+#     loader 変更不要で局所的）。v1.0 binary 呼出 (theta=None/3引数省略) でも sentinel が入り安全。
+#   - idempotent ALTER (ADD COLUMN IF NOT EXISTS) — PREDICTION_ADD_IS_PRIMARY_SQL と同一 idiom。
+#     既存 v1.0 binary 行の ALTER TABLE ADD COLUMN で DEFAULT 'unspecified' が適用され NULL 制約違反回避。
+#   - GRANT は GRANT_ETL_SQL / GRANT_READER_SQL が prediction スキーマに既に SELECT/書込を付与済。
+# ---------------------------------------------------------------------------
+PREDICTION_ADD_PROVENANCE_SQL = """
+ALTER TABLE prediction.fukusho_prediction
+    ADD COLUMN IF NOT EXISTS label_version varchar(32) NOT NULL DEFAULT 'unspecified';
+ALTER TABLE prediction.fukusho_prediction
+    ADD COLUMN IF NOT EXISTS odds_snapshot_policy varchar(32) NOT NULL DEFAULT 'unspecified';
+ALTER TABLE prediction.fukusho_prediction
+    ADD COLUMN IF NOT EXISTS backtest_strategy_version varchar(32) NOT NULL DEFAULT 'unspecified';
+COMMENT ON COLUMN prediction.fukusho_prediction.label_version IS
+    'Phase 11 SC#5 §19.1 metadata: label_version. DEFAULT ''unspecified'' sentinel '
+    '(codex cycle-2 NEW HIGH#3: 空文字でなく sentinel・loader 空文字→None 変換回避).';
+COMMENT ON COLUMN prediction.fukusho_prediction.odds_snapshot_policy IS
+    'Phase 11 SC#5 §19.1 metadata: odds_snapshot_policy. DEFAULT ''unspecified'' sentinel.';
+COMMENT ON COLUMN prediction.fukusho_prediction.backtest_strategy_version IS
+    'Phase 11 SC#5 §19.1 metadata: backtest_strategy_version. DEFAULT ''unspecified'' sentinel.';
+"""
+
+# ---------------------------------------------------------------------------
+# Phase 11 Plan 11-05: prediction_model_type_domain CHECK 制約 lightgbm_rr/catboost_rr 拡張
+# (codex cycle-2 NEW HIGH#1・設計判断B: 新 model_type 採用)
+#
+# - idempotent migration (DROP CONSTRAINT IF EXISTS + ADD) — PREDICTION_ADD_IS_PRIMARY_SQL の
+#   DROP IF EXISTS + ADD idiom と同一。
+# - 拡張後制約: ('lightgbm','catboost','logreg','lightgbm_rr','catboost_rr')
+# - race-relative model_type 行 (lightgbm_rr/catboost_rr) が DB に INSERT 可能になる。
+# - 設計判断B (新 model_type 採用) の根拠:
+#   (a) model_type 列単体で binary/race-relative が DB クエリで即座に区別可能 (provenance 明確)
+#   (b) 11-03 の _normalize_model_type (lightgbm_rr→lightgbm 正規化) と整合
+#   (c) cycle-2 MEDIUM guard (theta is not None 時は _rr サフィックス必須) で silent provenance
+#       hole を防止
+# - PREDICTION_TABLE_DDL の新規 CREATE TABLE 定義も同様に lightgbm_rr/catboost_rr を含む（上位参照）。
+# ---------------------------------------------------------------------------
+PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL = """
+ALTER TABLE prediction.fukusho_prediction
+    DROP CONSTRAINT IF EXISTS prediction_model_type_domain;
+ALTER TABLE prediction.fukusho_prediction
+    ADD CONSTRAINT prediction_model_type_domain CHECK (model_type IN ('lightgbm','catboost','logreg','lightgbm_rr','catboost_rr'));
 """
 
 # ---------------------------------------------------------------------------
@@ -329,6 +381,12 @@ APPLY_ORDER = [
     # Phase 6 Plan 06-04: is_primary 列追加 ALTER（idempotent・REVIEW HIGH#8 NOT NULL 明示）。
     # prediction_table の直後・backtest_table の前（GRANT が両テーブルを拾うように）。
     ("prediction_add_is_primary", PREDICTION_ADD_IS_PRIMARY_SQL),
+    # Phase 11 Plan 11-05: SC#5 §19.1 metadata 3列追加 ALTER（codex HIGH#3・DEFAULT 'unspecified'
+    # sentinel・codex cycle-2 NEW HIGH#3・idempotent）。is_primary migration の直後。
+    ("prediction_add_provenance", PREDICTION_ADD_PROVENANCE_SQL),
+    # Phase 11 Plan 11-05: prediction_model_type_domain CHECK 制約 lightgbm_rr/catboost_rr 拡張
+    # （codex cycle-2 NEW HIGH#1・DROP IF EXISTS + ADD idempotent migration）。
+    ("prediction_extend_model_type_domain", PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL),
     # Phase 5: backtest_table DDL も GRANT の直前に適用（CREATE SCHEMA で backtest
     # スキーマ自体は既に作成済・GRANT が GRANT SELECT ON ALL TABLES で本テーブルを拾えるように）
     ("backtest_table", BACKTEST_TABLE_DDL),
@@ -353,6 +411,8 @@ __all__ = [
     "ALTER_READER_PASSWORD_TEMPLATE",
     "PREDICTION_TABLE_DDL",
     "PREDICTION_ADD_IS_PRIMARY_SQL",
+    "PREDICTION_ADD_PROVENANCE_SQL",
+    "PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL",
     "BACKTEST_TABLE_DDL",
     "APPLY_ORDER",
 ]

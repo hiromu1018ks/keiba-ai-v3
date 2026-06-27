@@ -70,6 +70,12 @@ def _make_synthetic_prediction_df(
                 "p_fukusho_hit": 0.1 + 0.05 * i,  # [0.1, 0.55] 範囲
                 "race_date": pd.Timestamp("2024-01-01").date(),
                 "split": "test",
+                # Phase 11 Plan 11-05 codex HIGH#3: SC#5 §19.1 metadata 3列 (sentinel 'unspecified'
+                # 既定値・codex cycle-2 NEW HIGH#3・loader 空文字→None 変換回避・NOT NULL 違反回避)。
+                # 本ヘルパーは load 経路確認用のため sentinel で固定（predict_p_fukusho 既定値と同一）。
+                "label_version": "unspecified",
+                "odds_snapshot_policy": "unspecified",
+                "backtest_strategy_version": "unspecified",
                 # Phase 6 D-09 (Plan 06-04): is_primary 列追加に伴う Pitfall 4 回帰修正。
                 # 予測生成時は False（set_primary_model で True に UPDATE・本テストは load 経路確認）。
                 "is_primary": False,
