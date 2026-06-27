@@ -5,15 +5,15 @@ milestone_name: Ability Feature v2 & Conditional Calibration
 current_phase: 12
 current_phase_name: p_lower EV & Falsification Evaluation
 status: executing
-stopped_at: Phase 12 planned (5 plans)
-last_updated: "2026-06-27T12:24:58.972Z"
+stopped_at: Completed 12-01-PLAN.md (statsmodels + p_lower + migration)
+last_updated: "2026-06-27T13:02:25.151Z"
 last_activity: 2026-06-27
 last_activity_desc: Phase 12 execution started
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 25
-  completed_plans: 20
+  completed_plans: 21
   percent: 80
 ---
 
@@ -29,8 +29,8 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 12 (p_lower EV & Falsification Evaluation) — EXECUTING
-Plan: 1 of 5
-Status: Executing Phase 12
+Plan: 2 of 5
+Status: Ready to execute
 Last activity: 2026-06-27 — Phase 12 execution started
 
 ## v1.1 Milestone Context
@@ -136,6 +136,8 @@ Last activity: 2026-06-27 — Phase 12 execution started
 | Phase 11 P02 | 5 min | 2 tasks | 1 files |
 | Phase 11 P03 | 8 min | 2 tasks | 4 files |
 | Phase 11 P04 | 9 min | 2 tasks | 2 files |
+| Phase 12 P01 | 15min | - tasks | - files |
+| Phase 12 P01 | 15min | 2 tasks | 9 files |
 
 ### Decisions
 
@@ -289,6 +291,11 @@ Recent decisions affecting current work:
 - [Phase 11]: 11-04: theta 選択経路は score_split=calib のみで候補評価・test 窓は theta 再選択なしで一回だけ評価（§11.2 聖域の機械保証）
 - [Phase 11]: 11-04: theta-selection.{md,json} を test 窓評価に先立って byte-reproducible に事前書き出し（後知恵すり替え禁止・codex HIGH#1）
 - [Phase 11]: 11-04: D-07 set_primary_model 呼出 AST Call 0件・comparison のみ・primary 切替は Phase 12
+- [Phase ?]: [Phase 12] plan 12-01: [C2-12-01-1] statsmodels==0.14.6 厳密固定採用（>= でなく ==・byte-reproducible §19.1・将来の false fail 回避）
+- [Phase ?]: [Phase 12] plan 12-01: compute_p_lower_conformal_shrinkage は D-01 修正文採用（p 信頼区間保証でなく calib slice 上の過大予測を保守的に差し引く分布自由な shrinkage rule・JMLR 2024 exchangeability 必須）
+- [Phase ?]: [Phase 12] plan 12-01: [C-12-01-1 HIGH] scripts/run_apply_schema.py 手動 step list（APPLY_ORDER 不参照）にも prediction_add_p_lower を挿入（schema.py APPLY_ORDER だけでは run_apply_schema.py は適用しない）
+- [Phase ?]: [Phase 12] plan 12-01: [C-12-01-4 MEDIUM] predict_p_fukusho に pred_proba_lower 引数追加（race-relative 経路は非 NULL・v1.0 binary 経路は None を機械保証）
+- [Phase ?]: [Phase 12] plan 12-01: docstring 直接トークン名 (odds/ninki/fukuodds) を一般化表現に置換（Phase 09 decision 踏襲・test_audit_race_relative.py SQL 文字列 scan との両立）
 
 ### Pending Todos
 
@@ -321,12 +328,12 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-06-25:
 
 ## Session Continuity
 
-**Last session:** 2026-06-27T09:51:09.927Z
+**Last session:** 2026-06-27T13:02:25.144Z
 
 **Resume file:** 
 
-.planning/phases/12-p-lower-ev-falsification-evaluation/12-CONTEXT.md
-Stopped at: Phase 12 context gathered
+None
+Stopped at: Completed 12-01-PLAN.md (statsmodels + p_lower + migration)
 Resume: `/gsd-execute-phase 9`（P04: SC#4 SAFE-01 AST audit + SC#5 ドメイン整合性可視化・rolling_speed_figure_* 6 feature を含む完成 feature_matrix が必要・本 P03 で生成可能に）
 
 ## Operator Next Steps

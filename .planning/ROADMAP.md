@@ -190,12 +190,12 @@ Plans:
   4. オッズ帯別条件付き calibration が受入基準に追加され・投票層（高オッズ域・EV 上位）で `p` が統計的に過大でないことが構造的に検証される（v1.0 の投票馬 p=0.16→実0.04 の4倍過大を catch する gate・SAFE-01）。§15.2 の既存 BLOCK/WARN gate と整合（D-01/D-02/D-03）
   5. v1.0 対抗的監査パターン（tests/audit/・`KEIBA_SKIP_DB_TESTS` unset の live-DB フルスイート GREEN・SC#1/#2/#3 踏襲）が本マイルストーンの全変更（特徴量追加・モデル変更・EV/eval 拡張）に対して GREEN を維持する。byte-reproducible snapshot + 再現性スモークが実データで PASS。現実回収率シナリオ（0.78-0.92 見込・正直な結論）が backtest で定量測定される
 
-**Plans:** 5 plans
+**Plans:** 1/5 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 12-01-PLAN.md — statsmodels 依存 + compute_p_lower_conformal_shrinkage 純粋関数 + prediction p_fukusho_hit_lower 列 DDL migration 連鎖（3ファイル・Pitfall 4・EV-01/SAFE-01）
+- [x] 12-01-PLAN.md — statsmodels 依存 + compute_p_lower_conformal_shrinkage 純粋関数 + prediction p_fukusho_hit_lower 列 DDL migration 連鎖（3ファイル・Pitfall 4・EV-01/SAFE-01）
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -230,4 +230,4 @@ Plans:
 | 9.1. Speed Ability Profile Expansion (INSERTED) | v1.1 | 1/1 | Complete | 2026-06-26 |
 | 10. Opponent Strength & Race-Relative Features | v1.1 | 9/9 | Complete    | 2026-06-26 |
 | 11. Race-Relative Probability Model | v1.1 | 5/5 | Complete    | 2026-06-27 |
-| 12. p_lower EV & Falsification Evaluation | v1.1 | 0/5 | Not started | - |
+| 12. p_lower EV & Falsification Evaluation | v1.1 | 1/5 | In Progress|  |
