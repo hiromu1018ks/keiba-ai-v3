@@ -45,7 +45,7 @@ def _make_prediction_row(
     kettonum: int = 100,
     is_primary=None,
 ) -> dict:
-    """PREDICTION_COLUMNS 16 列を埋めた1行分の dict を返す。"""
+    """PREDICTION_COLUMNS 19 列を埋めた1行分の dict を返す（provenance 3列含む・Phase 11）。"""
     row = {
         "model_type": model_type,
         "model_version": model_version,
@@ -62,6 +62,10 @@ def _make_prediction_row(
         "p_fukusho_hit": 0.42,
         "race_date": pd.Timestamp("2023-06-04"),
         "split": "test",
+        # Phase 11 SC#5 §19.1 metadata (provenance・test 用 sentinel 相当の事前登録値)
+        "label_version": "test_label_v1",
+        "odds_snapshot_policy": "test_30min",
+        "backtest_strategy_version": "test_BT1",
     }
     if is_primary is not None:
         row["is_primary"] = is_primary
@@ -126,12 +130,17 @@ def _seed_two_models(write_cur, tag: str, as_of_dt: datetime, snapshot_id: str =
 
 
 def test_prediction_columns_includes_is_primary():
-    """PREDICTION_COLUMNS に 'is_primary' が含まれ・長さが16・末尾に追加されている (Pitfall 4)。"""
+    """PREDICTION_COLUMNS に 'is_primary' が含まれ・長さが19・末尾に追加されている (Pitfall 4)。
+
+    19 = 旧15 + is_primary(1) + Phase 11 provenance 3列 (label_version /
+    odds_snapshot_policy / backtest_strategy_version)。provenance は is_primary の前。
+    """
     assert "is_primary" in PREDICTION_COLUMNS, (
         "PREDICTION_COLUMNS に is_primary が無い（Pitfall 4 3ファイル連鎖違反）"
     )
-    assert len(PREDICTION_COLUMNS) == 16, (
-        f"PREDICTION_COLUMNS 長さが16でない: {len(PREDICTION_COLUMNS)} (旧15+is_primary=16期待)"
+    assert len(PREDICTION_COLUMNS) == 19, (
+        f"PREDICTION_COLUMNS 長さが19でない: {len(PREDICTION_COLUMNS)} "
+        "(旧15+is_primary=16→Phase 11 provenance 3列追加で19期待)"
     )
     assert PREDICTION_COLUMNS[-1] == "is_primary", (
         f"is_primary は末尾であるべき: 末尾={PREDICTION_COLUMNS[-1]!r}"

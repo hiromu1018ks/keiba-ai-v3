@@ -79,6 +79,12 @@ CREATE TABLE IF NOT EXISTS prediction.fukusho_prediction (
     -- 補助メタ（Phase 5/6/7 が参照）
     race_date date,
     split varchar(16),
+    -- Phase 11 SC#5 §19.1 metadata (provenance・NOT NULL DEFAULT 'unspecified' sentinel)
+    -- codex HIGH#3 / codex cycle-2 NEW HIGH#3。新規 CREATE TABLE で19列化（is_primary 含む）。
+    -- 既存DBは PREDICTION_ADD_PROVENANCE_SQL (ALTER ADD COLUMN IF NOT EXISTS) で idempotent 適用済。
+    label_version varchar(32) NOT NULL DEFAULT 'unspecified',
+    odds_snapshot_policy varchar(32) NOT NULL DEFAULT 'unspecified',
+    backtest_strategy_version varchar(32) NOT NULL DEFAULT 'unspecified',
     PRIMARY KEY (model_type, model_version, feature_snapshot_id, as_of_datetime,
                  year, jyocd, kaiji, nichiji, racenum, umaban, kettonum),
     CONSTRAINT prediction_fukusho_hit_range CHECK (p_fukusho_hit >= 0 AND p_fukusho_hit <= 1),

@@ -1,0 +1,244 @@
+{
+  "args": {
+    "baseline_snapshot_id": "20260626-1a-opponentstrength-v1",
+    "bt_split": "BT-1",
+    "odds_snapshot_policy": "30min_before",
+    "theta_candidates": [
+      "0.5",
+      "0.75",
+      "1.0",
+      "1.25",
+      "1.5"
+    ]
+  },
+  "baseline_metrics": {
+    "auc": 0.6988808850919148,
+    "brier": 0.15524269650278047,
+    "calibration_max_dev": 0.6723891574596195,
+    "logloss": 0.48472870481520564
+  },
+  "binning_source": {
+    "CALIBRATION_CURVE_BINS": 10,
+    "CALIBRATION_CURVE_MIN_BIN_COUNT": 30,
+    "NINKI_BAND_EDGES": [
+      0.0,
+      3.0,
+      6.0,
+      9.0,
+      "Infinity"
+    ],
+    "ODDS_BAND_EDGES": [
+      0.0,
+      2.9,
+      4.9,
+      9.9,
+      "Infinity"
+    ],
+    "note": "§15.2 事前登録指標不変・evaluator/segment_eval から import 再利用 (再定義禁止)"
+  },
+  "d04_non_degradation": {
+    "auc_delta": 0.018961140864932835,
+    "brier_delta": -0.003226472989775936,
+    "logloss_delta": -0.013545171108338139,
+    "pass": true,
+    "tolerance": {
+      "auc": 0.005,
+      "brier": 0.005,
+      "logloss": 0.01,
+      "note": "D-04 事前登録許容幅 (§11.2 聖域・Phase 10 の 0.002/0.005/0.005 から拡張)"
+    }
+  },
+  "d05_improvement_gate": {
+    "condition_1_overprediction_penalty": {
+      "baseline": null,
+      "pass": false,
+      "race_relative": null,
+      "rule": "rr < baseline (D-05-1 主指標)"
+    },
+    "condition_2_selected_mean_minus_frac": {
+      "baseline_selected_dev": 0.011456606328211216,
+      "pass": true,
+      "rr_selected_dev": 0.010573222942066529,
+      "rule": "rr < baseline (D-05-2 selected/high-EV 層)"
+    },
+    "condition_3_selected_calib_max_dev": {
+      "baseline_selected_dev": 0.011456606328211216,
+      "margin": 0.005,
+      "pass": true,
+      "rr_selected_dev": 0.010573222942066529,
+      "rule": "rr <= baseline + TOLERANCE_BRIER (D-05-3)"
+    },
+    "pass": false
+  },
+  "d07_note": "Phase 11 は並列比較のみ・is_primary 切替は Phase 12 (D-07)。本 script は比較レポート生成のみ・prediction 永続化 (load_predictions / primary 切替) は行わない。実際の model_version 行追加は 11-05 で実施 (primary 立ては Phase 12)。",
+  "d15_reference_segments": {
+    "error": "evaluate_all_segments: y_true_col='fukusho_hit' が df に存在しない",
+    "note": "D-15 参考記録 (Phase 12 EVAL-01 先行指標)・gate 判定には使わない"
+  },
+  "delta": {
+    "auc_delta": 0.018961140864932835,
+    "brier_delta": -0.003226472989775936,
+    "logloss_delta": -0.013545171108338139
+  },
+  "gate_pass": false,
+  "model_versions": {
+    "baseline": "20260626-1a-opponentstrength-v1-lgb-v1",
+    "race_relative": "20260626-1a-opponentstrength-v1-lgbrr-v1"
+  },
+  "race_relative_constants": {
+    "ALPHA_SEARCH_XTOL": 1e-09,
+    "P_CAL_CLIP_EPSILON": 1e-06,
+    "THETA_CANDIDATES": [
+      0.5,
+      0.75,
+      1.0,
+      1.25,
+      1.5
+    ],
+    "note": "11-01 事前登録定数 (§11.2 聖域)・再定義でなく import 再利用"
+  },
+  "rr_metrics": {
+    "auc": 0.7178420259568477,
+    "brier": 0.15201622351300453,
+    "calibration_max_dev": 0.3214002342823158,
+    "logloss": 0.4711835337068675
+  },
+  "safe_01_note": "race-relative 補正層は 11-01 で SAFE-01 AST 監査済み (odds/ninki proxy 0件)。run_phase11_evaluation.py は market_signal (odds 系外部参照) を evaluation 専用層 (compute_overprediction_penalty / segment_eval) でのみ使用し FEATURE_COLUMNS には混入しない (orchestrator.train_and_predict の FEATURE_COLUMNS allowlist が保証・SAFE-01)。",
+  "selected_theta": 1.0,
+  "theta_selection": {
+    "candidates": [
+      {
+        "auc": 0.7249093283166508,
+        "auc_delta_vs_baseline_calib": 0.019959818002245888,
+        "brier": 0.15557075141777282,
+        "brier_delta_vs_baseline_calib": 0.00125707915533102,
+        "calib_max_dev": 0.24696604202576533,
+        "logloss": 0.4836615129211187,
+        "logloss_delta_vs_baseline_calib": 0.007995713659662063,
+        "overprediction_penalty": null,
+        "selected_only_calib_max_dev": 0.0895222313026659,
+        "theta": 0.5,
+        "verdict": "pass"
+      },
+      {
+        "auc": 0.7260263375833856,
+        "auc_delta_vs_baseline_calib": 0.021076827268980747,
+        "brier": 0.15113089951142525,
+        "brier_delta_vs_baseline_calib": -0.003182772751016555,
+        "calib_max_dev": 0.15106771403771446,
+        "logloss": 0.466324037019087,
+        "logloss_delta_vs_baseline_calib": -0.009341762242369656,
+        "overprediction_penalty": null,
+        "selected_only_calib_max_dev": 0.023744824731849745,
+        "theta": 0.75,
+        "verdict": "pass"
+      },
+      {
+        "auc": 0.7261665325388809,
+        "auc_delta_vs_baseline_calib": 0.021217022224475968,
+        "brier": 0.15099295432890236,
+        "brier_delta_vs_baseline_calib": -0.003320717933539441,
+        "calib_max_dev": 0.265117042939913,
+        "logloss": 0.46607115752369216,
+        "logloss_delta_vs_baseline_calib": -0.009594641737764475,
+        "overprediction_penalty": null,
+        "selected_only_calib_max_dev": 0.01388118233127661,
+        "theta": 1.0,
+        "verdict": "pass"
+      },
+      {
+        "auc": 0.7252206174558539,
+        "auc_delta_vs_baseline_calib": 0.020271107141448974,
+        "brier": 0.15197382018061006,
+        "brier_delta_vs_baseline_calib": -0.002339852081831739,
+        "calib_max_dev": 0.28589153422554114,
+        "logloss": 0.46932745602114073,
+        "logloss_delta_vs_baseline_calib": -0.006338343240315902,
+        "overprediction_penalty": null,
+        "selected_only_calib_max_dev": 0.039106413547012664,
+        "theta": 1.25,
+        "verdict": "pass"
+      },
+      {
+        "auc": 0.7234949844008736,
+        "auc_delta_vs_baseline_calib": 0.018545474086468672,
+        "brier": 0.1531738150275753,
+        "brier_delta_vs_baseline_calib": -0.0011398572348665093,
+        "calib_max_dev": 0.37518343315292757,
+        "logloss": 0.47309962868077443,
+        "logloss_delta_vs_baseline_calib": -0.0025661705806822033,
+        "overprediction_penalty": null,
+        "selected_only_calib_max_dev": 0.0528100073156782,
+        "theta": 1.5,
+        "verdict": "pass"
+      }
+    ],
+    "selected_candidate": {
+      "auc": 0.7261665325388809,
+      "auc_delta_vs_baseline_calib": 0.021217022224475968,
+      "brier": 0.15099295432890236,
+      "brier_delta_vs_baseline_calib": -0.003320717933539441,
+      "calib_max_dev": 0.265117042939913,
+      "logloss": 0.46607115752369216,
+      "logloss_delta_vs_baseline_calib": -0.009594641737764475,
+      "overprediction_penalty": null,
+      "selected_only_calib_max_dev": 0.01388118233127661,
+      "theta": 1.0,
+      "verdict": "pass"
+    },
+    "selected_theta": 1.0,
+    "selection_path": {
+      "baseline_calib_metrics": {
+        "auc": 0.7049495103144049,
+        "brier": 0.1543136722624418,
+        "calibration_max_dev": 6.38378239159465e-15,
+        "calibration_max_dev_guarded": 6.38378239159465e-15,
+        "ece": 1.7799247673522127e-15,
+        "logloss": 0.47566579926145663,
+        "mce": 3.9968028886505635e-15,
+        "quantile_max_dev": 3.9968028886505635e-15,
+        "sum_p_mean": null,
+        "sum_p_median": null,
+        "sum_p_note": "複勝確率は独立二値確率のため sum(p) は払戻対象数に厳密合計しない・診断的指標として扱う (§15.2・review MEDIUM)",
+        "sum_p_p10": null,
+        "sum_p_p90": null
+      },
+      "baseline_overprediction_penalty_calib": null,
+      "final_verdict": "selected θ=1.0 via cutoff→argmin_overpred→tiebreak",
+      "stage_1_cutoff": {
+        "failed_thetas": [],
+        "n_after": 5,
+        "n_before": 5,
+        "rule": "D-04 非劣化 (Brier/LogLoss/AUC 許容幅内)",
+        "tolerance": {
+          "auc": 0.005,
+          "brier": 0.005,
+          "logloss": 0.01
+        }
+      },
+      "stage_2_argmin_overprediction": {
+        "min_overprediction_penalty": null,
+        "n_after": 5,
+        "n_before": 5,
+        "remaining_thetas": [
+          0.5,
+          0.75,
+          1.0,
+          1.25,
+          1.5
+        ],
+        "rule": "D-05-1 overprediction penalty 最小 (NaN-safe・全員 NaN は passing 保持)"
+      },
+      "stage_3_tiebreak": {
+        "min_selected_only_calib_max_dev": 0.01388118233127661,
+        "n_after": 1,
+        "n_before": 5,
+        "remaining_thetas": [
+          1.0
+        ],
+        "rule": "tie-break: selected-only calib_max_dev 最小 → θ=1 に近い候補",
+        "selected_theta": 1.0
+      }
+    }
+  }
+}

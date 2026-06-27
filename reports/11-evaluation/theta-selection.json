@@ -1,0 +1,136 @@
+{
+  "candidates": [
+    {
+      "auc": 0.7249093283166508,
+      "auc_delta_vs_baseline_calib": 0.019959818002245888,
+      "brier": 0.15557075141777282,
+      "brier_delta_vs_baseline_calib": 0.00125707915533102,
+      "calib_max_dev": 0.24696604202576533,
+      "logloss": 0.4836615129211187,
+      "logloss_delta_vs_baseline_calib": 0.007995713659662063,
+      "overprediction_penalty": null,
+      "selected_only_calib_max_dev": 0.0895222313026659,
+      "theta": 0.5,
+      "verdict": "pass"
+    },
+    {
+      "auc": 0.7260263375833856,
+      "auc_delta_vs_baseline_calib": 0.021076827268980747,
+      "brier": 0.15113089951142525,
+      "brier_delta_vs_baseline_calib": -0.003182772751016555,
+      "calib_max_dev": 0.15106771403771446,
+      "logloss": 0.466324037019087,
+      "logloss_delta_vs_baseline_calib": -0.009341762242369656,
+      "overprediction_penalty": null,
+      "selected_only_calib_max_dev": 0.023744824731849745,
+      "theta": 0.75,
+      "verdict": "pass"
+    },
+    {
+      "auc": 0.7261665325388809,
+      "auc_delta_vs_baseline_calib": 0.021217022224475968,
+      "brier": 0.15099295432890236,
+      "brier_delta_vs_baseline_calib": -0.003320717933539441,
+      "calib_max_dev": 0.265117042939913,
+      "logloss": 0.46607115752369216,
+      "logloss_delta_vs_baseline_calib": -0.009594641737764475,
+      "overprediction_penalty": null,
+      "selected_only_calib_max_dev": 0.01388118233127661,
+      "theta": 1.0,
+      "verdict": "pass"
+    },
+    {
+      "auc": 0.7252206174558539,
+      "auc_delta_vs_baseline_calib": 0.020271107141448974,
+      "brier": 0.15197382018061006,
+      "brier_delta_vs_baseline_calib": -0.002339852081831739,
+      "calib_max_dev": 0.28589153422554114,
+      "logloss": 0.46932745602114073,
+      "logloss_delta_vs_baseline_calib": -0.006338343240315902,
+      "overprediction_penalty": null,
+      "selected_only_calib_max_dev": 0.039106413547012664,
+      "theta": 1.25,
+      "verdict": "pass"
+    },
+    {
+      "auc": 0.7234949844008736,
+      "auc_delta_vs_baseline_calib": 0.018545474086468672,
+      "brier": 0.1531738150275753,
+      "brier_delta_vs_baseline_calib": -0.0011398572348665093,
+      "calib_max_dev": 0.37518343315292757,
+      "logloss": 0.47309962868077443,
+      "logloss_delta_vs_baseline_calib": -0.0025661705806822033,
+      "overprediction_penalty": null,
+      "selected_only_calib_max_dev": 0.0528100073156782,
+      "theta": 1.5,
+      "verdict": "pass"
+    }
+  ],
+  "selected_candidate": {
+    "auc": 0.7261665325388809,
+    "auc_delta_vs_baseline_calib": 0.021217022224475968,
+    "brier": 0.15099295432890236,
+    "brier_delta_vs_baseline_calib": -0.003320717933539441,
+    "calib_max_dev": 0.265117042939913,
+    "logloss": 0.46607115752369216,
+    "logloss_delta_vs_baseline_calib": -0.009594641737764475,
+    "overprediction_penalty": null,
+    "selected_only_calib_max_dev": 0.01388118233127661,
+    "theta": 1.0,
+    "verdict": "pass"
+  },
+  "selected_theta": 1.0,
+  "selection_path": {
+    "baseline_calib_metrics": {
+      "auc": 0.7049495103144049,
+      "brier": 0.1543136722624418,
+      "calibration_max_dev": 6.38378239159465e-15,
+      "calibration_max_dev_guarded": 6.38378239159465e-15,
+      "ece": 1.7799247673522127e-15,
+      "logloss": 0.47566579926145663,
+      "mce": 3.9968028886505635e-15,
+      "quantile_max_dev": 3.9968028886505635e-15,
+      "sum_p_mean": null,
+      "sum_p_median": null,
+      "sum_p_note": "複勝確率は独立二値確率のため sum(p) は払戻対象数に厳密合計しない・診断的指標として扱う (§15.2・review MEDIUM)",
+      "sum_p_p10": null,
+      "sum_p_p90": null
+    },
+    "baseline_overprediction_penalty_calib": null,
+    "final_verdict": "selected θ=1.0 via cutoff→argmin_overpred→tiebreak",
+    "stage_1_cutoff": {
+      "failed_thetas": [],
+      "n_after": 5,
+      "n_before": 5,
+      "rule": "D-04 非劣化 (Brier/LogLoss/AUC 許容幅内)",
+      "tolerance": {
+        "auc": 0.005,
+        "brier": 0.005,
+        "logloss": 0.01
+      }
+    },
+    "stage_2_argmin_overprediction": {
+      "min_overprediction_penalty": null,
+      "n_after": 5,
+      "n_before": 5,
+      "remaining_thetas": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "rule": "D-05-1 overprediction penalty 最小 (NaN-safe・全員 NaN は passing 保持)"
+    },
+    "stage_3_tiebreak": {
+      "min_selected_only_calib_max_dev": 0.01388118233127661,
+      "n_after": 1,
+      "n_before": 5,
+      "remaining_thetas": [
+        1.0
+      ],
+      "rule": "tie-break: selected-only calib_max_dev 最小 → θ=1 に近い候補",
+      "selected_theta": 1.0
+    }
+  }
+}

@@ -249,10 +249,6 @@ def main(argv: list[str] | None = None) -> int:
     from src.config.settings import Settings
     from src.db.connection import make_pool, readonly_cursor
     from src.db.prediction_load import load_predictions
-    from src.db.schema import (
-        PREDICTION_ADD_PROVENANCE_SQL,
-        PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL,
-    )
     from src.model.data import (
         build_training_frame,
         load_feature_matrix,
@@ -287,19 +283,11 @@ def main(argv: list[str] | None = None) -> int:
     # make_pool(role='etl') が KEIBA_ETL_DB_USER で接続し prediction スキーマへの書込を許可。
     etl_pool = make_pool(settings, role="etl", configure=_configure_statement_timeout)
     try:
-        # ---- Phase 11 codex cycle-2 NEW HIGH#1/#3: schema migration 適用 (idempotent) ----
-        # Task 1 で定義した両 migration (provenance 3列 DEFAULT 'unspecified' sentinel +
-        # CHECK 制約 lightgbm_rr/catboost_rr 拡張) を etl cursor で実行。idempotent・2回目以降は
-        # IF NOT EXISTS / DROP IF EXISTS で no-op。Phase 6 の is_primary migration 適用 idiom と同一。
-        with etl_pool.connection() as etl_conn:
-            with etl_conn.cursor() as etl_cur:
-                etl_cur.execute("SET statement_timeout = '30s'")
-                etl_cur.execute(PREDICTION_ADD_PROVENANCE_SQL)
-                etl_cur.execute(PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL)
-            etl_conn.commit()
-        logger.info(
-            "schema migration 適用完了: provenance 3列 + model_type_domain lightgbm_rr/catboost_rr 拡張"
-        )
+        # Phase 11 codex cycle-2 NEW HIGH#1/#3: schema migration（provenance 3列 DEFAULT
+        # 'unspecified' sentinel + CHECK 制約 lightgbm_rr/catboost_rr 拡張）は run_apply_schema.py
+        # （admin/owner 権限）で事前適用済みであることを前提（Phase 6 is_primary migration と同一 idiom）。
+        # ALTER TABLE は owner 権限が必要で etl ロールでは InsufficientPrivilege となるため・本 script
+        # では migration を実行せず run_apply_schema.py に一本化（deviation・11-05 SUMMARY に記録）。
 
         with readonly_cursor(readonly_pool) as cur:
             # 二重防衛: configure callback と cursor 内 SET の両方で statement_timeout を設定。
@@ -634,12 +622,26 @@ def _select_theta_on_calib(
             "selection_path": selection_path,
         }
 
-    # (2) 選択: overprediction penalty 最小 (D-05-1)
-    min_overpred = min(c["overprediction_penalty"] for c in passing)
-    stage2 = [c for c in passing if c["overprediction_penalty"] <= min_overpred + 1e-15]
+    # (2) 選択: overprediction penalty 最小 (D-05-1・NaN-safe)
+    # odds/ninki 系列が pred_df に無い場合 (odds-free 1-A model・feature snapshot に odds 無し) ・
+    # compute_overprediction が NaN を返す (D-15 参考記録)。全候補 NaN の場合は D-05-1 条件を
+    # skip して passing をそのまま stage2 に流し・stage3 tiebreak (calib_max_dev → θ=1 近傍) で
+    # 決定する（§11.2 聖域: test 窓を見ない・事前登録 idiom）。
+    finite_overpred = [c for c in passing if not math.isnan(c["overprediction_penalty"])]
+    if finite_overpred:
+        min_overpred = min(c["overprediction_penalty"] for c in finite_overpred)
+        stage2 = [
+            c for c in passing if c["overprediction_penalty"] <= min_overpred + 1e-15
+        ]
+    else:
+        # 全候補 overprediction_penalty=NaN (D-15) → passing をそのまま stage2 へ
+        min_overpred = float("nan")
+        stage2 = list(passing)
     selection_path["stage_2_argmin_overprediction"] = {
-        "rule": "D-05-1 overprediction penalty 最小",
-        "min_overprediction_penalty": float(min_overpred),
+        "rule": "D-05-1 overprediction penalty 最小 (NaN-safe・全員 NaN は passing 保持)",
+        "min_overprediction_penalty": (
+            float(min_overpred) if not math.isnan(min_overpred) else None
+        ),
         "n_before": len(passing),
         "n_after": len(stage2),
         "remaining_thetas": [c["theta"] for c in stage2],
@@ -1067,11 +1069,22 @@ def _format_theta_selection_markdown(theta_selection: dict[str, Any]) -> str:
     lines.append("")
     lines.append("| θ | Brier | LogLoss | AUC | overprediction_penalty | calib_max_dev | selected_only_calib_max_dev | verdict |")
     lines.append("|---|-------|---------|-----|----------------------|---------------|-----------------------------|---------|")
+    def _fmt(v: Any) -> str:
+        """数値は :.5f・None/NaN は 'NaN'（D-15 参考記録: odds/ninki 無し等で計算不能）。"""
+        if v is None:
+            return "NaN"
+        try:
+            if math.isnan(v):
+                return "NaN"
+        except (TypeError, ValueError):
+            pass
+        return f"{v:.5f}"
+
     for c in theta_selection.get("candidates", []):
         lines.append(
-            f"| {c.get('theta')} | {c.get('brier', 0):.5f} | {c.get('logloss', 0):.5f} | "
-            f"{c.get('auc', 0):.5f} | {c.get('overprediction_penalty', 0):.5f} | "
-            f"{c.get('calib_max_dev', 0):.5f} | {c.get('selected_only_calib_max_dev', 0):.5f} | "
+            f"| {c.get('theta')} | {_fmt(c.get('brier'))} | {_fmt(c.get('logloss'))} | "
+            f"{_fmt(c.get('auc'))} | {_fmt(c.get('overprediction_penalty'))} | "
+            f"{_fmt(c.get('calib_max_dev'))} | {_fmt(c.get('selected_only_calib_max_dev'))} | "
             f"{c.get('verdict')} |"
         )
     lines.append("")

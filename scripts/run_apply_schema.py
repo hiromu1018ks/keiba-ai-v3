@@ -119,11 +119,23 @@ def apply(dsn: str, reader: str, etl: str, sql_text: str, dry_run: bool) -> None
                 ("create_roles", schema_module.CREATE_ROLES_SQL),
                 ("create_raw_views", schema_module.CREATE_RAW_VIEWS_SQL),
                 # Phase 4: prediction_table DDL を GRANT の直前に適用
-                # （schema.py APPLY_ORDER と同期・review HIGH#1/Cross-Plan #3 の11カラム PK + CHECK 制約）
+                # （schema.py APPLY_ORDER と同期・review HIGH#1/Cross-Plan #3 の
+                #  11カラム PK + CHECK 制約）
                 ("prediction_table", schema_module.PREDICTION_TABLE_DDL),
                 # Phase 6 Plan 06-04 Rule 3 fix: is_primary 列追加 ALTER も適用
                 # （schema.py APPLY_ORDER と同期・REVIEW HIGH#8 NOT NULL DEFAULT false 明示）
                 ("prediction_add_is_primary", schema_module.PREDICTION_ADD_IS_PRIMARY_SQL),
+                # Phase 11 Plan 11-05: SC#5 §19.1 metadata 3列追加（codex HIGH#3・DEFAULT
+                # 'unspecified' sentinel・codex cycle-2 NEW HIGH#3・idempotent）。ALTER TABLE は
+                # owner 権限が必要なため run_apply_schema.py（admin）で適用（Phase 6 idiom・
+                # run_phase11_evaluation.py の etl cursor では InsufficientPrivilege・deviation）。
+                ("prediction_add_provenance", schema_module.PREDICTION_ADD_PROVENANCE_SQL),
+                # Phase 11 Plan 11-05: model_type_domain CHECK 制約 lightgbm_rr/catboost_rr 拡張
+                # （codex cycle-2 NEW HIGH#1・DROP IF EXISTS + ADD idempotent migration）。
+                (
+                    "prediction_extend_model_type_domain",
+                    schema_module.PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL,
+                ),
                 # Phase 5: backtest_table DDL も GRANT の直前に適用
                 # （schema.py APPLY_ORDER と同期・BACK-03 backtest_id 8カラム PK + CHECK・T-05-13）
                 ("backtest_table", schema_module.BACKTEST_TABLE_DDL),
