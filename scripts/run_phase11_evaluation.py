@@ -429,8 +429,15 @@ def main(argv: list[str] | None = None) -> int:
         with etl_pool.connection() as etl_conn:
             with etl_conn.cursor() as etl_cur:
                 etl_cur.execute("SET statement_timeout = '30s'")
-                checksum1 = load_predictions(etl_cur, rr_result["pred_df"])
-                checksum2 = load_predictions(etl_cur, rr_result["pred_df"])
+                # REVIEW WR-05: reader_role を明示的に渡す（run_train_predict.py と同一 idiom）。
+                # None 既定だと load_predictions 内で Settings() を再 instantiate する
+                # （遅延 import / 環境変数再読込リスク）ため・main スコープの settings を再利用。
+                checksum1 = load_predictions(
+                    etl_cur, rr_result["pred_df"], reader_role=settings.db_reader_role
+                )
+                checksum2 = load_predictions(
+                    etl_cur, rr_result["pred_df"], reader_role=settings.db_reader_role
+                )
             etl_conn.commit()
         if checksum1 != checksum2:
             raise RuntimeError(
