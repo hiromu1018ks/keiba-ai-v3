@@ -172,9 +172,29 @@ def test_alpha_self_contained_outcome_swap() -> None:
     outcome ラベル（α_r 計算に使われない）を [1,0,0] → [0,1,0] に入れ替えても α_r と final p が
     bit-identical であることを検証（α_r 計算に outcome が混入していない逆証明・D-10）。
 
-    本テストは stub 関数（solve_alpha_for_race）を呼ぶため RED（NotImplementedError）。
-    Wave 1（plan 11-02）実装で GREEN。
+    本テストは 11-02 実装（solve_alpha_for_race 本体）に対する adversarial 検証。
+    PLAN 11-04 Task 1 で NotImplementedError 呼出を置換し GREEN にする（11-02 でも GREEN・
+    11-04 で inspect.signature による構造的保証の adversarial 強化を追加）。
     """
+    # ---- adversarial 強化 (PLAN 11-04・T-11-13): solve_alpha_for_race が
+    # outcome/y_true/label を引数に取らないことを inspect.signature で検証 ----
+    # シグネチャが (s_logits, theta, k) のみであることが・α_r 計算に outcome が混入する
+    # 経路を構造的に閉じている逆証明（D-10 自己完結性・docstring 紳士協定でなく API seam）。
+    sig = inspect.signature(race_relative.solve_alpha_for_race)
+    forbidden_params = {"y_true", "outcome", "label", "y", "labels", "target"}
+    actual_params = set(sig.parameters.keys())
+    leak_params = actual_params & forbidden_params
+    assert not leak_params, (
+        f"solve_alpha_for_race のシグネチャに outcome 系引数 {leak_params} が存在する・"
+        f"actual_params={actual_params}・D-10 自己完結性違反 "
+        f"(α_r 計算に test 窓 outcome が混入する経路が開いている・T-11-13)"
+    )
+    # 期待シグネチャ (s_logits, theta, k) の3引数であることも確認
+    assert actual_params == {"s_logits", "theta", "k"}, (
+        f"solve_alpha_for_race のシグネチャが期待と異なる: {actual_params}・"
+        f"D-10 自己完結性の前提（α_r は race logit と k のみから決定）"
+    )
+
     rng = np.random.default_rng(42)
     s = rng.normal(0, 1, size=3)  # 3 頭・k=2
 
@@ -188,6 +208,18 @@ def test_alpha_self_contained_outcome_swap() -> None:
     assert alpha_1 == alpha_2, (
         f"同一入力で α_r が不一致: alpha_1={alpha_1}・alpha_2={alpha_2}・"
         f"D-10 自己完結性違反（α_r は race logit と k のみから決定すべき）"
+    )
+
+    # adversarial: outcome ラベル [1,0,0] と [0,1,0] を想定し・α_r がこれらのラベルを
+    # 取らない関数から算出されているため・どちらの outcome を想定しても α_r は同一であることを
+    # シグネチャ検証 + 決定論的呼出の組み合わせで逆証明（PATTERNS L312-324 idiom・
+    # test_audit_field_strength.py::test_lookahead_injection_detected の monkeypatch 鏡像）。
+    # outcome_1 = np.array([1, 0, 0])・outcome_2 = np.array([0, 1, 0]) は α_r 計算に使われない
+    # （シグネチャがこれを取らないため・上記の inspect.signature 検証で保証済み）。
+    alpha_with_outcome_a = race_relative.solve_alpha_for_race(s, theta=1.0, k=2)
+    alpha_with_outcome_b = race_relative.solve_alpha_for_race(s, theta=1.0, k=2)
+    assert alpha_with_outcome_a == alpha_with_outcome_b == alpha_1, (
+        "outcome を想定しても α_r が変化した・D-10 自己完結性違反"
     )
 
     # 念のため・p も不変であることを検証
@@ -211,8 +243,9 @@ def test_alpha_cross_race_leak_detected() -> None:
     R2 の p_final が bit-identical になることを検証。
     R1 の logit を変えても R2 の p_final が不変であることを assert（他 race 影響排除）。
 
-    本テストは stub 関数（apply_race_relative_correction）を呼ぶため RED（NotImplementedError）。
-    Wave 1（plan 11-02）実装で GREEN。
+    本テストは 11-02 実装（apply_race_relative_correction 本体）に対する adversarial 検証。
+    PLAN 11-04 Task 1 で NotImplementedError 呼出を置換し GREEN にする（11-02 でも GREEN・
+    11-04 で R1 変更検出力証明の adversarial 強化を追加）。
     """
     rng = np.random.default_rng(42)
     # R1: 6 頭・k=2 / R2: 8 頭・k=3
@@ -229,6 +262,7 @@ def test_alpha_cross_race_leak_detected() -> None:
         k_per_race=k_per_race_combined,
         race_ids=race_ids_combined,
     )
+    p_final_r1_base = p_final_base[:6]  # R1 部分
     p_final_r2_base = p_final_base[6:]  # R2 部分
 
     # adversarial: R1 の logit を大きく変えてから再度結合処理
@@ -241,11 +275,22 @@ def test_alpha_cross_race_leak_detected() -> None:
         k_per_race=k_per_race_combined,
         race_ids=race_ids_combined,
     )
+    p_final_r1_mod = p_final_mod[:6]  # R1 部分
     p_final_r2_mod = p_final_mod[6:]  # R2 部分
 
+    # (1) R2 の p_final は R1 logit 変更で不変（race 独立性・cross-race leak 検出）
     assert np.array_equal(p_final_r2_base, p_final_r2_mod), (
         "R1 の logit を変えたことで R2 の p_final が変化した・"
         "race 独立性違反・α_r 計算に他 race 情報が混入している疑い（D-10 違反）"
+    )
+
+    # (2) 検出力証明（PLAN 11-04・silent 変更でないことの保証）: R1 の logit を変えたので
+    # R1 の p_final は変化しているはず。これが変化しない場合・テストが silent に pass している
+    # （false-pass 回避・5段階鋳型 (g) と同じ精神・test_audit_field_strength.py::test_source_asof_value_invariance
+    # の値の不変性 idiom の鏡像・「不変であること」の主張が empty でないことの証明）。
+    assert not np.array_equal(p_final_r1_base, p_final_r1_mod), (
+        "R1 の logit を大きく変えたのに R1 の p_final が不変・テストの検出力不足・"
+        "silent 変更（empty test）の疑い・adversarial の前提（logit 変更で p が変わる）が崩れている"
     )
 
 
