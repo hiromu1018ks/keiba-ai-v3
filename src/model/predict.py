@@ -85,11 +85,14 @@ PREDICTION_COLUMNS: list[str] = [
     "is_primary",
 ]
 
-# D-10 model_type → short mapping (review HIGH#4 / Cycle 3 NEW-4)
+# D-10 model_type → short mapping (review HIGH#4 / Cycle 3 NEW-4 / Phase 11 race-relative)
 MODEL_TYPE_TO_SHORT: dict[str, str] = {
     "lightgbm": "lgb",
     "catboost": "cb",
     "logreg": "logreg",
+    # Phase 11 race-relative short（model_version で binary と区別・SC#5 並列保存前提）
+    "lightgbm_rr": "lgbrr",
+    "catboost_rr": "cbrr",
 }
 
 # label.fukusho_label と同一の7カラム RACE_KEY PK
@@ -110,6 +113,10 @@ def make_model_version(feature_snapshot_id: str, model_type: str, version_n: int
         → ``"20260620-1a-postreview-v2-lgb-v1"``
       - ``make_model_version("20260620-1a-postreview-v2", "catboost", 1)``
         → ``"20260620-1a-postreview-v2-cb-v1"``
+      - ``make_model_version("20260626-1a-opponentstrength-v1", "lightgbm_rr", 1)``
+        → ``"20260626-1a-opponentstrength-v1-lgbrr-v1"`` (Phase 11 race-relative)
+      - ``make_model_version("20260626-1a-opponentstrength-v1", "catboost_rr", 1)``
+        → ``"20260626-1a-opponentstrength-v1-cbrr-v1"`` (Phase 11 race-relative)
 
     **review HIGH#4 / Cycle 3 NEW-4 残渣解消:**
     ``feature_snapshot_id`` 全体をそのまま prefix として使う。snapshot_id が ``-v2`` 等の
@@ -117,12 +124,19 @@ def make_model_version(feature_snapshot_id: str, model_type: str, version_n: int
     旧版の ``"20260620-1a-postreview-v2-postreview-v2-lgb-v1"`` のような形式は絶対に
     出力しない。
 
+    **Phase 11 race-relative short 識別子 (codex HIGH#2):**
+    ``model_type="lightgbm_rr"`` / ``"catboost_rr"`` は ``MODEL_TYPE_TO_SHORT`` で
+    ``"lgbrr"`` / ``"cbrr"`` に変換される。これにより binary v1.0 (``-lgb-v1``) と
+    race-relative (``-lgbrr-v1``) が ``model_version`` で区別可能になり・SC#5
+    model_version-scoped idempotent swap で並列保存できる（HIGH#1）。
+
     Parameters
     ----------
     feature_snapshot_id : str
         feature snapshot ID (例: ``"20260620-1a-postreview-v2"``)。全体を prefix に使う。
     model_type : str
-        ``"lightgbm"`` / ``"catboost"`` / ``"logreg"``。``MODEL_TYPE_TO_SHORT`` で短縮形に変換。
+        ``"lightgbm"`` / ``"catboost"`` / ``"logreg"`` / ``"lightgbm_rr"`` / ``"catboost_rr"``
+        (Phase 11 race-relative)。``MODEL_TYPE_TO_SHORT`` で短縮形に変換。
     version_n : int
         モデルバージョン番号 (デフォルト 1)。バージョン bump は呼出側で管理 (手動・semver 的)。
 

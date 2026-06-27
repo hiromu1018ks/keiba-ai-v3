@@ -105,6 +105,7 @@ def save_native_artifact(
     seed: int,
     train_calib_test_periods: dict[str, str],
     calib_method: str,
+    race_relative_theta: float | None = None,
     out_dir: str | Path | None = None,
 ) -> Path:
     """``CalibratedClassifierCV`` を base + calibrator + metadata に分離保存（review HIGH#5）。
@@ -134,6 +135,12 @@ def save_native_artifact(
         ``{"train": "...", "calib": "...", "test": "..."}``（provenance・§19.1）。
     calib_method : str
         ``"isotonic"`` または ``"sigmoid"``（provenance・§19.1）。
+    race_relative_theta : float | None
+        Phase 11 race-relative logit temperature（provenance・§19.1 再現性）。
+        ``None`` = v1.0 binary 等価（補正層 skip）・or float = calib slice で選んだ
+        事前登録値（D-03）。``metadata.json`` に ``race_relative_theta`` として記録される。
+        α_r 自体は per-race で決定論的（θ + base logit + k から brentq で一意）なため
+        保存しない（D-10 自己完結性・θ + base logit で完全再現）。
     out_dir : str | Path | None
         出力ディレクトリ（None の場合は ``models/{model_version}``）。
 
@@ -184,6 +191,14 @@ def save_native_artifact(
     saved_components.append("calibrator_joblib:calibrator.joblib")
 
     # --- 3. metadata.json (sort_keys=True・atomic write・byte-reproducible) ---
+    # Phase 11 race-relative provenance（§19.1 再現性・codex MEDIUM）:
+    # - race_relative_theta: None (v1.0 等価) or float (calib slice で選んだ事前登録値)
+    # - race_relative_alpha_search_xtol / p_cal_clip_epsilon: race_relative.py の定数と
+    #   一致する固定値（数値リテラルで直接記述・循環 import 回避・bit-identical 保証）。
+    #   ※ src/model/race_relative.py の ALPHA_SEARCH_XTOL=1e-9 /
+    #   P_CAL_CLIP_EPSILON=1e-6 と一致（変更時は両方を更新すること）。
+    # α_r 自体は per-race で決定論的（θ + base logit + k から brentq で一意）なため
+    # artifact に保存しない（D-10 自己完結性・θ + base logit で完全再現）。
     metadata = {
         "model_version": model_version,
         "base_model_type": base_model_type,
@@ -194,6 +209,10 @@ def save_native_artifact(
         "train_calib_test_periods": train_calib_test_periods,
         "saved_components": saved_components,
         "sklearn_version_pinned": "1.9.0",  # Cycle 3 NEW-M1: 安定性保証・pin 破壊で即時 RED
+        # Phase 11 race-relative provenance（§19.1・codex MEDIUM）
+        "race_relative_theta": race_relative_theta,
+        "race_relative_alpha_search_xtol": 1e-9,  # = race_relative.ALPHA_SEARCH_XTOL
+        "race_relative_p_cal_clip_epsilon": 1e-6,  # = race_relative.P_CAL_CLIP_EPSILON
     }
     write_metadata_json(out, metadata)
     return out

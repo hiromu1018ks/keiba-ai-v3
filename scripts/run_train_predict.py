@@ -319,6 +319,7 @@ def main(argv: list[str] | None = None) -> int:
         # --- Step 3: artifact 保存 (review HIGH#5: base+calibrator 分離) ---
         for mt, result in results_by_model.items():
             # base_model_type は save_native_artifact の期待値 (lightgbm/catboost)
+            # Phase 11 codex MEDIUM: race_relative_theta を result から渡す（未指定時は None・v1.0 等価）
             out_dir = save_native_artifact(
                 result["calibrated"],
                 base_model_type=mt,
@@ -332,6 +333,7 @@ def main(argv: list[str] | None = None) -> int:
                     "test": "2024-07-01/2024-12-31",
                 },
                 calib_method=result["calib_method"],
+                race_relative_theta=result.get("race_relative_theta"),
             )
             logger.info(
                 "artifact saved: model_type=%s out_dir=%s (base+calibrator 分離・review HIGH#5)",
