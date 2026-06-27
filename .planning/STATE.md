@@ -6,15 +6,15 @@ current_phase: 11
 current_phase_name: race-relative-probability-model
 status: executing
 stopped_at: Completed 11-03-PLAN.md（orchestrator theta統合 + artifact/predict 拡張）
-last_updated: "2026-06-27T05:01:00.000Z"
+last_updated: "2026-06-27T05:17:25.909Z"
 last_activity: 2026-06-27
-last_activity_desc: Completed 11-03-PLAN.md（orchestrator theta + score_split + _normalize_model_type）
+last_activity_desc: Completed 11-03-PLAN.md（orchestrator theta統合 + artifact/predict 拡張）
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 20
-  completed_plans: 18
-  percent: 65
+  completed_plans: 19
+  percent: 60
 ---
 
 # Project State
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 11 (race-relative-probability-model) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute 11-04-PLAN.md（D-10 adversarial + run_phase11_evaluation.py）
 Last activity: 2026-06-27 — Completed 11-03-PLAN.md（orchestrator theta統合 + artifact/predict 拡張）
 
@@ -135,6 +135,7 @@ Last activity: 2026-06-27 — Completed 11-03-PLAN.md（orchestrator theta統合
 | Phase 11 P01 | 7 | 3 tasks | 3 files |
 | Phase 11 P02 | 5 min | 2 tasks | 1 files |
 | Phase 11 P03 | 8 min | 2 tasks | 4 files |
+| Phase 11 P04 | 9 min | 2 tasks | 2 files |
 
 ### Decisions
 
@@ -284,6 +285,10 @@ Recent decisions affecting current work:
 - [Phase ?]: 11-02: binning は evaluator/segment_eval の import 再利用・独自 np.linspace bin edge 再定義なし
 - [Phase ?]: 11-03: orchestrator.train_and_predict に theta + score_split + _normalize_model_type（codex HIGH#1/#2）・theta/model_type 双方向 guard（codex cycle-2 MEDIUM・silent provenance hole 回避）・sales_start_entry_count 必須（codex HIGH#6）・race_relative 補正層を両予測パスに挿入（SC#3 bit-identical）・theta=None で v1.0 等価（A5・既存テスト10件全 GREEN）
 - [Phase ?]: 11-03: artifact metadata.json に race_relative_theta / xtol=1e-9 / epsilon=1e-6 を追加・α_r は不保存（D-10 自己完結性）・定数は数値リテラル（循環 import 回避・bit-identical）・predict に lightgbm_rr→lgbrr / catboost_rr→cbrr 追加（SC#5 model_version-scoped swap 前提）
+- [Phase 11]: 11-04: D-10 adversarial を inspect.signature API seam 検証と cross-race leak 検出力証明で強化（docstring 紳士協定でない）
+- [Phase 11]: 11-04: theta 選択経路は score_split=calib のみで候補評価・test 窓は theta 再選択なしで一回だけ評価（§11.2 聖域の機械保証）
+- [Phase 11]: 11-04: theta-selection.{md,json} を test 窓評価に先立って byte-reproducible に事前書き出し（後知恵すり替え禁止・codex HIGH#1）
+- [Phase 11]: 11-04: D-07 set_primary_model 呼出 AST Call 0件・comparison のみ・primary 切替は Phase 12
 
 ### Pending Todos
 
@@ -316,7 +321,7 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-06-25:
 
 ## Session Continuity
 
-**Last session:** 2026-06-27T04:47:08.294Z
+**Last session:** 2026-06-27T05:16:27.376Z
 
 **Resume file:** 
 

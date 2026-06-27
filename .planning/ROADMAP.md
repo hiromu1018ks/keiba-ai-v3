@@ -153,7 +153,7 @@ Plans:
   4. 特徴量にオッズ/人気/過去人気/過去オッズ proxy が入っていないこと・LightGBM categorical code が非負 int32 であること（`.cat.codes.min()>=0` fail-loud）を adversarial leak diagnostic で証明できる（SAFE-01・SC#3 踏襲）
   5. 新 `p_fukusho_hit` の prediction テーブルが `§19.1` 再現性メタデータ（model_version・feature_snapshot_id・label_version・`odds_snapshot_policy`・`backtest_strategy_version`）付きで DB に model_version-scoped idempotent swap で永続化される（HIGH#1 踏襲）
 
-**Plans**: 2/5 plans executed
+**Plans**: 4/5 plans executed
 
 Plans:
 
@@ -171,7 +171,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2)*
 
-- [ ] 11-04-PLAN.md — test_audit_race_relative.py D-10 adversarial 実装（α_r 自己完結 outcome swap + cross-race leak 検出・4テスト GREEN）+ scripts/run_phase11_evaluation.py 新規（v1.0 vs race-relative 3-way 比較・SC#2 gate D-04 非劣化+D-05 改善3条件・θ 選択経路 calib slice のみ §11.2 聖域・is_primary 立てない D-07）（MODEL-01/SAFE-01）
+- [x] 11-04-PLAN.md — test_audit_race_relative.py D-10 adversarial 実装（α_r 自己完結 outcome swap + cross-race leak 検出・4テスト GREEN）+ scripts/run_phase11_evaluation.py 新規（v1.0 vs race-relative 3-way 比較・SC#2 gate D-04 非劣化+D-05 改善3条件・θ 選択経路 calib slice のみ §11.2 聖域・is_primary 立てない D-07）（MODEL-01/SAFE-01）
 
 **Wave 4** *(blocked on Wave 3・live-DB・checkpoint)*
 
@@ -208,5 +208,5 @@ Plans:
 | 9. Speed Figure Foundation | v1.1 | 5/5 | Complete   | 2026-06-25 |
 | 9.1. Speed Ability Profile Expansion (INSERTED) | v1.1 | 1/1 | Complete | 2026-06-26 |
 | 10. Opponent Strength & Race-Relative Features | v1.1 | 9/9 | Complete    | 2026-06-26 |
-| 11. Race-Relative Probability Model | v1.1 | 2/5 | In Progress|  |
+| 11. Race-Relative Probability Model | v1.1 | 4/5 | In Progress|  |
 | 12. p_lower EV & Falsification Evaluation | v1.1 | 0/? | Not started | - |
