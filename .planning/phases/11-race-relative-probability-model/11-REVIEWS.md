@@ -1,14 +1,20 @@
 ---
 phase: 11
 reviewers: [codex]
-reviewed_at: 2026-06-27T12:30:00+09:00
-plans_reviewed:
-  - 11-01-PLAN.md
-  - 11-02-PLAN.md
-  - 11-03-PLAN.md
-  - 11-04-PLAN.md
-  - 11-05-PLAN.md
-verification_method: "codex review output cross-checked against live source by reviewer agent (8/8 HIGH claims traced to file:line)"
+cycles:
+  - cycle: 1
+    reviewed_at: 2026-06-27T12:30:00+09:00
+    plans_reviewed: [11-01-PLAN.md, 11-02-PLAN.md, 11-03-PLAN.md, 11-04-PLAN.md, 11-05-PLAN.md]
+    verification_method: "codex review output cross-checked against live source by reviewer agent (8/8 HIGH claims traced to file:line)"
+    outcome: "6 HIGH + 4 MEDIUM raised; planner revised all 5 PLAN.md (commits dcde63c + d86fcd6)"
+  - cycle: 2
+    reviewed_at: 2026-06-27T15:10:00+09:00
+    plans_reviewed: [11-01-PLAN.md, 11-02-PLAN.md, 11-03-PLAN.md, 11-04-PLAN.md, 11-05-PLAN.md]
+    revision_base: "dcde63c + d86fcd6 (post cycle-1 revisions)"
+    verification_method: "codex (gpt-5.2, xhigh) re-reviewed revised plans; reviewer agent re-traced all 3 new HIGH + 3 MEDIUM/LOW claims against src/ (all VALID)"
+    outcome: "5/6 cycle-1 HIGHs FULLY RESOLVED, 1 PARTIALLY; 3 NEW HIGH live-DB blockers found; 3 actionable MEDIUM/LOW remain"
+    current_high: 4
+    current_actionable: 3
 ---
 
 # Cross-AI Plan Review — Phase 11 (Race-Relative Probability Model)
@@ -217,3 +223,179 @@ The table below maps each HIGH concern to where it must be resolved (PLAN.md tas
 | Wrong persistence API (`_idempotent_load_prediction` vs `load_predictions`) | 11-05 | Task 2 action: call `load_predictions` (public) instead; update import + acceptance |
 | 11-05 task ordering inversion | 11-05 | Reorder: move persistence + deterministic-smoke implementation before the `checkpoint:human-verify` task |
 | `sales_start_entry_count` fallback unsafe | 11-03 | Task 1 action: require column, fail loud on missing; delete the groupby-fallback branch |
+
+---
+
+# Cycle 2 Review — REVISED plans (post dcde63c + d86fcd6)
+
+> Reviewer: **Codex** (codex-cli 0.142.1, `codex exec --ephemeral --skip-git-repo-check -s read-only`, model gpt-5.2, reasoning xhigh).
+> Method: Codex re-reviewed the revised PLAN.md set against the live source tree. An independent verification pass by the reviewer agent re-traced every claim below against `src/` — all 3 new HIGHs and all 3 actionable items are **VALID** (file:line confirmed). The 6 cycle-1 HIGHs were re-adjudicated against the revised plan text.
+>
+> **Bottom line:** 5 of 6 cycle-1 HIGHs are FULLY RESOLVED in the revised plans; 1 (HIGH#3 SC#5 metadata) is PARTIALLY RESOLVED (schema/columns/wiring now planned, but the loader-compatibility sub-issue is newly discovered). 3 NEW HIGHs were found — all are live-DB blockers that would prevent SC#5 from being demonstrated. Overall risk remains **HIGH**.
+
+---
+
+## Cycle-1 HIGH re-adjudication (revised PLAN.md vs live source)
+
+| # | Cycle-1 HIGH | Verdict | Evidence (revised plan + live source) |
+|---|---|---|---|
+| 1 | θ selection leaks into test window | **FULLY RESOLVED** | 11-03 adds `score_split="calib"` routing `X_calib`/`race_df_score` (11-03-PLAN.md:89-107); 11-04 θ loop calls `score_split="calib"` only + writes `theta-selection.json` before test eval (11-04-PLAN.md:171-173). Live: orchestrator builds `X_calib`/`X_test` at orchestrator.py:388-390, scores only `X_test` today at orchestrator.py:524-577 — plan targets the right seam. |
+| 2 | `_p_bin` not truly reusing `_compute_calibration_curve_bins` | **FULLY RESOLVED** | 11-02 imports `CALIBRATION_CURVE_BINS`/`_compute_calibration_curve_bins`/`_odds_band`, forbids local `_p_bin`/`np.linspace` (11-02-PLAN.md:156-170); acceptance greps `np.linspace` count == 0 (11-02-PLAN.md:184). Live: `_compute_calibration_curve_bins` at evaluator.py:386-393; `_odds_band` at segment_eval.py:151-158. |
+| 3 | §19.1 metadata missing from `PREDICTION_COLUMNS` | **PARTIALLY RESOLVED** | 11-05 Task 1 adds the 3 columns to schema + `PREDICTION_COLUMNS` + `predict_p_fukusho` (11-05-PLAN.md:109-125); Task 2 wires orchestrator→predict_p_fukusho (11-05-PLAN.md:192-216). Live: `PREDICTION_COLUMNS` still 16 cols ending at `is_primary` (predict.py:63-86); DDL lacks the columns (schema.py:59-85). **Remaining sub-issue (now New HIGH#3):** the plan's `""` defaults are converted to `None` by the loader before INSERT — see below. |
+| 4 | 11-05 calls wrong persistence API | **FULLY RESOLVED** | 11-05 Task 2 calls `load_predictions(write_cur, prediction_df=pred_df, reader_role=...)` (11-05-PLAN.md:232-234); acceptance bans `_idempotent_load_prediction` (11-05-PLAN.md:286). Live: private fn takes `rows: list[tuple]` (prediction_load.py:191-196); public wrapper takes a DataFrame (prediction_load.py:373-411). |
+| 5 | 11-05 task ordering inversion | **FULLY RESOLVED** | 11-05 reorders: Task 1 schema/predict → Task 2 orchestrator/script wiring → Task 3 live-DB checkpoint (11-05-PLAN.md:59-63, 299-303). Implementation now precedes verification. |
+| 6 | `sales_start_entry_count` fallback unsafe | **FULLY RESOLVED** | 11-03 Task 1 requires the column from `race_df_score` and forbids group-size fallback (11-03-PLAN.md:109-112); acceptance uses inspect-based check (11-03-PLAN.md:136). Live: column selected by `load_labels` (data.py:361-382), carried through `build_training_frame` (data.py:410-428). |
+
+---
+
+## New HIGH Concerns (Cycle 2 — all VALID, all live-DB blockers)
+
+### New HIGH#1 — DB CHECK constraint rejects `lightgbm_rr` / `catboost_rr`
+
+The plans introduce and persist `model_type="lightgbm_rr"` / `"catboost_rr"` for race-relative
+models (11-03-PLAN.md:175-181, 11-04-PLAN.md:173, 11-05-PLAN.md:235). But the live DDL only
+permits `('lightgbm','catboost','logreg')`:
+
+```
+src/db/schema.py:83:  CONSTRAINT prediction_model_type_domain CHECK (model_type IN ('lightgbm','catboost','logreg')),
+```
+
+11-05 Task 1's schema migration only `ADD COLUMN IF NOT EXISTS` the three metadata columns and
+does **not** drop/recreate `prediction_model_type_domain` (11-05-PLAN.md:109-113, 162-168).
+Result: even if `predict.py` accepts the new model type, the live-DB load of race-relative rows
+in 11-05 Task 3 will fail the CHECK constraint. SC#5 cannot be demonstrated.
+
+**Required PLAN.md change (11-05 Task 1):** extend the schema migration to also
+`ALTER TABLE ... DROP CONSTRAINT IF EXISTS prediction_model_type_domain` then
+`ADD CONSTRAINT prediction_model_type_domain CHECK (model_type IN ('lightgbm','catboost','logreg','lightgbm_rr','catboost_rr'))`
+(idempotent). Add an acceptance check that asserts the revised constraint exists.
+
+### New HIGH#2 — SC#5 idempotent checksum is not bit-identical unless `as_of_datetime` is fixed
+
+The Phase 11 persistence/test calls shown in the plan omit `as_of_datetime`
+(11-04-PLAN.md:170-173, 11-05-PLAN.md:234), while claiming two-run checksum identity
+(11-05-PLAN.md:324-327, 390-393). Live source defaults a missing `as_of_datetime` to
+`datetime.now(UTC)`:
+
+```
+src/model/orchestrator.py:363-364:  if as_of_datetime is None: as_of_dt = datetime.now(UTC)
+```
+
+`predict_p_fukusho` writes `as_of_datetime` into each row (predict.py:270-272), it is part of
+the 11-column PK (schema.py:80), and the idempotent checksum `ORDER BY`-s all `PREDICTION_COLUMNS`
+(prediction_load.py:347-350). Two executions at different wall-clock times therefore yield
+**different checksums**, breaking the SC#5 "2回実行で checksum bit-identical" claim.
+
+**Required PLAN.md change (11-05 Task 2):** the `train_and_predict(theta=selected_theta, score_split="test", ...)`
+call that feeds `load_predictions` MUST pass an explicit fixed `as_of_datetime` (e.g.
+`FIXED_REPRODUCE_TS` at orchestrator.py:88, or a Phase 11 constant). Add an acceptance that the
+persistence path uses a fixed timestamp (grep/inspect), and document in the Task 3 how-to-verify
+that the two-run checksum comparison uses the same fixed timestamp on both runs.
+
+### New HIGH#3 — New NOT NULL metadata columns with `""` defaults are inserted as NULL by the existing loader
+
+Plan adds `TEXT NOT NULL DEFAULT ''` columns and default runtime args of `""`
+(11-05-PLAN.md:110-125) and claims `theta=None` + empty defaults preserves existing v1.0 calls
+(11-05-PLAN.md:216). But the existing loader converts any empty string to `None` before INSERT:
+
+```
+src/db/prediction_load.py:175-176:  elif isinstance(v, str):
+                                       vals.append(v if v != "" else None)
+```
+
+…then `executemany` explicitly inserts that value into staging with the column enumerated
+(prediction_load.py:290-297), so the DB-level `DEFAULT ''` never applies. Result: existing v1.0
+binary prediction loads (which pass no metadata args → `""` → `None`) will violate `NOT NULL` on
+the three new columns. This also undermines the 11-05 "A5 後方互換・既存テスト GREEN" claim.
+
+**Required PLAN.md change (11-05 Task 1 or Task 2):** pick one and make it explicit in PLAN.md:
+(a) change the loader (`_df_to_prediction_tuples`) to preserve `""` for the three provenance
+columns (not convert to `None`), **or** (b) change the new columns to nullable (`TEXT` without
+`NOT NULL`) and rely on the application layer for provenance, **or** (c) give the columns no DB
+default but make the orchestrator/predict layer always pass a non-empty sentinel (e.g. `"v1.0"` /
+`"none"` / `"BT-1"`) so the loader never sees `""`. Add an acceptance that a v1.0 binary load
+(theta=None, default args) still succeeds after the migration.
+
+---
+
+## Actionable MEDIUM/LOW (Cycle 2 — not yet incorporated into PLAN.md)
+
+- **MEDIUM:** `theta=float` with `model_type="lightgbm"` (not `"lightgbm_rr"`) is not forbidden.
+  The plan only rejects race-relative model types paired with `theta=None` (11-03-PLAN.md:100).
+  Since `model_version` is derived from `model_type` (orchestrator.py:413), a caller that passes
+  `theta=0.75` with `model_type="lightgbm"` would stamp corrected probabilities as the binary
+  `lgb` model — a silent provenance/sanctuary hole. **PLAN.md change needed:** in 11-03 Task 1,
+  add a guard: `theta is not None` requires `model_type` to end with `_rr`; otherwise `ValueError`.
+
+- **LOW:** 11-04/11-05 use brittle `set_primary_model` substring greps as acceptance checks while
+  also asking docs/comments to say "do not call set_primary_model" (11-04-PLAN.md:185, 202, 237;
+  11-05-PLAN.md:273-274). A docstring mention would make the grep non-zero and fail the gate
+  spuriously. **PLAN.md change needed:** replace substring greps with AST/call-site checks
+  (e.g. `ast.walk` for `Call` nodes whose `func.attr == "set_primary_model"`).
+
+- **LOW:** 11-04 still contains stale private-persistence references despite 11-05 fixing the API
+  (11-04-PLAN.md:32, 185). 11-04 defers persistence to 11-05 so it is not a blocker, but it is
+  misleading. **PLAN.md change needed:** update 11-04's `key_links` and Task 2 docstring to
+  reference `load_predictions` (public) for consistency with 11-05.
+
+---
+
+## Verification Pass (Cycle 2 — source-grounding audit by reviewer agent)
+
+Each Codex claim was re-traced against the live source by the reviewer agent:
+
+| # | Claim | Code reference | Verdict |
+|---|---|---|---|
+| C2-1 | `prediction_model_type_domain` rejects `lightgbm_rr`/`catboost_rr` | schema.py:83 `CHECK (model_type IN ('lightgbm','catboost','logreg'))`; 11-05 migration adds cols only | **VALID (HIGH#1)** |
+| C2-2 | `as_of_datetime=None` → `datetime.now(UTC)` → unstable checksum | orchestrator.py:363-364; PK at schema.py:80; checksum ORDER BY at prediction_load.py:347-350 | **VALID (HIGH#2)** |
+| C2-3 | `_df_to_prediction_tuples` converts `""` → `None`; explicit INSERT bypasses DB DEFAULT | prediction_load.py:175-176 (`v if v != "" else None`); executemany at :290-297 | **VALID (HIGH#3)** |
+| C2-4 | `theta=float` + `model_type="lightgbm"` not forbidden; `model_version` from `model_type` | 11-03-PLAN.md:100 (only rejects `_rr` + `theta=None`); orchestrator.py:413 | **VALID (MEDIUM)** |
+| C2-5 | cycle-1 HIGH#1 score_split added; targets X_calib not X_test | 11-03-PLAN.md:89-107; orchestrator.py:388-390,524-577 | **VALID — FULLY RESOLVED** |
+| C2-6 | cycle-1 HIGH#2 import reuse + `np.linspace` ban | 11-02-PLAN.md:156-170,184; evaluator.py:386-393; segment_eval.py:151-158 | **VALID — FULLY RESOLVED** |
+| C2-7 | cycle-1 HIGH#4 `load_predictions` public wrapper used; private banned | 11-05-PLAN.md:232-234,286; prediction_load.py:191-196,373-411 | **VALID — FULLY RESOLVED** |
+| C2-8 | cycle-1 HIGH#5 task ordering fixed (impl before checkpoint) | 11-05-PLAN.md:59-63,299-303 | **VALID — FULLY RESOLVED** |
+| C2-9 | cycle-1 HIGH#6 `sales_start_entry_count` required; no fallback | 11-03-PLAN.md:109-112,136; data.py:361-382,410-428 | **VALID — FULLY RESOLVED** |
+
+**Result:** 3 new HIGHs VALID, 1 MEDIUM VALID, 2 LOWs VALID. 5/6 cycle-1 HIGHs FULLY RESOLVED,
+1 PARTIALLY RESOLVED (HIGH#3 — same root cause area as New HIGH#3).
+
+---
+
+## Cycle 2 Consensus Summary
+
+### Resolved (cycle-1 — no further action)
+
+- **HIGH#1 (θ sanctuary):** the `score_split="calib"` structural block in 11-03 + θ-selection.json
+  pre-write in 11-04 closes the test-window leak at the API seam, not just in docstrings.
+- **HIGH#2 (bit-identical binning):** 11-02 now imports the canonical helpers and bans local
+  `np.linspace` bin edges, with an acceptance grep enforcing count == 0.
+- **HIGH#4 (persistence API):** 11-05 Task 2 calls the public `load_predictions` wrapper and the
+  acceptance bans the private `_idempotent_load_prediction`.
+- **HIGH#5 (task ordering):** 11-05 reorders to Task 1 (schema/predict) → Task 2 (orchestrator/
+  script wiring) → Task 3 (live-DB checkpoint) — implementation precedes verification.
+- **HIGH#6 (`sales_start_entry_count`):** 11-03 requires the column and forbids group-size
+  fallback, with an inspect-based acceptance.
+
+### Remains unresolved (must address before /gsd-execute-phase)
+
+- **HIGH (cycle-1 #3 PARTIAL):** SC#5 §19.1 metadata wiring is planned, but loader compatibility
+  is not (overlaps New HIGH#3).
+- **New HIGH#1:** `prediction_model_type_domain` CHECK constraint rejects `lightgbm_rr`/
+  `catboost_rr` — schema migration in 11-05 Task 1 must also update the constraint.
+- **New HIGH#2:** `as_of_datetime` must be fixed (e.g. `FIXED_REPRODUCE_TS`) on the persistence
+  path or the SC#5 two-run checksum cannot be bit-identical.
+- **New HIGH#3:** `_df_to_prediction_tuples` converts `""` → `None`; new NOT NULL columns will
+  reject v1.0 binary loads unless the loader, the column nullability, or the default sentinel is
+  changed.
+- **MEDIUM:** `theta=float` + non-`_rr` `model_type` is a silent provenance hole — add a guard.
+- **LOW ×2:** replace `set_primary_model` substring greps with AST checks; update 11-04 stale
+  private-persistence references.
+
+### Overall Risk: **HIGH**
+
+The race-relative math layer (11-01/11-02) and the orchestrator θ/score_split integration
+(11-03/11-04) are sound and the cycle-1 sanctuary/leakage HIGHs are genuinely resolved. However,
+11-05's SC#5 live-DB demonstration has three newly-discovered blockers (CHECK constraint,
+checksum stability, NOT NULL vs loader) that would cause the live-DB checkpoint to fail even if
+all preceding code is correct. These must be folded into 11-05 (Task 1 and/or Task 2) before
+execution.
