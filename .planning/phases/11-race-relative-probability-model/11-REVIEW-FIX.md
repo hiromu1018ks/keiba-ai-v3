@@ -4,9 +4,10 @@ fixed_at: 2026-06-27T07:16:04Z
 review_path: .planning/phases/11-race-relative-probability-model/11-REVIEW.md
 iteration: 1
 findings_in_scope: 11
-fixed: 11
+fixed: 10
+reverted: 1
 skipped: 0
-status: all_fixed
+status: partial_fixed
 ---
 
 # Phase 11: Code Review Fix Report
@@ -17,9 +18,10 @@ status: all_fixed
 
 **Summary:**
 - Findings in scope: 11（Critical 3件 + Warning 8件・Info 6件は fix_scope 対象外）
-- Fixed: 11
+- Fixed: 10
+- Reverted: 1（WR-06: 一度 fixed したが §11.2 聖域で revert・代替 docstring 明記・ユーザー判断）
 - Skipped: 0
-- Status: all_fixed
+- Status: partial_fixed
 
 ## 実行サマリ
 
@@ -109,14 +111,26 @@ status: all_fixed
 **Applied fix:**
 - SC#5 idempotent swap の `load_predictions` 呼出に `reader_role=settings.db_reader_role` を明示的に渡すよう修正（`run_train_predict.py:361-362` と同一 idiom）。main スコープの `settings` を再利用し `Settings()` の再 instantiate を回避。
 
-### WR-06: `_evaluate_gate` の D-05-1 で NaN を FAIL 扱いするが docstring は「D-15 参考記録失敗」と矛盾
+### WR-06: `_evaluate_gate` の D-05-1 で NaN を FAIL 扱いするが docstring は「D-15 参考記録失敗」と矛盾 — ★REVERTED（ユーザー判断・§11.2 聖域）★
 
 **Files modified:** `scripts/run_phase11_evaluation.py`
-**Commit:** `4774d14`
-**Applied fix:**
-- D-05-1 gate の NaN 扱いを θ 選択経路（`_select_theta_on_calib` L641-648 の NaN-safe idiom）と整合させた。NaN の場合は D-05-1 を skip（`d05_1_skipped` フラグで明示）して D-05-2/D-05-3 の残りで gate 判定。odds 系列がある場合は従来通り NaN を FAIL（safe side）。
-- gate verdict dict の `condition_1_overprediction_penalty` に `skipped_nan` フラグと skip rule を追記し見える化。
-**論証（logic 関連）:** odds-free 1-A snapshot（本プロジェクトの主用途）で SC#2 gate 全体が FAIL になる不整合を解消。θ 選択経路・D-10 race 完結性には影響しない。
+**Commit:** `4774d14`（fixed）→ `9dd1568`（revert）→ `c9b781f`（代替 docstring 明記）
+
+**経緯:**
+- 当初 commit `4774d14` で D-05-1 gate の NaN 扱いを θ 選択経路と整合させ（NaN skip → PASS）・SC#2 gate を FAIL→PASS に変更した。
+- live-DB 動作確認で SC#2 gate が FAIL→PASS に変化したことを検出。Phase 11 完了時の設計意図（11-05-SUMMARY / 11-VERIFICATION.md の「SC#2 FAIL honest 記録・§11.2 聖域・Phase 12 判断」）と矛盾が判明。
+- ユーザー判断（オプション1: revert して FAIL のまま）により commit `9dd1568` で revert し gate ロジックを NaN=FAIL（safe side）に戻した。
+
+**理由（§11.2 聖域）:**
+- θ 選択（手続き・候補絞り込み）と SC#2 gate（判定）は別物。NaN 扱いの統一は判定の厳格さを手続きの都合に引き下げた。
+- D-05 gate 3条件は VALIDATION.md で事前登録。完了後の gate 緩和は §11.2 聖域違反（`perf-threshold-sanctuary-rationale-rebase` 原則）。
+- honest FAIL（D-04 非劣化 PASS / D-05-1 構造的制約で NaN FAIL）は Phase 12 の is_primary 切替判断の核心。
+
+**代替対応（commit `c9b781f`）:**
+- θ 選択経路（NaN skip・候補絞り込み）と test 窓 gate（NaN FAIL・honest 記録）の非対称が**意図的設計**であることを D-05-1 gate の docstring に明記。
+- 「odds-free では overprediction を評価対象外（skip=PASS）とする」仕様は Phase 12 計画で事前登録 gate として改めて定義すべき（Phase 11 の遡及変更はしない）。
+
+**検証（live-DB 再実行・`9dd1568` + `c9b781f` 後）:** SC#2 gate FAIL 復元（exit 2 = honest シグナル）・SC#3 bit-identical PASS（CR-01 維持）・SC#5 idempotent swap PASS（WR-05 維持）・θ 選択 θ=1.0 動作（CR-03 維持）。
 
 ### WR-07: `compute_overprediction_penalty` が `cell_filter_mask` 適用後に `n_total = float(len(y_pred))` を使う（フィルタ前の重み付けと不一致）
 
@@ -137,7 +151,7 @@ status: all_fixed
 
 ## Skipped Issues
 
-None — all in-scope findings（Critical 3件 + Warning 8件）を修正した。
+None（Info 6件は fix_scope=critical_warning 対象外）。WR-06 は一度 fixed 後・§11.2 聖域で reverted（上記 WR-06 セクション参照）。
 
 ---
 
