@@ -67,6 +67,7 @@ import pandas as pd
 from src.model.calibrator import CalibrationResult, calibrate_model
 from src.model.data import make_X_y, split_3way
 from src.model.predict import make_model_version, predict_p_fukusho
+from src.model.race_relative import apply_race_relative_correction
 from src.model.trainer import (
     CB_INIT_PARAMS,
     LGB_INIT_PARAMS,
@@ -77,6 +78,44 @@ from src.model.trainer import (
     train_catboost,
     train_lightgbm,
 )
+
+
+# ---------------------------------------------------------------------------
+# _normalize_model_type — Phase 11 codex review HIGH#2: race-relative short を
+# binary base に正規化し・学習/calib/予測パスは base を使い・model_version 採番には
+# 元の model_type（original）を渡して race-relative short を保持する。
+# ---------------------------------------------------------------------------
+def _normalize_model_type(model_type: str) -> tuple[str, str]:
+    """``model_type`` を ``(base_type, original_type)`` に正規化する（codex HIGH#2）.
+
+    race-relative 補正層は binary モデル（lightgbm/catboost）の上に被せる設計（D-01）.
+    学習・calib・予測パスは binary base model を使う必要があるが・model_version 採番
+    （``make_model_version``）には race-relative short 識別子（lgbrr/cbrr）を保持する
+    ことで・binary v1.0（``-lgb-v1``）と race-relative（``-lgbrr-v1``）を区別可能にする
+    （SC#5 model_version-scoped idempotent swap の前提・HIGH#1）.
+
+    正規化規則:
+      - ``"lightgbm_rr"`` → ``("lightgbm", "lightgbm_rr")``
+      - ``"catboost_rr"`` → ``("catboost", "catboost_rr")``
+      - ``"lightgbm"`` / ``"catboost"`` / ``"logreg"`` 等はそのまま
+        ``(model_type, model_type)`` を返す（後方互換・A5）.
+
+    Parameters
+    ----------
+    model_type : str
+        呼出側が指定した model_type. race-relative short (``*_rr``) を含む.
+
+    Returns
+    -------
+    tuple[str, str]
+        ``(base_model_type, original_model_type)``. base は trainer/calib/予測パスが
+        消費し・original は ``make_model_version`` が消費する.
+    """
+    if model_type == "lightgbm_rr":
+        return ("lightgbm", "lightgbm_rr")
+    if model_type == "catboost_rr":
+        return ("catboost", "catboost_rr")
+    return (model_type, model_type)
 
 # ---------------------------------------------------------------------------
 # 定数 (review HIGH#7: bit-identical 保証のための固定値)
@@ -244,6 +283,8 @@ def train_and_predict(
     split_periods: dict[str, tuple[str, str]] | None = None,
     category_map: dict[str, Any] | None = None,
     snapshot_id: str | None = None,
+    theta: float | None = None,
+    score_split: str = "test",
 ) -> dict[str, Any]:
     """``trainer`` + ``calibrate_model`` + ``predict_p_fukusho`` を統合し・行整列保証付きで
     予測 DataFrame を返す orchestrator (review HIGH#2 / HIGH#7 / HIGH#12 / SC#4)。
@@ -328,6 +369,19 @@ def train_and_predict(
     snapshot_id : str | None
         Phase 9 P03 REVIEW H1-b: FEATURE_COLUMNS 選択用 snapshot_id (``feature_snapshot_id``
         とは別・provenance でない)。``None`` (既定) は v1.0 デフォルト FEATURE_COLUMNS (A5)。
+    theta : float | None
+        Phase 11 race-relative logit temperature（D-03 事前登録・calib slice で選んだ値・
+        test 窓選び直し禁止 §11.2 聖域）。``None`` の場合は補正層をスキップし v1.0 binary
+        等価（A5 後方互換・SC#4 bit-identical 回帰防止）。候補は
+        ``race_relative.THETA_CANDIDATES = (0.5, 0.75, 1.0, 1.25, 1.5)``。呼出側が
+        ``theta=float`` を渡す場合は ``model_type`` は ``"lightgbm_rr"`` / ``"catboost_rr"``
+        のいずれか（``_rr`` サフィックス）が必須（codex cycle-2 MEDIUM・双方向 guard・
+        補正済み確率が binary model_version で刻印される silent provenance hole 回避）。
+    score_split : str
+        予測対象 split。既定 ``"test"``。Phase 11 で ``"calib"`` を指定すると ``X_test``
+        でなく ``X_calib`` を予測対象とし・``predict_p_fukusho`` に ``split_label="calib"``
+        を渡す（codex review HIGH#1・§11.2 聖域の機械保証・θ 選択経路が test 窓に触れない
+        構造的ブロック）。許容値: ``{"test", "calib"}``。それ以外は ``ValueError``。
 
     Returns
     -------
@@ -342,6 +396,10 @@ def train_and_predict(
           (test で Cycle 2 NEW HIGH-1 の実証に使用・本番 pipeline は消費しない)
         - ``category_map_source``: HIGH-A cycle-2 provenance
           (``"bt_train_only"`` / ``"orchestrator_internal"``)
+        - ``race_relative_theta``: Phase 11 race-relative logit temperature provenance
+          (``None`` = v1.0 等価・or float = calib slice で選んだ事前登録値・§19.1)
+        - ``score_split``: Phase 11 予測対象 split provenance
+          (``"test"`` / ``"calib"``・codex HIGH#1)
 
     Raises
     ------
@@ -349,7 +407,39 @@ def train_and_predict(
         ``feature_df`` が label-joined でない (``fukusho_hit_validated`` 列がない) 時。
     RuntimeError
         X/y/race_df の index equality 違反・CatBoost 予測の align 失敗。
+    ValueError
+        ``theta`` と ``model_type`` の一貫性違反（codex cycle-2 MEDIUM 双方向 guard）。
     """
+    # --- Phase 11 codex HIGH#2: _normalize_model_type で race-relative short を binary base に正規化 ---
+    # 学習・calib・予測パスは base_model_type（lightgbm/catboost）を使い・model_version 採番には
+    # original_model_type（lightgbm_rr/catboost_rr 含む）を渡す（race-relative short を保持）。
+    base_model_type, original_model_type = _normalize_model_type(model_type)
+
+    # --- Phase 11 codex cycle-2 MEDIUM: theta/model_type 一貫性の双方向 guard ---
+    # theta=float + binary model_type だと・race-relative 補正済み確率が binary model_version
+    # で刻印される silent provenance hole（T-11-13b）。model_type='_rr' + theta=None は不整合。
+    # 両方向で ValueError にし・冒頭配置なので feature_df 無しでも guard が発火する。
+    if theta is not None and not original_model_type.endswith("_rr"):
+        raise ValueError(
+            f"train_and_predict: theta=float の場合は model_type が '_rr' サフィックス必須"
+            f"（lightgbm_rr/catboost_rr）・theta={theta} model_type={original_model_type}"
+            f"（codex cycle-2 MEDIUM・silent provenance hole 回避）"
+        )
+    if original_model_type.endswith("_rr") and theta is None:
+        raise ValueError(
+            f"train_and_predict: model_type='_rr' の場合は theta 必須・"
+            f"model_type={original_model_type} theta=None（11-03 仕様）"
+        )
+
+    # --- Phase 11 codex HIGH#1: score_split の入力検証（構造的聖域ブロック） ---
+    # 許容値は {"test", "calib"} のみ。theta 選択経路は score_split="calib" で呼べば
+    # 構造的に test 窓に触れない（§11.2 聖域の機械保証・docstring だけの紳士協定でない）。
+    if score_split not in ("test", "calib"):
+        raise ValueError(
+            f"train_and_predict: score_split は 'test' または 'calib' のみ許容・"
+            f"score_split={score_split!r}（codex HIGH#1・§11.2 聖域ブロック）"
+        )
+
     # --- Cycle 2 residual #13: label-joined frame 契約の fail-loud assert ---
     if "fukusho_hit_validated" not in feature_df.columns:
         raise ValueError(
@@ -409,8 +499,31 @@ def train_and_predict(
             "silent wrong-horse prediction 防止)"
         )
 
-    # --- model_version 採番 (D-10 / review HIGH#4) ---
-    model_version = make_model_version(feature_snapshot_id, model_type, version_n)
+    # --- Phase 11 codex HIGH#1: score_split による予測対象の切替（構造的聖域ブロック） ---
+    # X_score / race_df_score を構築し・以降の予測パスは X_score を使う。
+    # score_split="test" は既存の X_test / race_df_test をそのまま使用（A5 後方互換）。
+    # score_split="calib" は X_calib を予測対象とし・θ 選択経路が test 窓に触れない
+    # 構造的聖域ブロック（§11.2・docstring だけの紳士協定でなく・機械保証）。
+    # calib_df は splits["calib"]（L472）から取り出された label-joined frame で・
+    # test_df と同様に race_key/race_date/sales_start_entry_count/race_start_datetime を含む。
+    if score_split == "test":
+        X_score = X_test
+        race_df_score = race_df_test
+        score_split_label = "test"
+    else:  # score_split == "calib"（入力検証済み・上記 guard で "test"/"calib" のみ許容）
+        X_score = X_calib
+        race_df_score = calib_df.loc[X_calib.index, :]
+        score_split_label = "calib"
+        if not race_df_score.index.equals(X_calib.index):
+            raise RuntimeError(
+                "train_and_predict: race_df_score.index != X_calib.index "
+                "(Phase 11 codex HIGH#1・score_split='calib' 行整列保証)"
+            )
+
+    # --- model_version 採番 (D-10 / review HIGH#4 / Phase 11 codex HIGH#2) ---
+    # original_model_type を渡すことで・race-relative short（lightgbm_rr/catboost_rr）が
+    # model_version に保持される（base は学習パス・original は version 採番）。
+    model_version = make_model_version(feature_snapshot_id, original_model_type, version_n)
 
     # --- _split_train_eval_tail で train_core / train_tail に分割 (D-04 / review Cross-Plan #8) ---
     # trainer の _split_train_eval_tail は race_start_datetime 列を必要とするため・
@@ -444,8 +557,10 @@ def train_and_predict(
         train_tail_df["race_date"].max() if "race_date" in train_tail_df.columns else None
     )
 
-    # --- model_type で分岐: trainer 呼出 ---
-    if model_type == "lightgbm":
+    # --- base_model_type で分岐: trainer 呼出（Phase 11 codex HIGH#2） ---
+    # base_model_type は _normalize_model_type で正規化済み（lightgbm_rr → lightgbm 等）。
+    # 学習パスは binary base model のみを扱う（race-relative 補正は予測パス後段で適用）。
+    if base_model_type == "lightgbm":
         merged_params = _merge_params(LGB_INIT_PARAMS, params_override, seed)
         # train_core / train_tail を train_lightgbm に渡す。trainer 内部の
         # _prepare_lightgbm_train_eval が categorical を統一する。test 予測時は
@@ -463,7 +578,7 @@ def train_and_predict(
             eval_max_date=eval_max_date,
             params=merged_params,
         )
-    elif model_type == "catboost":
+    elif base_model_type == "catboost":
         merged_params = _merge_params(CB_INIT_PARAMS, params_override, seed)
         # CatBoost は race_start_datetime sort のため meta 列が必要
         X_train_core_cb = X_train_core.copy()
@@ -486,8 +601,8 @@ def train_and_predict(
         )
     else:
         raise ValueError(
-            f"train_and_predict: 未知の model_type {model_type!r} "
-            "(expected 'lightgbm' or 'catboost')"
+            f"train_and_predict: 未知の model_type {original_model_type!r} "
+            "(expected 'lightgbm', 'catboost', 'lightgbm_rr', or 'catboost_rr')"
         )
 
     # --- calibrate_model (calibrator.py・prefit・isotonic/sigmoid 切替) ---
@@ -502,7 +617,7 @@ def train_and_predict(
     # 列の pd.NA で "must be real number, not NAType" エラーになる。そのため CatBoost の場合は
     # calibrate_model を経由せず・base estimator で calib Pool の生予測を算出してから手動で
     # isotonic/sigmoid calibrator を fit する (_calibrate_catboost_manual helper)。
-    if model_type == "lightgbm":
+    if base_model_type == "lightgbm":
         _, X_calib_lgb = _prepare_lightgbm_train_eval(X_train_core, X_calib)
         calib_result = calibrate_model(
             estimator,
@@ -521,57 +636,115 @@ def train_and_predict(
         )
 
     # --- 予測 (review HIGH#2 + HIGH#12 CatBoost 行順序復元 + Cycle 2 NEW HIGH-1) ---
-    if model_type == "lightgbm":
-        # LightGBM: calibrated.predict_proba(X_test) で直接予測。
-        # train_core と test の categorical categories を _prepare_lightgbm_train_eval で統一する
+    # Phase 11 codex HIGH#1: 予測対象は X_score（score_split で test/calib を切替）。
+    # theta=None の場合は補正層をスキップし X_score で得た pred_proba をそのまま使用（A5）。
+    if base_model_type == "lightgbm":
+        # LightGBM: calibrated.predict_proba(X_score) で直接予測。
+        # train_core と score 対象の categorical categories を _prepare_lightgbm_train_eval で統一する
         # (test_trainer.py test_no_target_encoding_leak と同一パターン・Rule 3 auto-fix:
         # LightGBM 4.6 が train/predict の categorical dtype 完全一致を要求する仕様への対応)。
         # train_lightgbm 内部の _prepare_lightgbm_train_eval(X_train_core, X_train_tail) が
-        # train_core の categorical を確定するため・test も train_core を基準に統一する。
-        _, X_test_lgb = _prepare_lightgbm_train_eval(X_train_core, X_test)
-        raw_pred = calib_result.calibrated.predict_proba(X_test_lgb)[:, 1]
-        pred_proba = pd.Series(raw_pred, index=X_test.index, name="p_fukusho_hit")
+        # train_core の categorical を確定するため・score 対象も train_core を基準に統一する。
+        _, X_score_lgb = _prepare_lightgbm_train_eval(X_train_core, X_score)
+        raw_pred = calib_result.calibrated.predict_proba(X_score_lgb)[:, 1]
+        pred_proba = pd.Series(raw_pred, index=X_score.index, name="p_fukusho_hit")
     else:  # catboost
         # CatBoost: sort 済み Pool で予測 → align_predictions で元順序復元
-        X_test_cb = X_test.copy()
+        # Phase 11: 予測対象は X_score（test/calib で切替）。meta 列は race_df_score から取得。
+        X_score_cb = X_score.copy()
+        score_meta_df = race_df_score if score_split == "calib" else test_df
         for c in ("race_start_datetime", "race_key"):
-            if c in test_df.columns:
-                X_test_cb[c] = test_df.loc[X_test.index, c].values
-        pool_test, sorted_test_idx = _prepare_catboost_pool(X_test_cb, sort=True)
+            if c in score_meta_df.columns:
+                X_score_cb[c] = score_meta_df.loc[X_score.index, c].values
+        pool_score, sorted_score_idx = _prepare_catboost_pool(X_score_cb, sort=True)
         # CatBoost の CalibratedClassifierCV は predict_proba に DataFrame を渡すと
         # 内部で cat_features 認識なしに Pool を作ろうとして StringDtype の pd.NA で
         # "must be real number, not NAType" エラーになる (CatBoost + sklearn
         # CalibratedClassifierCV 互換性制約・Rule 3 auto-fix)。そのため base estimator
         # で Pool を直接予測し・calibrator (isotonic/sigmoid) を手動適用する。
         raw_pred_sorted = _catboost_calibrated_predict_proba(
-            calib_result.calibrated, estimator, pool_test
+            calib_result.calibrated, estimator, pool_score
         )
         pred_proba = align_predictions(
-            pd.Series(raw_pred_sorted, index=sorted_test_idx, name="p_fukusho_hit"),
-            sorted_test_idx,
-            X_test.index,
+            pd.Series(raw_pred_sorted, index=sorted_score_idx, name="p_fukusho_hit"),
+            sorted_score_idx,
+            X_score.index,
         )
 
-    # pred_proba の index が X_test.index と完全一致することを最終 assert (review HIGH#2)
-    if not pred_proba.index.equals(X_test.index):
+    # pred_proba の index が X_score.index と完全一致することを最終 assert (review HIGH#2)
+    if not pred_proba.index.equals(X_score.index):
         raise RuntimeError(
-            "train_and_predict: pred_proba.index != X_test.index after align "
+            "train_and_predict: pred_proba.index != X_score.index after align "
             "(review HIGH#2・silent wrong-horse prediction)"
         )
+
+    # --- Phase 11: race-relative 補正層（theta=None の場合はスキップ・A5 後方互換） ---
+    # 両モデル（LightGBM/CatBoost）で同一の apply_race_relative_correction を呼ぶ
+    # （SC#3 bit-identical・同一モデル同一 seed の再現性・D-01 binary 本体不変）。
+    # theta は呼出側（run_phase11_evaluation.py）が calib slice で選んだ事前登録値を渡す・
+    # orchestrator は theta を再選択しない（受け取った値をそのまま適用・§11.2 聖域）。
+    # score_split="calib" の経路は θ 選択用・test 窓には触れない（構造的聖域ブロック）。
+    # codex HIGH#6: sales_start_entry_count を race_df_score から必須取得（fallback なし）。
+    # k=3 (8頭以上) / k=2 (5-7頭)・それ以外は RuntimeError（複勝発売なし・学習対象外・D-08）。
+    if theta is not None:
+        if "sales_start_entry_count" not in race_df_score.columns:
+            raise RuntimeError(
+                "train_and_predict: race_df_score に sales_start_entry_count 列がない"
+                "（codex HIGH#6・data.py L135/371 で常に SELECT されるはず・"
+                "fallback は導入しない・D-08/D-09 singleton 一意性）"
+            )
+        entry_counts = race_df_score.loc[X_score.index, "sales_start_entry_count"]
+        # race_df_score は X_score と index が一致するが・sales_start_entry_count が
+        # race 内で一意でない場合は RuntimeError（D-08/D-09・codex HIGH#6・fallback なし）。
+        race_keys = race_df_score.loc[X_score.index, "race_key"].to_numpy()
+        entry_counts_arr = entry_counts.to_numpy()
+        k_per_race_arr = np.empty(len(entry_counts_arr), dtype=np.int64)
+        # race 毎に k を確定（race 内で sales_start_entry_count が一意であることを検証）
+        unique_race_keys, inverse = np.unique(race_keys, return_inverse=True)
+        for ridx, rid in enumerate(unique_race_keys):
+            mask = inverse == ridx
+            ec_values = np.unique(entry_counts_arr[mask])
+            if len(ec_values) != 1:
+                raise RuntimeError(
+                    f"train_and_predict: race {rid!r} 内で sales_start_entry_count が一意でない"
+                    f"（codex HIGH#6・D-08/D-09）: ec_values={ec_values.tolist()}"
+                )
+            ec = int(ec_values[0])
+            if ec >= 8:
+                k_per_race_arr[mask] = 3
+            elif 5 <= ec <= 7:
+                k_per_race_arr[mask] = 2
+            else:
+                raise RuntimeError(
+                    f"train_and_predict: race {rid!r} の sales_start_entry_count={ec} は"
+                    "複勝発売なし（8頭以上=3・5-7頭=2・D-08・学習対象外）"
+                )
+        # 補正層呼出（race_relative.apply_race_relative_correction・D-06 step 6-8）
+        p_final = apply_race_relative_correction(
+            pred_proba.to_numpy(),
+            theta=theta,
+            k_per_race=k_per_race_arr,
+            race_ids=race_keys,
+        )
+        pred_proba = pd.Series(p_final, index=X_score.index, name="p_fukusho_hit")
+
 
     # --- predict_p_fukusho 呼出 (Cycle 2 NEW HIGH-1: pred_proba 注入で再予測防止) ---
     # pred_proba を明示的に渡すことで・CatBoost の aligned 予測値が predict_p_fukusho 内部で
     # 再予測されて捨てられる回帰 (Cycle 2 NEW HIGH-1) を閉塞。
     # predict_p_fukusho は注入時 len(pred_proba)==len(X) と index 一致を assert する。
+    # Phase 11 codex HIGH#1: X_score / race_df_score / score_split_label で予測対象を切替。
+    # Phase 11 codex HIGH#2: model_type には original_model_type を渡し race-relative short を保持。
+    # theta 指定時は補正済み pred_proba が注入され・theta=None は v1.0 等価（A5）。
     pred_df = predict_p_fukusho(
         calib_result.calibrated,
-        X_test,
-        model_type=model_type,
+        X_score,
+        model_type=original_model_type,
         model_version=model_version,
         feature_snapshot_id=feature_snapshot_id,
         calib_method=calib_result.calib_method,
-        race_df=race_df_test,
-        split_label="test",
+        race_df=race_df_score,
+        split_label=score_split_label,
         as_of_datetime=as_of_dt,
         pred_proba=pred_proba,
     )
@@ -582,19 +755,19 @@ def train_and_predict(
     # predict_p_fukusho の戻り値は PREDICTION_COLUMNS（prediction テーブル用・これら meta 列を
     # 含まない）だが・backtest の実データパスは pred_df から取得する。synthetic パス
     # （_build_synthetic_pred_df）は既に含むため・実データパスとの不整合を是正する。
-    # race_start_datetime は race_df_test から直接・race_key は make_race_key で PK から構築
+    # race_start_datetime は race_df_score から直接・race_key は make_race_key で PK から構築
     # （snapshot に race_key 列は無く race_nkey のみ・make_race_key は race_nkey を使わない）。
-    # race_df_test.index == pred_df.index (review HIGH#2) で values が安全に整列する。
+    # race_df_score.index == pred_df.index (review HIGH#2) で values が安全に整列する。
     # prediction_load（DB 書込）は PREDICTION_COLUMNS のみ使用し・これら meta 列を無視
     # （列過多エラーなし）・_assert_valid_prediction_df は本付与前（PREDICTION_COLUMNS のみ）に
     # 実行済みで通過済み。
     from src.model.data import make_race_key
 
     pred_df = pred_df.copy()
-    if "race_start_datetime" in race_df_test.columns:
-        pred_df["race_start_datetime"] = race_df_test["race_start_datetime"].values
+    if "race_start_datetime" in race_df_score.columns:
+        pred_df["race_start_datetime"] = race_df_score["race_start_datetime"].values
     if "race_key" not in pred_df.columns:
-        pred_df["race_key"] = make_race_key(race_df_test).to_numpy()
+        pred_df["race_key"] = make_race_key(race_df_score).to_numpy()
 
     return {
         "estimator": estimator,
@@ -607,6 +780,9 @@ def train_and_predict(
         "_aligned_pred_proba": pred_proba,
         # HIGH-A cycle-2: category_map provenance stamp
         "category_map_source": category_map_source,
+        # Phase 11 race-relative provenance（§19.1 再現性・codex HIGH#1）
+        "race_relative_theta": theta,
+        "score_split": score_split,
     }
 
 
@@ -847,5 +1023,6 @@ __all__ = [
     "train_and_predict",
     "_merge_params",
     "_apply_category_map",
+    "_normalize_model_type",
     "_assert_deterministic",
 ]
