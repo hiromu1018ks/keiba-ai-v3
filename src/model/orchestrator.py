@@ -666,11 +666,21 @@ def train_and_predict(
     else:  # catboost
         # CatBoost: sort 済み Pool で予測 → align_predictions で元順序復元
         # Phase 11: 予測対象は X_score（test/calib で切替）。meta 列は race_df_score から取得。
+        # REVIEW CR-02: LightGBM ブランチと同様・常に race_df_score を参照し・
+        # test_df と race_df_score の暗黙の等価性（score_split="test" の時
+        # race_df_score == race_df_test == test_df.loc[X_test.index, :]）に依存しない。
+        # race_df_score.index == X_score.index を明示的に assert し・silent な
+        # wrong-horse meta column alignment（.values が index 順に取るため・
+        # index 集合が同一でも順序が異ると meta 列がずれる）を防止する。
         X_score_cb = X_score.copy()
-        score_meta_df = race_df_score if score_split == "calib" else test_df
+        if not race_df_score.index.equals(X_score.index):
+            raise RuntimeError(
+                "train_and_predict: race_df_score.index != X_score.index "
+                "(REVIEW CR-02・CatBoost 予測パス silent wrong-horse meta column alignment)"
+            )
         for c in ("race_start_datetime", "race_key"):
-            if c in score_meta_df.columns:
-                X_score_cb[c] = score_meta_df.loc[X_score.index, c].values
+            if c in race_df_score.columns:
+                X_score_cb[c] = race_df_score.loc[X_score.index, c].values
         pool_score, sorted_score_idx = _prepare_catboost_pool(X_score_cb, sort=True)
         # CatBoost の CalibratedClassifierCV は predict_proba に DataFrame を渡すと
         # 内部で cat_features 認識なしに Pool を作ろうとして StringDtype の pd.NA で
