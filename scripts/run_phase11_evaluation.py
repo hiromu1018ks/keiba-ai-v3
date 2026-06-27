@@ -935,7 +935,22 @@ def _evaluate_gate(
     # D-05 改善 gate 3条件
     baseline_overprediction = _compute_overprediction_from_pred(baseline_pred)
     rr_overprediction = _compute_overprediction_from_pred(rr_pred)
-    # D-05-1: overprediction penalty が rr < baseline (NaN の場合は FAIL・safe side)
+    # D-05-1: overprediction penalty が rr < baseline。NaN の場合は FAIL（safe side）。
+    #
+    # 【意図的な非対称設計（REVIEW WR-06 revert・§11.2 聖域）】
+    # θ 選択経路 (_select_theta_on_calib L670-684) は候補 {0.5,...,1.5} を絞り込む
+    # *手続き*であり・全候補 NaN の場合は D-05-1 を skip して passing を stage2 に流す
+    # （候補選びを進めるための実行可能性・NaN-safe idiom）。
+    # 一方・本 test 窓 gate は race-relative model が v1.0 binary より「改善」したかを
+    # 判定する*事前登録 gate*（VALIDATION.md）であり・odds-free 1-A snapshot で
+    # overprediction penalty が計算不能（odds/ninki 無し → NaN）の場合は FAIL とする
+    # （§11.2 聖域・評価後の gate 基準変更禁止）。
+    # この非対称は意図的: 手続き（候補絞り込み）は NaN skip で進め・判定（gate）は
+    # NaN を FAIL で honest 記録し・Phase 12 で is_primary 切替を判断する。
+    # odds-free 1-A では SC#2 gate は FAIL（D-04 非劣化 PASS / D-05-1 構造的制約で NaN FAIL）
+    # となるが・これこそが Phase 12 の判断材料（後知恵で gate を通さない = §11.2 聖域遵守）。
+    # 「odds-free では overprediction を評価対象外（skip=PASS）とする」仕様は Phase 12 計画で
+    # 事前登録 gate として改めて定義すべき（完了した Phase 11 を遡って書き換えない）。
     d05_1_pass = (
         not math.isnan(baseline_overprediction)
         and not math.isnan(rr_overprediction)
