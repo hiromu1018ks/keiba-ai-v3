@@ -6,14 +6,14 @@ current_phase: 11
 current_phase_name: race-relative-probability-model
 status: executing
 stopped_at: Phase 11 context gathered
-last_updated: "2026-06-27T04:41:01.955Z"
+last_updated: "2026-06-27T04:47:24.801Z"
 last_activity: 2026-06-27
 last_activity_desc: Phase 11 execution started
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 20
-  completed_plans: 16
+  completed_plans: 17
   percent: 60
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 11 (race-relative-probability-model) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-06-27 — Phase 11 execution started
 
@@ -133,6 +133,7 @@ Last activity: 2026-06-27 — Phase 11 execution started
 | Phase 10 P06 | 60min | 3 tasks | 6 files |
 | Phase 10 P07 | 55min | 2 tasks | 3 files |
 | Phase 11 P01 | 7 | 3 tasks | 3 files |
+| Phase 11 P02 | 5 min | 2 tasks | 1 files |
 
 ### Decisions
 
@@ -278,6 +279,8 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 11 Plan 01: THETA_CANDIDATES=(0.5,0.75,1.0,1.25,1.5)・ALPHA_SEARCH_XTOL=1e-9・P_CAL_CLIP_EPSILON=1e-6 事前登録（§11.2 聖域・src/model/race_relative.py stub）
 - [Phase ?]: Phase 11 Plan 01: SC#3 = 同一 LightGBM 同一 seed の再現性（codex review MEDIUM・cross-family 同一性でなく・test_both_models_bit_identical で契約固定）
 - [Phase ?]: Phase 11 Plan 01: compute_overprediction_penalty 第3引数 = market_signal（SAFE-01・SC#4 で禁止トークン回避・機能は RESEARCH Pattern 3 準拠）
+- [Phase ?]: 11-02: brentq 前 fail-loud guard（finite/theta>0/0<k<n）を必須挿入
+- [Phase ?]: 11-02: binning は evaluator/segment_eval の import 再利用・独自 np.linspace bin edge 再定義なし
 
 ### Pending Todos
 
@@ -310,7 +313,7 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-06-25:
 
 ## Session Continuity
 
-**Last session:** 2026-06-27T04:40:23.511Z
+**Last session:** 2026-06-27T04:47:08.294Z
 
 **Resume file:** 
 
