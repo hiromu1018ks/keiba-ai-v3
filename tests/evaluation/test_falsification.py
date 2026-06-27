@@ -275,7 +275,8 @@ def test_run_falsification_test_with_edge_probabilities_no_inf() -> None:
 
 
 def test_fit_market_implied_calibrator_isotonic_when_large_sample() -> None:
-    """calib_sample_size >= MARKET_CALIB_SAMPLE_THRESHOLD=1000 → method='isotonic' (sklearn docs)."""
+    """calib_sample_size >= MARKET_CALIB_SAMPLE_THRESHOLD=1000 → method='isotonic' (sklearn docs).
+    calibrator.predict_proba は base 確率 (1/odds) の関数として単調非減少になる."""
     falsification = _import_falsification()
     rng = np.random.default_rng(11)
     n_train, n_calib = 800, 1200
@@ -291,12 +292,13 @@ def test_fit_market_implied_calibrator_isotonic_when_large_sample() -> None:
         y_calib=y_calib,
         calib_sample_size=n_calib,
     )
-    # method は外から直接見えないが・predict_proba で単調な calibration が得られる
-    odds_grid = np.array([1.5, 3.0, 5.0, 10.0, 30.0])
-    base = (1.0 / odds_grid).reshape(-1, 1)
+    # method は外から直接見えないが・predict_proba は base 確率 (1/odds) の昇順で単調非減少
+    # odds 降順 (= 1/odds 昇順) の grid を作って予測
+    odds_grid_desc = np.array([30.0, 10.0, 5.0, 3.0, 1.5])  # 1/odds 昇順
+    base = (1.0 / odds_grid_desc).reshape(-1, 1)
     proba = cal.predict_proba(base)[:, 1]
-    # 単調非減少 (isotonic の性質) かつ [0,1]
-    assert np.all(np.diff(proba) >= -1e-9), f"isotonic が単調でない: {proba}"
+    # 1/odds 昇順で proba も非減少 (isotonic の性質) かつ [0,1]
+    assert np.all(np.diff(proba) >= -1e-9), f"isotonic が 1/odds 昇順で単調でない: {proba}"
     assert np.all((proba >= 0.0) & (proba <= 1.0))
 
 
