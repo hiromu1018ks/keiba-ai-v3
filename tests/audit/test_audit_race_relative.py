@@ -161,6 +161,90 @@ def test_no_odds_ninki_proxy() -> None:
 
 
 # ---------------------------------------------------------------------------
+# REVIEW WR-01: market_signal 引数の SAFE-01 allow-list 機械保証
+# ---------------------------------------------------------------------------
+# compute_overprediction_penalty は market_signal 引数（odds/ninki 系外部参照）を受け取る。
+# 本テストは market_signal 引数が feature 側に silent に混入するのを防ぐため・
+# (1) market_signal 引数を持つ関数の docstring に SAFE-01-ALLOW マーカーがあること
+# (2) market_signal 引数を通じて FEATURE_COLUMNS / build_training_frame が呼ばれないこと
+# （feature 構築経路からの切り離し）を AST 静的解析で検証する。
+# allow-list マーカーは「evaluation 専用引数であることを実装者が明示宣言した」という
+# 機械保証であり・docstring 紀士協定でない（マーカー欠落時は fail-loud）。
+_MARKET_SIGNAL_ARG_ALLOWLIST_MARKER = "SAFE-01-ALLOW: market_signal"
+
+
+def _find_functions_with_market_signal_arg(module_obj) -> list[tuple[str, ast.FunctionDef]]:
+    """market_signal 引数を持つトップレベル関数の (関数名, FunctionDef) リストを返す."""
+    source = inspect.getsource(module_obj)
+    tree = ast.parse(textwrap.dedent(source))
+    found: list[tuple[str, ast.FunctionDef]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef):
+            arg_names = {a.arg for a in node.args.args}
+            if "market_signal" in arg_names:
+                found.append((node.name, node))
+    return found
+
+
+def test_market_signal_arg_has_allowlist() -> None:
+    """REVIEW WR-01: market_signal 引数を持つ関数が SAFE-01 allow-list を docstring に明示する.
+
+    compute_overprediction_penalty の market_signal 引数は odds/ninki 系外部参照であり・
+    evaluation 専用層の境界（feature 側でない）。本テストは:
+      (1) market_signal 引数を持つ全ての関数の docstring に
+          ``SAFE-01-ALLOW: market_signal`` マーカーがあることを検証
+          （実装者の explicit な allow-list 宣言・docstring 紀士協定でない）
+      (2) それらの関数の本体 AST に FEATURE_COLUMNS / build_training_frame /
+          load_feature_matrix 等の feature 構築経路の Name/Attribute が含まれないことを検証
+          （market_signal が feature snapshot の列を直接受け取る経路が開いていない保証）
+
+    マーカーが欠落した場合・または feature 構築経路が混入した場合は fail-loud する。
+    本テストは SAFE-01 聖域（feature 側への odds/ninki 混入禁止）の補強であり・
+    test_no_odds_ninki_proxy（Name/Attribute/Constant の forbidden token 走査）と補完関係。
+    """
+    funcs_with_market_signal = _find_functions_with_market_signal_arg(race_relative)
+    # market_signal 引数を持つ関数が少なくとも1つ存在する（compute_overprediction_penalty）
+    assert funcs_with_market_signal, (
+        "market_signal 引数を持つ関数が race_relative.py に見つからない・"
+        "テストの前提確認（compute_overprediction_penalty が存在するはず）"
+    )
+
+    for func_name, func_node in funcs_with_market_signal:
+        # (1) docstring に allow-list マーカーがあること
+        docstring = ast.get_docstring(func_node) or ""
+        assert _MARKET_SIGNAL_ARG_ALLOWLIST_MARKER in docstring, (
+            f"race_relative.py::{func_name} は market_signal 引数を持つが・docstring に "
+            f"allow-list マーカー '{_MARKET_SIGNAL_ARG_ALLOWLIST_MARKER}' が無い (REVIEW WR-01)。"
+            "market_signal は evaluation 専用引数であることを docstring で explicit に "
+            "宣言すること（SAFE-01 聖域・docstring 紀士協定でない機械保証）。"
+        )
+
+        # (2) 関数本体 AST に feature 構築経路の Name/Attribute が含まれないこと
+        # market_signal が feature snapshot の列を直接受け取る経路が開いていない保証。
+        feature_construction_tokens = {
+            "FEATURE_COLUMNS",
+            "build_training_frame",
+            "load_feature_matrix",
+            "FEATURE_SNAPSHOT",
+        }
+        for node in ast.walk(func_node):
+            if isinstance(node, ast.Name) and node.id in feature_construction_tokens:
+                raise AssertionError(
+                    f"race_relative.py::{func_name} の本体に feature 構築経路 "
+                    f"{node.id} への参照がある (REVIEW WR-01・SAFE-01 違反)。"
+                    "market_signal 引数が feature snapshot の列を直接受け取る経路が "
+                    "開いている可能性がある・evaluation 専用層と feature 層を分離すること。"
+                )
+            if isinstance(node, ast.Attribute) and node.attr in feature_construction_tokens:
+                raise AssertionError(
+                    f"race_relative.py::{func_name} の本体に feature 構築経路 "
+                    f"{node.attr} への Attribute 参照がある (REVIEW WR-01・SAFE-01 違反)。"
+                    "market_signal 引数が feature snapshot の列を直接受け取る経路が "
+                    "開いている可能性がある・evaluation 専用層と feature 層を分離すること。"
+                )
+
+
+# ---------------------------------------------------------------------------
 # (6) D-10 自己完結性: α_r は outcome 入れ替えで不変
 # ---------------------------------------------------------------------------
 def test_alpha_self_contained_outcome_swap() -> None:

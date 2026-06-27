@@ -298,6 +298,21 @@ def compute_overprediction_penalty(
     市場シグナル（人気帯相当）は feature でなく evaluation 専用の external signal であり・
     モデル特徴量には混入しない（SAFE-01・SC#4 は feature 側の聖域・evaluation は別層）。
 
+    REVIEW WR-01 — SAFE-01 allow-list 明示宣言:
+    本関数は ``market_signal`` 引数（市場シグナル外部参照）を受け取る。
+    これは evaluation 専用層の境界であり・feature matrix 構築経路
+    （build_training_frame / FEATURE_COLUMNS）から切り離されている。
+    呼出側（``_compute_overprediction_from_pred``）は pred_df の評価専用列
+    （市場情報参照系・SAFE-01 forbidden prefix に該当）から market_signal を構築し・
+    feature snapshot の FEATURE_COLUMNS にはこれらの列は含まれない
+    （test_audit_field_strength.py で forbidden prefix 0件を検証済み）。
+    本 docstring の ``SAFE-01-ALLOW: market_signal`` マーカーは・AST 監査
+    （test_audit_race_relative.py::test_market_signal_arg_has_allowlist）が
+    本関数の ``market_signal`` 引数を検出した際の explicit な allow-list 宣言。
+    本マーカーが無い場合・または market_signal が feature 構築経路に混入した場合は
+    監査が fail-loud する（SAFE-01 聖域の機械保証・docstring 紳士協定でない）。
+    ``SAFE-01-ALLOW: market_signal``
+
     Parameters
     ----------
     y_true : np.ndarray
