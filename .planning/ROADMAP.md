@@ -37,7 +37,7 @@
 - [x] **Phase 9: Speed Figure Foundation** - 走破タイムを馬場/距離/トラック/クラス補正したスピード指数（Beyer 的）を自前構築し、能力特徴量の新たな主軸を据える (completed 2026-06-25)
 - [x] **Phase 9.1: Speed Ability Profile Expansion** (INSERTED) - Phase 9 の speed_figure 6→17 feature 拡張（median/best2/trend + same_surface/same_distance_bucket）・Phase 10 入力強化 (completed 2026-06-26)
 - [x] **Phase 10: Opponent Strength & Race-Relative Features** - 相手強度（as-of）とレース内相対特徴量（rank/gap_to_top/gap_to_3rd）を追加し、複勝の相対競争を特徴量層で表現する (completed 2026-06-27)
-- [ ] **Phase 11: Race-Relative Probability Model** - 独立二値分類から `sum(p)=払戻対象数(2/3)` 制約・race-level top-k calibration のレース内相対確率モデルへ移行する
+- [x] **Phase 11: Race-Relative Probability Model** - 独立二値分類から `sum(p)=払戻対象数(2/3)` 制約・race-level top-k calibration のレース内相対確率モデルへ移行する (completed 2026-06-27)
 - [ ] **Phase 12: p_lower EV & Falsification Evaluation** - `p_lower` 下側信頼限界によるEV判定へ移行し、評価指標拡張（selected-only calibration / EV-decile ROI / disagreement ROI / snapshot slippage）と falsification test で market residual を統計検証する
 
 ## Phase Details
@@ -153,7 +153,7 @@ Plans:
   4. 特徴量にオッズ/人気/過去人気/過去オッズ proxy が入っていないこと・LightGBM categorical code が非負 int32 であること（`.cat.codes.min()>=0` fail-loud）を adversarial leak diagnostic で証明できる（SAFE-01・SC#3 踏襲）
   5. 新 `p_fukusho_hit` の prediction テーブルが `§19.1` 再現性メタデータ（model_version・feature_snapshot_id・label_version・`odds_snapshot_policy`・`backtest_strategy_version`）付きで DB に model_version-scoped idempotent swap で永続化される（HIGH#1 踏襲）
 
-**Plans**: 4/5 plans executed
+**Plans**: 5/5 plans complete
 
 Plans:
 
@@ -175,7 +175,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3・live-DB・checkpoint)*
 
-- [ ] 11-05-PLAN.md — live-DB SC#2 gate honest 記録 + SC#5 model_version-scoped idempotent swap（2回実行 checksum bit-identical・v1.0 binary 行保持）+ SC#3 bit-identical 実データ実証（FIXED_REPRODUCE_TS + np.array_equal・theta=selected_theta）・checkpoint:human-verify（MODEL-01/SAFE-01）
+- [x] 11-05-PLAN.md — live-DB SC#2 gate honest 記録 + SC#5 model_version-scoped idempotent swap（2回実行 checksum bit-identical・v1.0 binary 行保持）+ SC#3 bit-identical 実データ実証（FIXED_REPRODUCE_TS + np.array_equal・theta=selected_theta）・checkpoint:human-verify（MODEL-01/SAFE-01）
 
 ### Phase 12: p_lower EV & Falsification Evaluation
 
@@ -208,5 +208,5 @@ Plans:
 | 9. Speed Figure Foundation | v1.1 | 5/5 | Complete   | 2026-06-25 |
 | 9.1. Speed Ability Profile Expansion (INSERTED) | v1.1 | 1/1 | Complete | 2026-06-26 |
 | 10. Opponent Strength & Race-Relative Features | v1.1 | 9/9 | Complete    | 2026-06-26 |
-| 11. Race-Relative Probability Model | v1.1 | 4/5 | In Progress|  |
+| 11. Race-Relative Probability Model | v1.1 | 5/5 | Complete   | 2026-06-27 |
 | 12. p_lower EV & Falsification Evaluation | v1.1 | 0/? | Not started | - |
