@@ -1,0 +1,35 @@
+{
+  "snapshot_id": "20260626-1a-opponentstrength-v1",
+  "regen_at": "2026-06-27T09:28:36Z",
+  "verdict": "PASS",
+  "trigger": "Phase 10 gap-closure 10-08 Task3 (CR-02 dtype 正規化 / WR-03 snapshot 動的導出 の再現性証明)",
+  "sha256_file_before": "ea16f1e65b595484dedb27fc85c53c7b318ceb7761d494f2959336a48bdaee70",
+  "sha256_file_after": "ea16f1e65b595484dedb27fc85c53c7b318ceb7761d494f2959336a48bdaee70",
+  "sha256_manifest_metadata_excluded": "c25ae5561e5e1db068973972e57a4f61d2f919be28a2e82ed9a72e05a750cd00",
+  "sha256_unchanged": true,
+  "silent_nan_merge_absent": true,
+  "write1_write2_internal_match": true,
+  "byte_reproducibility_sc3": "PASS",
+  "feature_count": 106,
+  "row_count": 554267,
+  "raw_touched": false,
+  "metadata_12_4": {
+    "dataset_version": "v1.0.0",
+    "feature_count": 106,
+    "feature_cutoff_rule": "race_date - 1 day",
+    "schema_version": "0.6.0"
+  },
+  "regression_tests": {
+    "test_snapshot_repro_and_allowlist": "32 passed (KEIBA_SKIP_DB_TESTS=1)",
+    "test_audit_field_strength_safe01": "7 passed (WR-06 skip 化確認・SAFE-01 聖域回帰)"
+  },
+  "phase11_input_consistent": true,
+  "phase11_impact": "none (snapshot byte-identical → Phase 11 入力 snapshot 不変)",
+  "regen_duration_sec_approx": 1440,
+  "step_timings_sec": {
+    "step5b_speed_figure": 21.7,
+    "step5c_field_strength_profile": 725.7,
+    "step5_rolling": 261.0
+  },
+  "note": "CR-02 の builder Step5c race_date dtype 正規化 + JOIN率 fail-loud を加えた状態で snapshot を再生し・修正前と SHA256 が完全一致。silent NaN merge は本番では発生していなかった（dtype 一致）・WR-03 の直列化結果も不変。core value（再現性 §19.1）完全証明。Step5c field_strength profile 725.7s は W-3 性能聖域（per-race 予算 + 準二次スケーリングガード）の想定内。"
+}
