@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Ability Feature v2 & Conditional Calibration
-current_phase: 11
-current_phase_name: race-relative-probability-model
+current_phase: 12
+current_phase_name: p_lower EV & Falsification Evaluation
 status: executing
-stopped_at: Completed 11-03-PLAN.md（orchestrator theta統合 + artifact/predict 拡張）
-last_updated: "2026-06-27T05:17:25.909Z"
+stopped_at: Phase 11 context gathered
+last_updated: "2026-06-27T06:34:22.083Z"
 last_activity: 2026-06-27
-last_activity_desc: Completed 11-03-PLAN.md（orchestrator theta統合 + artifact/predict 拡張）
+last_activity_desc: Phase 11 complete, transitioned to Phase 12
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 20
-  completed_plans: 19
-  percent: 60
+  completed_plans: 20
+  percent: 80
 ---
 
 # Project State
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 
 ## Current Position
 
-Phase: 11 (race-relative-probability-model) — EXECUTING
-Plan: 5 of 5
+Phase: 12 — p_lower EV & Falsification Evaluation
+Plan: Not started
 Status: Ready to execute 11-04-PLAN.md（D-10 adversarial + run_phase11_evaluation.py）
-Last activity: 2026-06-27 — Completed 11-03-PLAN.md（orchestrator theta統合 + artifact/predict 拡張）
+Last activity: 2026-06-27 — Phase 11 complete, transitioned to Phase 12
 
 ## v1.1 Milestone Context
 
@@ -52,7 +52,7 @@ Last activity: 2026-06-27 — Completed 11-03-PLAN.md（orchestrator theta統合
 
 **Velocity:**
 
-- Total plans completed: 49 (v1.0) + 0 (v1.1)
+- Total plans completed: 54 (v1.0) + 0 (v1.1)
 - Average duration: — min
 - Total execution time: 0.0 hours
 
@@ -71,7 +71,7 @@ Last activity: 2026-06-27 — Completed 11-03-PLAN.md（orchestrator theta統合
 | 08 | 3 | - | - |
 | 09 | 0/5 | - | - |
 | 10 | 9 | - | - |
-| 11 | 0/5 | - | planned |
+| 11 | 5 | - | - |
 | 12 | 0/? | - | - |
 
 **Recent Trend:**
