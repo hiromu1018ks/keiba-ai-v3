@@ -15,6 +15,14 @@ cycles:
     outcome: "5/6 cycle-1 HIGHs FULLY RESOLVED, 1 PARTIALLY; 3 NEW HIGH live-DB blockers found; 3 actionable MEDIUM/LOW remain"
     current_high: 4
     current_actionable: 3
+  - cycle: 3
+    reviewed_at: 2026-06-27T16:30:00+09:00
+    plans_reviewed: [11-01-PLAN.md, 11-02-PLAN.md, 11-03-PLAN.md, 11-04-PLAN.md, 11-05-PLAN.md]
+    revision_base: "ab64269 (post cycle-2 revisions: CHECK制約/as_of_datetime/sentinel/theta guard)"
+    verification_method: "codex (gpt-5.2, xhigh) re-reviewed revised plans against live src/; reviewer agent independently re-traced all 4 HIGH + 3 MEDIUM/LOW claims (all FULLY RESOLVED); loader column derivation (prediction_load.py:62/241) and PK ORDER (72) cross-checked to confirm sentinel approach is structurally sound"
+    outcome: "4/4 cycle-2 HIGHs FULLY RESOLVED; 3/3 actionable MEDIUM/LOW FULLY RESOLVED; 0 NEW problems; convergence achieved (max-cycles=3 reached)"
+    current_high: 0
+    current_actionable: 0
 ---
 
 # Cross-AI Plan Review — Phase 11 (Race-Relative Probability Model)
@@ -399,3 +407,98 @@ The race-relative math layer (11-01/11-02) and the orchestrator θ/score_split i
 checksum stability, NOT NULL vs loader) that would cause the live-DB checkpoint to fail even if
 all preceding code is correct. These must be folded into 11-05 (Task 1 and/or Task 2) before
 execution.
+
+---
+
+# Cycle 3 Review — REVISED plans (post ab64269) — FINAL CYCLE (max-cycles=3)
+
+> Reviewer: **Codex** (codex-cli 0.142.1, `codex exec --ephemeral --dangerously-bypass-hook-trust --skip-git-repo-check -`, model gpt-5.2, reasoning xhigh).
+> Method: Codex re-reviewed the cycle-2-REVISED PLAN.md set against the live source tree. An independent verification pass by the reviewer agent re-traced each claim below against `src/` — all 4 cycle-2 HIGHs and all 3 actionable MEDIUM/LOW items are now **FULLY RESOLVED**. Zero new problems were introduced by the cycle-2 revision.
+>
+> **Bottom line:** Cycle-2 revision (commit `ab64269`) incorporated every cycle-2 finding into the PLAN.md set with concrete task/action/acceptance/verify. The plans are now execution-ready. The race-relative layer can proceed to `/gsd-execute-phase`.
+
+---
+
+## Cycle-2 HIGH re-adjudication (revised PLAN.md vs live source)
+
+| # | Cycle-2 HIGH | Verdict | Evidence (revised plan + live source) |
+|---|---|---|---|
+| 1 | SC#5 §19.1 metadata wiring + loader compatibility (cycle-1 #3 PARTIAL) | **FULLY RESOLVED** | 11-05 adds the 3 metadata columns to `PREDICTION_COLUMNS` and wires them through 4 layers (script → orchestrator → `predict_p_fukusho` → DataFrame): `11-05-PLAN.md:33-38` (must_haves), `:120-141` (Task 1 action), `:222-230` (Task 2 propagation), `:305-307` (acceptance). Live source confirms the anchor is still pre-implementation: `src/model/predict.py:63-86` is the 16-column v1.0 `PREDICTION_COLUMNS`; `src/db/prediction_load.py:62` imports `PREDICTION_COLUMNS` and `:241` does `cols = list(PREDICTION_COLUMNS)` — so the loader will pick up the 3 new columns automatically once `predict.py` adds them. The `row(cols_csv)::text` checksum at `prediction_load.py:347-350` will include the new columns, but both runs produce identical sentinel/preregistered values, so checksum remains bit-identical. |
+| 2 | `prediction_model_type_domain` CHECK rejects `lightgbm_rr`/`catboost_rr` (NEW HIGH#1) | **FULLY RESOLVED** | 11-05 Task 1 action【2】 adds `PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL` — an idempotent `DROP CONSTRAINT IF EXISTS prediction_model_type_domain` + `ADD CONSTRAINT ... CHECK (model_type IN ('lightgbm','catboost','logreg','lightgbm_rr','catboost_rr'))`: `11-05-PLAN.md:37` (must_have), `:126-129` (action), `:175-184` (verify regex), `:189-191` (acceptance). The `PREDICTION_TABLE_DDL` `:83` constraint and `:55` comment are also updated. Live source confirms the blocker is real: `src/db/schema.py:83` still only permits `('lightgbm','catboost','logreg')`. |
+| 3 | `as_of_datetime=None` → `datetime.now(UTC)` makes SC#5 checksum unstable (NEW HIGH#2) | **FULLY RESOLVED** | 11-05 Task 2 action【5】 requires `as_of_datetime=FIXED_REPRODUCE_TS` on the persistence-path `train_and_predict` call in `run_phase11_evaluation.py`, with explicit `from src.model.orchestrator import train_and_predict, FIXED_REPRODUCE_TS`: `11-05-PLAN.md:36` (must_have), `:42` (prohibition), `:240-246` (action), `:289-291` (verify regex `as_of_datetime\s*=\s*FIXED_REPRODUCE_TS`), `:311` (acceptance). Live source confirms anchors: `FIXED_REPRODUCE_TS` defined at `src/model/orchestrator.py:88` (`datetime(2026, 6, 20, 0, 0, 0, tzinfo=UTC)`); the `None` fallback at `orchestrator.py:363-364`; PK includes `as_of_datetime` at `schema.py:80-81`; checksum ORDER BYs `_PK_ORDER_COLUMNS` (11 cols, `as_of_datetime` included) at `prediction_load.py:72/348`. |
+| 4 | Loader converts `""` → `None`; new NOT NULL columns reject v1.0 loads (NEW HIGH#3) | **FULLY RESOLVED** | 11-05 Task 1 action【1】 adopts mitigation (c) — sentinel `'unspecified'` default: columns are `TEXT NOT NULL DEFAULT 'unspecified'`, and `predict_p_fukusho`/`orchestrator.train_and_predict` runtime defaults are `'unspecified'` (not `""`): `11-05-PLAN.md:38` (must_have), `:121-124` (DDL), `:133-145` (signature), `:161-184` (verify checks signature defaults + `DEFAULT 'unspecified'` count ≥ 3), `:189-199` (acceptance), `:199` explicitly notes loader is unchanged because `'unspecified'` is not the empty string. Live source confirms the anchor: `src/db/prediction_load.py:175-176` maps `""` → `None`, and `:290-297` explicit `executemany` INSERT bypasses DB DEFAULT for staging rows. Because the loader derives `cols` from `PREDICTION_COLUMNS` (not a fixed list), the new columns flow through automatically, and the sentinel value passes the `v if v != "" else None` check unchanged. |
+
+---
+
+## Cycle-2 actionable MEDIUM/LOW re-adjudication
+
+| # | Cycle-2 actionable | Verdict | Evidence (revised plan + live source) |
+|---|---|---|---|
+| M | `theta=float` + non-`_rr` `model_type` silent provenance hole | **FULLY RESOLVED** | 11-03 Task 1 action【3b】 adds a **bidirectional** guard right after `_normalize_model_type`: `theta is not None` requires `model_type` endswith `_rr`, AND `model_type` endswith `_rr` requires `theta is not None` — both raise `ValueError`. Located at the top of `train_and_predict` so it fires without needing a feature_df. `11-03-PLAN.md:103-106` (action), `:146-148` (verify), `:157-160` (acceptance), threat `T-11-13b`. Live source confirms the seam: `src/model/orchestrator.py:234-247` has no `theta` param yet; `:412-413` derives `model_version` from `model_type` (`make_model_version(feature_snapshot_id, model_type, version_n)`), so the provenance hole is real without the guard. |
+| L1 | Brittle `set_primary_model` substring greps | **FULLY RESOLVED** | 11-04 now uses an AST `Call`-node detector (`ast.walk` for `Call` whose `func.attr == 'set_primary_model'` or `func.id == 'set_primary_model'`, asserts count == 0): `11-04-PLAN.md:202` (acceptance), `:237` (verify command). 11-05 repeats the same AST check at `:293-301` (verify) and `:314` (acceptance). Live source confirms why this matters: `src/db/prediction_load.py:447` defines `set_primary_model` as a real callable, so call-site detection is the correct gate. |
+| L2 | 11-04 stale private-persistence references | **FULLY RESOLVED** | 11-04 `key_links` and Task 2 text now reference the public `load_predictions` and explicitly note the old private reference was updated: `11-04-PLAN.md:32` (key_link), `:128` (read_first), `:185` (Task 2 action). Live source confirms the API distinction: private `_idempotent_load_prediction(rows: list[tuple])` at `src/db/prediction_load.py:191-196`; public `load_predictions(write_cur, prediction_df, reader_role=None)` at `src/db/prediction_load.py:373-411`. |
+
+---
+
+## Verification Pass (Cycle 3 — source-grounding audit)
+
+| # | Claim | Code reference | Verdict |
+|---|---|---|---|
+| C3-1 | cycle-2 HIGH#1 CHECK constraint still pre-implementation; plan addresses it | `schema.py:83` 3-value constraint; `11-05-PLAN.md:37/126-129/175-184` | **FULLY RESOLVED** |
+| C3-2 | cycle-2 HIGH#2 as_of_datetime still defaults to now(); plan forces FIXED_REPRODUCE_TS | `orchestrator.py:88/363-364`; `schema.py:80-81`; `prediction_load.py:72/348`; `11-05-PLAN.md:36/240-246/289-291` | **FULLY RESOLVED** |
+| C3-3 | cycle-2 HIGH#3 loader still maps `""`→`None`; plan uses sentinel `'unspecified'` | `prediction_load.py:175-176/290-297`; `11-05-PLAN.md:38/121-124/161-184` | **FULLY RESOLVED** |
+| C3-4 | cycle-2 HIGH#1+3 loader derives cols from `PREDICTION_COLUMNS` (not fixed list) — new cols flow through | `prediction_load.py:62` (import) / `:137` (for c in PREDICTION_COLUMNS) / `:241` (cols = list(...)) | **VALID — sentinel approach is structurally sound; no separate loader edit needed** |
+| C3-5 | cycle-2 MEDIUM theta/model_type guard is bidirectional, fires at function entry | `orchestrator.py:234-247/412-413`; `11-03-PLAN.md:103-106/157-160` | **FULLY RESOLVED** |
+| C3-6 | cycle-2 LOW AST `set_primary_model` check replaces substring grep | `prediction_load.py:447`; `11-04-PLAN.md:202/237`; `11-05-PLAN.md:293-314` | **FULLY RESOLVED** |
+| C3-7 | cycle-2 LOW 11-04 private-persistence references updated to public | `prediction_load.py:191-196 vs :373-411`; `11-04-PLAN.md:32/128/185` | **FULLY RESOLVED** |
+
+**Result:** 4/4 cycle-2 HIGHs FULLY RESOLVED, 3/3 cycle-2 actionable MEDIUM/LOW FULLY RESOLVED, 0 NEW problems.
+
+---
+
+## Cycle 3 Consensus Summary
+
+### Resolved (cycle-2 — no further action)
+
+- **HIGH#1 (cycle-1 #3 PARTIAL → RESOLVED):** 11-05 adds the 3 §19.1 metadata columns to
+  `PREDICTION_COLUMNS` and wires them through 4 layers. Because the loader derives its column list
+  dynamically from `PREDICTION_COLUMNS` (`prediction_load.py:62/241`), the new columns flow through
+  to staging INSERT automatically — no separate loader edit required.
+- **NEW HIGH#1 (CHECK constraint):** 11-05 Task 1 extends `prediction_model_type_domain` to include
+  `lightgbm_rr`/`catboost_rr` via idempotent DROP+ADD migration, and updates the DDL + comment for
+  fresh CREATE TABLE consistency.
+- **NEW HIGH#2 (as_of_datetime checksum):** 11-05 Task 2 forces `as_of_datetime=FIXED_REPRODUCE_TS`
+  on the persistence-path `train_and_predict` call, with explicit import and regex-based acceptance.
+  PK `as_of_datetime` is now identical across runs, so checksum is bit-identical.
+- **NEW HIGH#3 (loader `""`→`None`):** 11-05 Task 1 adopts mitigation (c) — sentinel `'unspecified'`
+  default at the DDL, `predict_p_fukusho`, and `orchestrator.train_and_predict` layers. The sentinel
+  is not the empty string, so it passes through the loader unchanged; v1.0 binary calls
+  (theta=None/3 args omitted) get the sentinel and remain NOT NULL-safe.
+- **MEDIUM (theta/model_type guard):** 11-03 Task 1 adds a bidirectional guard at `train_and_predict`
+  entry, blocking both `theta=float + non-_rr` and `_rr + theta=None`.
+- **LOW ×2 (AST grep, stale private refs):** 11-04 replaces substring grep with AST `Call` detection;
+  11-04 `key_links`/docstring updated to reference the public `load_predictions`.
+
+### Remains unresolved
+
+None. The plan set is execution-ready.
+
+### Overall Risk: **LOW** (down from HIGH)
+
+Cycle-1's sanctuary/leakage HIGHs (θ test-window leak, bit-identical binning, persistence API, task
+ordering, sales_start_entry_count) were resolved in cycle 2. Cycle-2's live-DB blockers (CHECK
+constraint, checksum stability, NOT NULL vs loader) and the remaining actionable items are now fully
+folded into the revised PLAN.md with concrete tasks, acceptance criteria, and verification commands.
+All HIGH anchors were re-confirmed against the live source; the loader's dynamic `PREDICTION_COLUMNS`
+derivation makes the sentinel approach structurally sound. The race-relative probability model layer
+is ready for `/gsd-execute-phase`.
+
+CYCLE_SUMMARY: current_high=0 current_actionable=0
+
+## Current HIGH Concerns
+
+None.
+
+## Current Actionable Non-HIGH Concerns
+
+None.
