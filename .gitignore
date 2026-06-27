@@ -33,3 +33,6 @@ models/
 .DS_Store
 
 # 品質レポートは成果物なので reports/ は除外しない（01-RESEARCH.md 明示）
+
+# GSD research cache（Web リサーチキャッシュ・再生成可能・版管理外）
+.planning/research/.cache/
