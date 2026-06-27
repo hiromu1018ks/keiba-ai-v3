@@ -167,7 +167,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 11-03-PLAN.md — orchestrator.train_and_predict theta 引数 + 補正層呼出（D-01/D-06・A5 後方互換・SC#3 bit-identical）+ artifact.py metadata.json theta provenance（α_r 不保存・D-10）+ predict.py MODEL_TYPE_TO_SHORT 拡張（lgbrr/cbrr）（MODEL-01/SAFE-01）
+- [x] 11-03-PLAN.md — orchestrator.train_and_predict theta 引数 + score_split + _normalize_model_type + 双方向 guard（codex HIGH#1/#2・cycle-2 MEDIUM・silent provenance hole 回避）+ sales_start_entry_count 必須（codex HIGH#6）+ 補正層呼出（D-01/D-06・A5 後方互換・SC#3 bit-identical・theta=None で既存テスト10件全 GREEN）+ artifact.py metadata.json theta provenance（α_r 不保存・D-10）+ predict.py MODEL_TYPE_TO_SHORT 拡張（lgbrr/cbrr）（MODEL-01/SAFE-01）
 
 **Wave 3** *(blocked on Wave 2)*
 
