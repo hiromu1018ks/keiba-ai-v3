@@ -613,17 +613,19 @@ for rid in np.unique(race_ids):
 - CalibratedClassifierCV 内部構造: `calibrated_classifiers_[0].calibrators[0]` で IsotonicRegression 直接アクセス（HIGH・orchestrator L745-766 が既に利用）
 - overprediction penalty 集約: サンプル重み付け半波整流 ECE が全体/selected 両スケールで定義可能（HIGH）
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> 両 question とも推奨値が PLAN に取り込まれ解決済み（11-01 Task1 `THETA_CANDIDATES` 定数・11-04 `reports/11-theta-selection.{md,json}` 出力）。plan-checker Dimension 11 形式基準対応。
 
 1. **θ 候補集合の最終値**
    - What we know: Phase 10 D-12 先例（additive score 用 `{0.0, 0.1, 0.25, 0.5}`）・θ=1 が baseline・θ>1 が平坦化・θ<1 が尖鋭化・極小値で α_r 発散（実証）。
    - What's unclear: logit temperature としての最適な候補数と間隔（additive score 係数とは別物）。
-   - Recommendation: planner が Plan 内で事前登録。推奨案 `{0.5, 0.75, 1.0, 1.25, 1.5}`（θ=1 baseline 含む・5 候補・尖鋭化側に発散リスクがあるため θ<0.5 は含めない）。D-03 tie-break で θ=1 に近い候補を選ぶので対称性が望ましい。
+   - RESOLVED Recommendation: planner が Plan 内で事前登録。採用値 `{0.5, 0.75, 1.0, 1.25, 1.5}`（θ=1 baseline 含む・5 候補・尖鋭化側に発散リスクがあるため θ<0.5 は含めない）→ 11-01 Task1 `THETA_CANDIDATES` 定数に固定（§11.2 事前登録・test 窓選び直し禁止）。D-03 tie-break で θ=1 に近い候補を選ぶので対称性が望ましい。
 
 2. **比較レポート（reports/11-*）の θ 選択経路記録形式**
    - What we know: 後知恵すり替え禁止のため選択ルールは事前登録値で固定（D-03・CONTEXT Claude's Discretion）。
    - What's unclear: 候補毎の足切り/選択/tie-break の各段階をどう JSON/Markdown で記録するか。
-   - Recommendation: `reports/11-theta-selection.{md,json}` に候補毎の (Brier, LogLoss, AUC, overprediction_penalty, calib_max_dev, selected_only_calib_max_dev, verdict) を byte-reproducible に出力（`segment_eval.write_segment_reports` idiom 踏襲・`_atomic_write_text`・sort_keys=True）。
+   - RESOLVED Recommendation: `reports/11-theta-selection.{md,json}` に候補毎の (Brier, LogLoss, AUC, overprediction_penalty, calib_max_dev, selected_only_calib_max_dev, verdict) を byte-reproducible に出力（`segment_eval.write_segment_reports` idiom 踏襲・`_atomic_write_text`・sort_keys=True）→ 11-04 `run_phase11_evaluation.py` に実装。
 
 ## Environment Availability
 
