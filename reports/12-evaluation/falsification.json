@@ -1,0 +1,38 @@
+{
+  "falsification_result": {
+    "alpha": 0.05,
+    "holm_alpha": 0.05,
+    "model_p_coef": 0.006271776900512529,
+    "model_p_pvalue": 0.039473547783690326,
+    "model_p_significant": true,
+    "sub_analyses_odds_band": {
+      "1.0-2.9": {
+        "coef": 0.021915772816818196,
+        "corrected_pvalue": 0.0010041299807045823,
+        "pvalue": 0.0002510324951761456,
+        "significant_after_holm": true
+      },
+      "10+": {
+        "coef": -0.05543800897850455,
+        "corrected_pvalue": 0.5715720122997336,
+        "pvalue": 0.3986242764257689,
+        "significant_after_holm": false
+      },
+      "3.0-4.9": {
+        "coef": 0.022618728297522518,
+        "corrected_pvalue": 0.3331791016326863,
+        "pvalue": 0.11105970054422877,
+        "significant_after_holm": false
+      },
+      "5.0-9.9": {
+        "coef": 0.028160274461910016,
+        "corrected_pvalue": 0.5715720122997336,
+        "pvalue": 0.2857860061498668,
+        "significant_after_holm": false
+      }
+    },
+    "verdict": "feature_gap"
+  },
+  "phase": 12,
+  "skipped_reason": null
+}

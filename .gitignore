@@ -36,3 +36,6 @@ models/
 
 # GSD research cache（Web リサーチキャッシュ・再生成可能・版管理外）
 .planning/research/.cache/
+
+# ランタイム実行ログ (gap-closure 検証用・成果物でない)
+.logs/

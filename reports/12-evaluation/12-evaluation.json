@@ -1,0 +1,175 @@
+{
+  "args": {
+    "baseline_snapshot_id": "20260626-1a-opponentstrength-v1",
+    "bt_split": "BT-1",
+    "odds_snapshot_policy": "30min_before",
+    "selected_theta": 1.0
+  },
+  "gate": {
+    "baseline_metrics": {
+      "auc": 0.6988808850919148,
+      "brier": 0.15524269650278047,
+      "calibration_max_dev": 0.6723891574596195,
+      "calibration_max_dev_guarded": 0.03300739664425534,
+      "ece": 0.011510438791198714,
+      "logloss": 0.48472870481520564,
+      "mce": 0.022473730667411485,
+      "quantile_max_dev": 0.022473730667411485,
+      "sum_p_mean": 2.8633083779080013,
+      "sum_p_median": 2.824463368964414,
+      "sum_p_note": "複勝確率は独立二値確率のため sum(p) は払戻対象数に厳密合計しない・診断的指標として扱う (§15.2・review MEDIUM)",
+      "sum_p_p10": 1.9664885990631107,
+      "sum_p_p90": 3.804145037217821
+    },
+    "baseline_segments_reference": {
+      "error": "evaluate_all_segments: y_true_col='fukusho_hit' が df に存在しない"
+    },
+    "binning_source": {
+      "CALIBRATION_CURVE_BINS": 10,
+      "CALIBRATION_CURVE_MIN_BIN_COUNT": 30,
+      "NINKI_BAND_EDGES": [
+        0.0,
+        3.0,
+        6.0,
+        9.0,
+        "inf"
+      ],
+      "ODDS_BAND_EDGES": [
+        0.0,
+        2.9,
+        4.9,
+        9.9,
+        "inf"
+      ],
+      "ODDS_BAND_LABELS": [
+        "1.0-2.9",
+        "3.0-4.9",
+        "5.0-9.9",
+        "10+"
+      ],
+      "note": "§15.2 事前登録指標不変・evaluator/segment_eval から import 再利用 (再定義禁止)"
+    },
+    "block_reasons": [],
+    "block_triggered": false,
+    "phase12_constants_source": {
+      "HOLM_ALPHA": 0.05,
+      "LOGIT_CLIP_EPS": 1e-06,
+      "MARKET_CALIB_SAMPLE_THRESHOLD": 1000,
+      "ODDS_CLIP_MAX": 100.0,
+      "ODDS_CLIP_MIN": 1.0,
+      "PHASE12_ODDS_BAND_CALIB_MAX_DEV_THRESHOLD": 0.15,
+      "PHASE12_SELECTED_ONLY_CALIB_MAX_DEV_THRESHOLD": 0.1,
+      "Q_LEVEL_FALSIFICATION": 0.05,
+      "Q_LEVEL_SHRINKAGE": 0.9,
+      "note": "Phase 12 事前登録定数は src/eval/falsification.py constants block から import (重複定義回避)"
+    },
+    "phase12_warn": {
+      "odds_band_threshold": 0.15,
+      "phase12_block_triggered": false,
+      "phase12_odds_band_calib_max_dev": {
+        "1.0-2.9": 0.3626217590681473,
+        "10+": 0.022023328437368244,
+        "3.0-4.9": 0.1638259804089721,
+        "5.0-9.9": 0.06852041642160553
+      },
+      "phase12_selected_only_calib_max_dev": 0.27236885429949037,
+      "phase12_warn_reasons": [
+        "phase12_selected_only_calib_max_dev: selected-only calib_max_dev=0.272 > threshold=0.100 (投票層の過大予測・SC#4・D-06 WARN)",
+        "phase12_odds_band_calib_max_dev[1.0-2.9]: calib_max_dev=0.363 > threshold=0.150 (オッズ帯別条件付き calibration 過大・SC#4・D-06 WARN)",
+        "phase12_odds_band_calib_max_dev[3.0-4.9]: calib_max_dev=0.164 > threshold=0.150 (オッズ帯別条件付き calibration 過大・SC#4・D-06 WARN)"
+      ],
+      "phase12_warn_triggered": true,
+      "selected_only_threshold": 0.1
+    },
+    "phase12_warn_reasons": [
+      "phase12_selected_only_calib_max_dev: selected-only calib_max_dev=0.272 > threshold=0.100 (投票層の過大予測・SC#4・D-06 WARN)",
+      "phase12_odds_band_calib_max_dev[1.0-2.9]: calib_max_dev=0.363 > threshold=0.150 (オッズ帯別条件付き calibration 過大・SC#4・D-06 WARN)",
+      "phase12_odds_band_calib_max_dev[3.0-4.9]: calib_max_dev=0.164 > threshold=0.150 (オッズ帯別条件付き calibration 過大・SC#4・D-06 WARN)"
+    ],
+    "phase12_warn_triggered": true,
+    "rr_metrics": {
+      "auc": 0.7178420259568477,
+      "brier": 0.15201622351300453,
+      "calibration_max_dev": 0.3214002342823158,
+      "calibration_max_dev_guarded": 0.01630157193116849,
+      "ece": 0.00938969381324901,
+      "logloss": 0.4711835337068675,
+      "mce": 0.026055058880319282,
+      "quantile_max_dev": 0.026055058880319282,
+      "sum_p_mean": 2.9914893616935037,
+      "sum_p_median": 3.0000000000000004,
+      "sum_p_note": "複勝確率は独立二値確率のため sum(p) は払戻対象数に厳密合計しない・診断的指標として扱う (§15.2・review MEDIUM)",
+      "sum_p_p10": 2.9999999999473532,
+      "sum_p_p90": 3.0000000000039724
+    },
+    "rr_segments_reference": {
+      "error": "evaluate_all_segments: y_true_col='fukusho_hit' が df に存在しない"
+    },
+    "section_15_2_gate": {
+      "baseline": {
+        "block_reasons": [],
+        "block_triggered": false,
+        "comparable_baselines": [
+          "bl1",
+          "bl4",
+          "bl5"
+        ],
+        "condition_flags": {
+          "baselines_all_lose": false,
+          "sum_p_violation": true
+        },
+        "gate_verdict": "WARN",
+        "sum_p_block_threshold": 0.3,
+        "warn_reasons": [
+          "sum_p_violation (single condition, not BLOCK): large_violation_rate=69.4% >= 30% — D-02 AND 条件未満",
+          "sum_p_violation (single condition, not BLOCK): small_violation_rate=78.6% >= 30% — D-02 AND 条件未満"
+        ]
+      },
+      "race_relative": {
+        "block_reasons": [],
+        "block_triggered": false,
+        "comparable_baselines": [
+          "bl1",
+          "bl4",
+          "bl5"
+        ],
+        "condition_flags": {
+          "baselines_all_lose": false,
+          "sum_p_violation": false
+        },
+        "gate_verdict": "WARN",
+        "sum_p_block_threshold": 0.3,
+        "warn_reasons": []
+      }
+    },
+    "warn_reasons": [
+      "sum_p_violation (single condition, not BLOCK): large_violation_rate=69.4% >= 30% — D-02 AND 条件未満",
+      "sum_p_violation (single condition, not BLOCK): small_violation_rate=78.6% >= 30% — D-02 AND 条件未満"
+    ]
+  },
+  "phase": 12,
+  "q_level": 0.9,
+  "q_shrink": 0.3328315161410432,
+  "recovery_rates": {
+    "baseline_v1_0_binary": 0.0,
+    "p_lower": 0.0
+  },
+  "rr_model_version": "20260626-1a-opponentstrength-v1-lgbrr-v1",
+  "switch_recommendation": {
+    "d10_note": "switch_recommendation は判断材料を report に出すのみ (D-09)・is_primary DB 変更は人間承認の別アクション (D-10・set_primary_model を呼ばない・AST check 0件)",
+    "inputs": {
+      "baseline_recovery_rate": 0.0,
+      "ev_improved": false,
+      "falsification_verdict": "feature_gap",
+      "p_lower_recovery_rate": 0.0,
+      "phase12_warn_triggered": true,
+      "recovery_rate_delta": 0.0
+    },
+    "recommendation": "reject",
+    "rules": {
+      "hold": "SC#4 PASS + (EV 改善なし または structural_limit) → 現状維持 (判断材料積み上げ)",
+      "reject": "SC#4 WARN gate FAIL → core value 維持での黒字化困難 (market が model を包摂)",
+      "switch": "SC#4 PASS + EV 改善 + feature_gap → 市場 residual が残る (特徴量改善余地あり)"
+    }
+  }
+}
