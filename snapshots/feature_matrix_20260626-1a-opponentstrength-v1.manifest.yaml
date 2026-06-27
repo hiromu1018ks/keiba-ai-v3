@@ -1,7 +1,7 @@
 byte_reproducible_scope: parquet_data_only_metadata_excluded
 byte_size: 107678706
 category_map_artifact: snapshots/category_map_20260626-1a-opponentstrength-v1.json
-created_at: '2026-06-26T15:50:34.079194+00:00'
+created_at: '2026-06-27T00:28:36.393889+00:00'
 created_at_fixed: '2026-06-26T00:00:00Z'
 dataset_version: v1.0.0
 feature_availability_version: 0.6.0
