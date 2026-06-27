@@ -311,6 +311,10 @@ def main(argv: list[str] | None = None) -> int:
         # score_split="calib" は X_calib のみを予測対象にするので test 窓に触れない。
         theta_candidates: list[float] = [float(t) for t in args.theta_candidates]
         logger.info("θ 選択経路 (calib slice): candidates=%s", theta_candidates)
+        # REVIEW CR-03: test 窓呼出と同一の §19.1 metadata 3引数を θ 選択経路にも渡す。
+        # θ 候補評価用の calib slice pred_df が test 窓の pred_df と同一 provenance を持ち・
+        # checksum 再現性が calib/test 両経路で一致する（§19.1 聖域）。
+        # θ 選択ロジック（D-03/§11.2 聖域・calib slice のみ使用）には影響しない。
         theta_selection = _select_theta_on_calib(
             frame=frame,
             feature_snapshot_id=args.baseline_snapshot_id,
@@ -318,6 +322,11 @@ def main(argv: list[str] | None = None) -> int:
             cat_map=cat_map,
             theta_candidates=theta_candidates,
             label_df=label_df,
+            metadata_kwargs=dict(
+                label_version="v1.0",
+                odds_snapshot_policy=args.odds_snapshot_policy,
+                backtest_strategy_version=args.bt_split,
+            ),
         )
         selected_theta = float(theta_selection["selected_theta"])
         logger.info(
@@ -488,6 +497,7 @@ def _select_theta_on_calib(
     cat_map: dict[str, Any],
     theta_candidates: list[float],
     label_df: pd.DataFrame,
+    metadata_kwargs: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """D-03 制約付き選択を ``score_split="calib"`` でのみ実施する (§11.2 聖域の機械保証).
 
@@ -500,12 +510,32 @@ def _select_theta_on_calib(
     ``score_split="calib"`` は X_calib のみを予測対象にするので構造的に test 窓に触れない
     (codex HIGH#1・§11.2 聖域の機械保証・docstring 紳士協定でない)。
 
+    REVIEW CR-03 (§19.1 再現性):
+    ``metadata_kwargs`` は baseline / rr 両方の ``train_and_predict(score_split="calib")``
+    呼出に伝播される §19.1 provenance 3 引数（label_version / odds_snapshot_policy /
+    backtest_strategy_version）。test 窓呼出と同一の実運用値を渡すことで・calib slice と
+    test 窓の pred_df で provenance が一致し checksum 再現性が保証される。
+    ``None`` の場合は sentinel "unspecified" 既定値を使う（train_and_predict 既定と同一）。
+    **θ 選択ロジック自体（calib slice のみ使用・D-03/§11.2 聖域）は変更しない**。
+    metadata_kwargs は pred_df の provenance 列に書き込まれるだけで・θ 候補の足切り・
+    選択・tie-break の判定に影響しない（θ 決定経路に test 窓情報は混入しない）。
+
     Returns
     -------
     dict
         selected_theta / candidates (候補毎の評価値) / selection_path (足切り→選択→tie-break)
     """
     from src.model.orchestrator import train_and_predict  # 遅延 import
+
+    # REVIEW CR-03: §19.1 metadata 3引数を共通化し baseline/rr 両呼出に伝播。
+    # None の場合は sentinel "unspecified"（train_and_predict 既定値と同一）。
+    _metadata = dict(
+        label_version="unspecified",
+        odds_snapshot_policy="unspecified",
+        backtest_strategy_version="unspecified",
+    )
+    if metadata_kwargs is not None:
+        _metadata.update(metadata_kwargs)
 
     # baseline (theta=None) の calib 指標 (足切り基準)
     baseline_calib_result = train_and_predict(
@@ -518,6 +548,7 @@ def _select_theta_on_calib(
         category_map=cat_map,
         theta=None,
         score_split="calib",
+        **_metadata,
     )
     baseline_calib_pred = _attach_label_to_pred(
         baseline_calib_result["pred_df"], label_joined_frame=frame
@@ -537,6 +568,7 @@ def _select_theta_on_calib(
             category_map=cat_map,
             theta=theta,
             score_split="calib",
+            **_metadata,  # REVIEW CR-03: §19.1 provenance 一貫性
         )
         rr_pred = _attach_label_to_pred(
             rr_result["pred_df"], label_joined_frame=frame
