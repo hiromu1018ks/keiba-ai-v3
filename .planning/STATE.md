@@ -5,8 +5,8 @@ milestone_name: Ability Feature v2 & Conditional Calibration
 current_phase: 12
 current_phase_name: p_lower EV & Falsification Evaluation
 status: executing
-stopped_at: Phase 11 context gathered
-last_updated: "2026-06-27T06:34:22.083Z"
+stopped_at: Phase 12 context gathered
+last_updated: "2026-06-27T09:51:09.933Z"
 last_activity: 2026-06-27
 last_activity_desc: Phase 11 complete, transitioned to Phase 12
 progress:
@@ -321,12 +321,12 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-06-25:
 
 ## Session Continuity
 
-**Last session:** 2026-06-27T05:16:27.376Z
+**Last session:** 2026-06-27T09:51:09.927Z
 
 **Resume file:** 
 
-None
-Stopped at: Phase 11 context gathered
+.planning/phases/12-p-lower-ev-falsification-evaluation/12-CONTEXT.md
+Stopped at: Phase 12 context gathered
 Resume: `/gsd-execute-phase 9`（P04: SC#4 SAFE-01 AST audit + SC#5 ドメイン整合性可視化・rolling_speed_figure_* 6 feature を含む完成 feature_matrix が必要・本 P03 で生成可能に）
 
 ## Operator Next Steps
