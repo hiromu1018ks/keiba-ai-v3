@@ -277,8 +277,22 @@ def _attach_label_to_pred(
     label_df["umaban"] = pd.to_numeric(label_df["umaban"], errors="coerce").astype("Int64")
 
     label_keep = ["race_key", "umaban", "fukusho_hit_validated"]
-    for extra in ("entry_count", "final_starter_count", "sales_start_entry_count"):
-        if extra in label_df.columns:
+    # [gap-closure] _compute_recovery_rate (purchase_simulator + refund_accounting) と select_bets が
+    # is_fukusho_sale_available / is_model_eligible を消費するため・label/frame から eval コピーに伝播。
+    # これらが無いと _compute_recovery_rate が NaN を返し・switch_recommendation の判断材料が欠ける。
+    for extra in (
+        "entry_count",
+        "final_starter_count",
+        "sales_start_entry_count",
+        "is_fukusho_sale_available",
+        "is_model_eligible",
+        "fukusho_payout_places",
+        "is_scratch_cancel",
+        "is_race_excluded",
+        "is_race_cancelled",
+        "is_dead_loss",
+    ):
+        if extra in label_df.columns and extra not in label_keep:
             label_keep.append(extra)
 
     merged = pred_df.merge(
@@ -982,14 +996,37 @@ def run_falsification_pipeline(
     )
 
     # (3) test 窓予測のみで評価 (§11.2 聖域・予測モデル p の再学習を行わない)
-    odds_test = pd.to_numeric(test_df["fuku_odds_lower"], errors="coerce").to_numpy(dtype=float)
+    # gap-closure: no_bet sentinel (fuku_odds_lower NaN) の馬は市場情報が無く falsification 回帰の
+    # 対象外 (market_implied が NaN になり logit で伝播して LogisticRegression/Logit が NaN で失敗)。
+    # train/calib と同様に odds 欠損行を除外する (統計的妥当: 市場と比較可能な馬のみで検定)。
+    odds_lower_series = pd.to_numeric(test_df["fuku_odds_lower"], errors="coerce")
+    usable_mask = odds_lower_series.notna()
+    n_test_total = len(test_df)
+    n_test_usable = int(usable_mask.sum())
+    if n_test_usable == 0:
+        raise RuntimeError(
+            "run_falsification_pipeline: test_df の全行の fuku_odds_lower が NaN・"
+            "falsification 回帰の対象馬が0件 (no_bet sentinel ばかり・JODDS 取得状況を確認)"
+        )
+    if n_test_usable < n_test_total:
+        logger.info(
+            "falsification test 窓で odds 欠損行を除外: usable=%d/%d "
+            "(no_bet sentinel の馬は市場比較不可・falsification 対象外)",
+            n_test_usable,
+            n_test_total,
+        )
+    test_df_usable = test_df.loc[usable_mask].copy()
+
+    odds_test = odds_lower_series.loc[usable_mask].to_numpy(dtype=float)
     odds_test_clipped = np.clip(odds_test, ODDS_CLIP_MIN, ODDS_CLIP_MAX).reshape(-1, 1)
     market_implied_proba = calibrator.predict_proba(odds_test_clipped)[:, 1]
-    model_p_test = test_df["p_fukusho_hit"].to_numpy(dtype=float)
-    y_outcome_test = test_df["fukusho_hit_validated"].to_numpy(dtype=float)
-    race_id_test = test_df["race_key"].to_numpy()
+    model_p_test = test_df_usable["p_fukusho_hit"].to_numpy(dtype=float)
+    y_outcome_test = test_df_usable["fukusho_hit_validated"].to_numpy(dtype=float)
+    race_id_test = test_df_usable["race_key"].to_numpy()
     field_size_test = (
-        test_df["entry_count"].to_numpy(dtype=float) if "entry_count" in test_df.columns else None
+        test_df_usable["entry_count"].to_numpy(dtype=float)
+        if "entry_count" in test_df_usable.columns
+        else None
     )
     odds_band_test = odds_test  # run_falsification_test が _odds_band で binning
 
