@@ -6,7 +6,7 @@ current_phase: 12
 current_phase_name: p_lower EV & Falsification Evaluation
 status: verifying
 stopped_at: Completed 12-03-PLAN.md (falsification + WARN gate + ROI + slippage)
-last_updated: "2026-06-27T14:14:50.610Z"
+last_updated: "2026-06-27T15:15:50.992Z"
 last_activity: 2026-06-27
 last_activity_desc: Phase 12 execution started
 progress:
@@ -141,6 +141,7 @@ Last activity: 2026-06-27 — Phase 12 execution started
 | Phase 12 P02 | 40min | 2 tasks | 7 files |
 | Phase 12 P03 | 45min | 2 tasks | 9 files |
 | Phase 12 P04 | 775s | 1 tasks | 2 files |
+| Phase 12 P04 | 1200s | 1 tasks | 10 files |
 
 ### Decisions
 
@@ -316,6 +317,7 @@ Recent decisions affecting current work:
 - [Phase ?]: D-09: compute_switch_recommendation は SC#4 WARN gate + p_lower EV + falsification で switch/hold/reject を report のみ (D-10: set_primary_model Call 0件・人間承認の別アクション)
 - [Phase ?]: C-12-04-4 MEDIUM: docstring は load_predictions を呼ぶ事実を正確に反映・Phase 11 docstring の誤りを踏襲せず・D-10 対象を set_primary_model のみに限定
 - [Phase ?]: C-12-04-5 HIGH: migration (PREDICTION_ADD_P_LOWER_SQL) は run_apply_schema.py (owner/admin) に一本化・本 script からは実行しない (Phase 11 L286-290 idiom)
+- [Phase ?]: [Phase 12] 12-04 gap-closure: JODDS odds pipeline 統合・live-DB END-TO-END 完走 (commit 9da055c/fa783bc/1a97bc6)
 
 ### Pending Todos
 
@@ -348,7 +350,7 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-06-25:
 
 ## Session Continuity
 
-**Last session:** 2026-06-27T14:12:44.239Z
+**Last session:** 2026-06-27T15:15:50.921Z
 
 **Resume file:** 
 

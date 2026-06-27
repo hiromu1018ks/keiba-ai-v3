@@ -45,7 +45,7 @@ metrics:
   files_created: 2
   files_modified: 0
   tests_added: 12
-  commits: [d0881f1]
+  commits: [d0881f1, 69cd065, 9da055c, fa783bc, 1a97bc6]
 status: complete
 ---
 
@@ -148,13 +148,94 @@ None - 計画書の `<action>` / `<done>` / `<verify>` をすべて実行。`KEI
 - 生成される `reports/12-evaluation/` の8ファイルの REAL 出力を人間が確認し・switch_recommendation (switch/hold/reject) を判断材料として受け取る (D-09/D-10・人間承認の別アクション)。
 - 本 plan の unit test (12 tests) は live-DB 実行後も regression なく GREEN を維持するはず (合成データと REAL データで生成ロジックは同一・byte-reproducible 性は入力依存)。
 
+## Gap-Closure (2026-06-27〜28・live-DB END-TO-END 修正)
+
+Plan 05 checkpoint (live-DB 実証) に先立ち・commit d0881f1 の初期実装が live-DB で完走しない2つの欠陥を gap-closure として修正した。本修正は 12-04 の success criteria (SC#1-5 / EV-01 / EVAL-01 / EVAL-02 / SAFE-01) を live-DB で実証可能にするもので・聖域 (§11.2 / SAFE-01 / §15.2 不変 / D-10 / byte-reproducible / statement_timeout) を全て維持した。
+
+### 修正した欠陥
+
+**gap-closure bug #1 [Rule 1 - Bug] entry_count KeyError**:
+- **Found during:** live-DB 実行 (`uv run python scripts/run_phase12_evaluation.py --non-interactive`)
+- **Issue:** `evaluator.check_sum_p_distribution(pred_df, entry_count_col="entry_count")` が `KeyError: 'Column not found: entry_count'` で停止。orchestrator は `sales_start_entry_count` (orchestrator.py L731) を提供するが・`entry_count` 列は提供しない。`run_falsification_pipeline` の `field_size_test` も `entry_count` を要求。
+- **Fix:** `_ensure_entry_count` helper を追加し・`sales_start_entry_count` → `entry_count` の alias を eval コピー (baseline_pred / rr_pred) に付与 (fallback: final_starter_count / race_key group count)。SAFE-01: rr_test_result["pred_df"] (PREDICTION_COLUMNS 20-col) には触れない。
+- **Files modified:** scripts/run_phase12_evaluation.py
+- **Commit:** 9da055c
+
+**gap-closure bug #2 [Rule 1 - Bug] JODDS odds JOIN 欠落 (falsification WARNING skip)**:
+- **Found during:** live-DB 実行
+- **Issue:** `run_phase12_evaluation.py` が JODDS odds (fuku_odds_lower/fuku_odds_upper) を eval コピーに JOIN しておらず・`_safe_run_falsification_pipeline` が `test_pred_df に fuku_odds_lower / p_fukusho_hit が無い・skip (D-15 参考記録)` で WARNING skip されていた (falsification が実際には1度も実行されない)。`_compute_recovery_rate` (EV)・`_compute_odds_band_calib_max_dev` (SC#4 gate)・`switch_recommendation` ゞ odds 欠損で機能不全。
+- **Fix:** `_attach_odds_to_pred` helper を追加し・run_backtest.py L448-460 / L575-600 の PROVEN pattern (fetch_jodds → select_odds_snapshot → race_key+umaban merge + HIGH-2 len assert) で eval コピーに odds を付与。frame (FEATURE_COLUMNS 由来・odds-free) から falsification 用 train/calib を切り出していた経路も・`_build_falsification_windows` で odds-enriched な train/calib を別途構築するよう変更 (frame は D-07/§13.4 odds-free allowlist)。
+- **Files modified:** scripts/run_phase12_evaluation.py
+- **Commit:** 9da055c, 1a97bc6
+
+**gap-closure bug #3 [Rule 3 - Blocking] falsification NaN odds で LogisticRegression 失敗**:
+- **Found during:** gap-closure bug #2 修正後の live-DB 実行
+- **Issue:** no_bet sentinel (fuku_odds_lower NaN) の馬が test_df に残り・calibrator.predict_proba が NaN を返し・logit で NaN が伝播して `fit_market_implied_calibrator` の LogisticRegression が `Input X contains NaN` で失敗。
+- **Fix:** `run_falsification_pipeline` の test 窓評価で・train/calib と同様に odds 欠損行を除外 (統計的妥当: 市場と比較可能な馬のみで検定・no_bet 馬は falsification 対象外)。
+- **Files modified:** scripts/run_phase12_evaluation.py
+- **Commit:** 1a97bc6
+
+**gap-closure bug #4 [Rule 3 - Blocking] JODDS fetch が statement_timeout で QueryCanceled**:
+- **Found during:** gap-closure bug #2 修正後の live-DB 実行
+- **Issue:** train+calib 窓 (2019-2022・4年) の JODDS fetch が既定 `statement_timeout='30s'` で `QueryCanceled` (test 窓 1 年で 7,379,660 行 / 41s・train+calib 4 年で ~4min 見込み)。
+- **Fix:** JODDS fetch スコープ (test 窓 + falsification 用 train/calib 窓) の cursor のみ `statement_timeout='600s'` に延長。pool の configure callback (30s) は維持・cursor の SET は connection 毎で他 cursor に伝播しない (memory: subagent-db-query-statement-timeout の趣旨維持)。
+- **Files modified:** scripts/run_phase12_evaluation.py
+- **Commit:** fa783bc
+
+**gap-closure bug #5 [Rule 1 - Bug] _compute_recovery_rate 必須列欠損**:
+- **Found during:** gap-closure bug #2 修正後の live-DB 実行
+- **Issue:** `_compute_recovery_rate` が `is_fukusho_sale_available / is_model_eligible` 欠損で NaN を返し・switch_recommendation の判断材料が欠けていた。`_attach_label_to_pred` が `fukusho_hit_validated` しか label/frame から伝播していなかった。
+- **Fix:** `_attach_label_to_pred` が `is_fukusho_sale_available / is_model_eligible / fukusho_payout_places / is_scratch_cancel / is_race_excluded / is_race_cancelled / is_dead_loss` も label/frame から eval コピーに伝播 (purchase_simulator.select_bets / refund_accounting.determine_stake_payout が消費)。
+- **Files modified:** scripts/run_phase12_evaluation.py
+- **Commit:** 1a97bc6
+
+### live-DB 実測値 (REAL・honest recording・memory: fix-must-verify-gate-result-livedb)
+
+`uv run python scripts/run_phase12_evaluation.py --non-interactive` (BT-1 / 2023 test 窓 / snapshot=20260626-1a-opponentstrength-v1 / odds_snapshot_policy=30min_before / selected_theta=1.0) で得た実測値:
+
+| 指標 | 実測値 | 備考 |
+|------|--------|------|
+| q_shrink | **0.332832** | calib slice のみ・q_level=0.90・§11.2 聖域 (score_split='calib') |
+| q_shrink.json byte-reproducible | PASS | 2 回実行で sha256 完全一致 (sort_keys/ensure_ascii/allow_nan) |
+| falsification verdict | **feature_gap** | model_p_coef=0.00627・model_p_pvalue=0.0395 < α=0.05・race_id clustered SE |
+| odds_band サブ解析 (Holm 補正) | 1.0-2.9 のみ有意 | corrected_p=0.0010 (有意)・他 band は non-significant |
+| §15.2 gate (baseline) | WARN | large_violation_rate=69.4% / small=78.6% (single condition・BLOCK でない) |
+| §15.2 gate (race_relative) | WARN | sum_p_violation=False・warn_reasons=[] (race-relative 補正で sum(p) 収束) |
+| Phase 12 WARN gate | **FAIL (phase12_warn_triggered=True)** | selected-only calib_max_dev=0.272 > 0.100・odds_band[1.0-2.9]=0.363 > 0.150・odds_band[3.0-4.9]=0.164 > 0.150 |
+| switch_recommendation | **reject** | SC#4 WARN gate FAIL → reject ルール (D-09)・is_primary DB 変更は人間承認の別アクション (D-10) |
+| baseline_recovery_rate | 0.0 | select_bets が投資対象を選ばず (後述) |
+| p_lower_recovery_rate | 0.0 | q_shrink=0.332832 が大きく p_fukusho_hit_lower >= p_min=0.15 を満たす馬が皆無 (memory: fukusho-recovery-070-structural-ceiling) |
+| usable odds coverage | 22792/22793 (99.996%) | no_bet sentinel は NaN 化・select_odds_snapshot の D-02 未来リーク構造的不可保証 |
+| exit code | 0 | END-TO-END 完走・8 ファイル生成 |
+
+**所見 (orchestrator 引き継ぎ)**:
+- falsification は skip でなく実際に実行され・market 条件付きでも model_p に α=0.05 で有意な residual が観測された (feature_gap・統計的所見・「モデルが市場を打つ」保証でない)。1.0-2.9 odds band (人気馬) で Holm 補正後も有意な residual が残るのは・人気馬域で model が市場にない情報を捉えている可能性を示唆する。
+- 一方・Phase 12 WARN gate は FAIL (selected-only・odds_band 共に過大予測)。q_shrink=0.332832 という大きい shrinkage は calib slice の過大予測の大きさを反映し・p_lower ベースでは p_min=0.15 を超える馬がほぼいない (recovery_rate=0.0)。これは memory: fukusho-recovery-070-structural-ceiling が予言した「複勝回収率〜0.65 天井・閾値では改善しない・Phase 1-B か評価リフレーム」の構造的限界と整合する正直な記録。
+- よって switch_recommendation=reject は SC#4 WARN gate FAIL の機械的適用で・core value 維持での黒字化困難を示す。人間承認の別アクション (D-10) として is_primary を切り替えるかは Plan 05 checkpoint で判断する。
+
+### 検証 (gap-closure)
+
+- `KEIBA_SKIP_DB_TESTS=1 uv run pytest tests/test_run_phase12_evaluation.py tests/model/test_orchestrator_p_lower.py tests/evaluation/ tests/model/test_evaluator_phase12_warn_gate.py`: 75 passed (regression なし)
+- `uv run ruff check scripts/run_phase12_evaluation.py`: All checks passed
+- AST check: `set_primary_model` の ast.Call node 0件 (D-10 聖域・commit 9da055c 以降も維持)
+- live-DB 実行: exit 0・8 ファイル生成 (12-evaluation/falsification/falsification-spec/switch-recommendation/q_shrink の md/json)
+- byte-reproducible §19.1: 2 回実行で reports/12-evaluation/*.json 5 ファイルが sha256 完全一致
+- falsification は WARNING skip でなく実際に実行 (verdict: feature_gap・model_p_coef/pvalue 実測)
+
 ## Self-Check: PASSED
 
 - scripts/run_phase12_evaluation.py: FOUND
 - tests/test_run_phase12_evaluation.py: FOUND (12 tests collected)
+- reports/12-evaluation/: FOUND (8 files: 12-evaluation.{md,json} / falsification.{md,json} / falsification-spec.json / switch-recommendation.{md,json} / q_shrink.json)
 - .planning/phases/12-p-lower-ev-falsification-evaluation/12-04-SUMMARY.md: FOUND
 - commit d0881f1: FOUND (feat(12-04): run_phase12_evaluation.py で p_lower EV + falsification 統合評価)
+- commit 69cd065: FOUND (fix(12-04): _assert_deterministic に p_lower_q_shrink 伝播)
+- commit 9da055c: FOUND (fix(12-04): JODDS odds pipeline 統合 gap-closure bug #1/#2)
+- commit fa783bc: FOUND (fix(12-04): JODDS fetch statement_timeout 600s 延長)
+- commit 1a97bc6: FOUND (fix(12-04): falsification NaN odds 除外 + recovery_rate 用 label 列伝播)
 - KEIBA_SKIP_DB_TESTS=1 uv run pytest tests/test_run_phase12_evaluation.py: 12 passed
-- KEIBA_SKIP_DB_TESTS=1 uv run pytest -q (全套): 720 passed / 48 skipped / 0 failed (regression なし)
-- ruff check scripts/run_phase12_evaluation.py tests/test_run_phase12_evaluation.py: All checks passed
-- ruff format --check: 2 files already formatted
+- KEIBA_SKIP_DB_TESTS=1 uv run pytest tests/test_run_phase12_evaluation.py tests/model/test_orchestrator_p_lower.py tests/evaluation/ tests/model/test_evaluator_phase12_gate.py: 75 passed (regression なし)
+- ruff check scripts/run_phase12_evaluation.py: All checks passed
+- AST check: set_primary_model Call node 0件 (D-10 聖域)
+- live-DB 実行: exit 0・8 ファイル生成・falsification verdict=feature_gap (skip でなく実行)
+- byte-reproducible §19.1: 2 回実行で reports/12-evaluation/*.json 5 ファイル sha256 完全一致
