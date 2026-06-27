@@ -23,6 +23,9 @@ dependencies = [
     "catboost==1.2.10",
     "plotly>=6.8.0",
     "scipy>=1.17.1",
+    # Phase 12 falsification: clustered SE / Holm 補正（RESEARCH.md Standard Stack・byte-reproducible §19.1 で厳密固定）
+    # [C2-12-01-1] statsmodels==0.14.6 厳密固定（将来の 0.14.7 等の解決による false fail 回避）
+    "statsmodels==0.14.6",
     "streamlit==1.58.0",
 ]
 

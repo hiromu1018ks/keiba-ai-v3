@@ -378,6 +378,112 @@ def compute_overprediction_penalty(
     return float(penalty)
 
 
+def compute_p_lower_conformal_shrinkage(
+    p_final: np.ndarray,
+    y_calib: np.ndarray,
+    p_final_calib: np.ndarray,
+    *,
+    q_level: float = 0.90,
+) -> tuple[np.ndarray, float]:
+    """calib slice のみで overprediction residual の q_level 分位を計算し p_lower を生成 (D-01/D-02).
+
+    Phase 12 SC#1 / EV-01: race_relative 補正後の ``p_final`` に対し・calib slice のみで
+    計算した overprediction residual の q_level 分位 ``q_shrink`` を保守的に差し引き
+    ``p_lower = max(0, p_final - q_shrink)`` を返す。race_relative.py の apply_race_relative_correction
+    と同一 tier の純粋関数（DB 不要・市場情報 proxy 非参照・SAFE-01 聖域）。
+
+    統計的厳密さ (D-01 修正文・JMLR 2024 v25/23-1553 "Split Conformal Prediction and
+    Non-Exchangeable Data"・Pitfall 1):
+      - split conformal は exchangeability を仮定し (1-alpha) marginal outcome coverage を保証するが・
+        個体ごとの真の確率の下限保証でない。時系列パネルデータ（JRA・race_date 時系列）は非
+        exchangeable で厳密な coverage 保証は壊れる。
+      - よって本関数は「calib slice 上の過大予測を保守的に差し引く分布自由な shrinkage rule」
+        として扱い・report では実測 coverage + selected-only calibration を報告する
+        （過度な保証主張「p は 90% 信頼下限」等はしない・Pitfall 1・D-01 修正文）。
+      - q_level は α と同一視しない（D-02・変数名も ``q_level`` で ``q_alpha`` を避ける）。
+
+    §11.2 聖域（test 窓 outcome 不使用・構造的機械保証・Shared Pattern 6）:
+      - ``y_calib`` / ``p_final_calib`` は calib slice のみ（呼出側が保証）。
+      - test 窓の outcome は引数に取らない（構造的聖域ブロック・docstring 紳士協定でない）。
+        ``inspect.signature`` の parameters は {p_final, y_calib, p_final_calib, q_level} のみ。
+      - ``q_level=0.90`` は shrinkage 強度の事前登録値（D-02）・test 窓で変更不可。
+
+    byte-reproducible (§19.1・Shared Pattern):
+      - ``np.quantile`` は default linear interpolation・seed 非依存・決定論的（実証検証済み）。
+      - 2回実行で ``np.array_equal(p_lower_1, p_lower_2)`` が True・``q_shrink_1 == q_shrink_2``。
+
+    SAFE-01 聖域（市場情報 proxy 排除・SC#4）:
+      - 本関数は ``p_final`` と calib slice のみを消費し・市場情報 proxy 系を引数に取らない。
+      - ``inspect.getsource(compute_p_lower_conformal_shrinkage)`` に市場情報 proxy の
+        Name/Attribute 出現は 0件（AST scan で機械保証・tests/model/test_p_lower.py Test 6
+        および tests/audit/test_audit_p_lower_falsification.py の完全 AST scan と二重保証）。
+      - race_relative.py モジュール全体も FEATURE_COLUMNS / build_training_frame /
+        load_feature_matrix 構築経路を import しない。
+
+    Parameters
+    ----------
+    p_final : np.ndarray
+        race_relative 補正後の final probability（``apply_race_relative_correction`` の戻り値・
+        または v1.0 binary baseline の calibrated probability）。
+    y_calib : np.ndarray
+        calib slice のみの binary outcome（0/1）。finite であること（D-09 fail-loud 鏡像）。
+    p_final_calib : np.ndarray
+        calib slice のみの ``p_final`` 値。``y_calib`` と同一 shape かつ finite であること。
+    q_level : float
+        shrinkage quantile level（keyword-only・デフォルト 0.90・D-02 事前登録値）。
+        ``0 < q_level < 1`` を満たす必要がある（満たさない場合は ``ValueError``）。
+
+    Returns
+    -------
+    (p_lower, q_shrink) : tuple[np.ndarray, float]
+        ``p_lower`` は ``p_final`` と同一 shape の下側信頼限界（[0, 1] 範囲保証）。
+        ``q_shrink`` は calib slice 上の overprediction residual の q_level 分位（実数値・
+        report に併載・D-02）。
+
+    Raises
+    ------
+    ValueError
+        ``q_level`` が ``(0, 1)`` を満たさない場合（D-02 事前登録値の健全性 guard）。
+    RuntimeError
+        ``y_calib`` または ``p_final_calib`` に NaN/inf が含まれる場合
+        （Shared Pattern 4 fail-loud・apply_race_relative_correction L227-232 と同一 idiom・
+        silent fallback 禁止）。
+    """
+    # D-02: q_level 境界 guard（事前登録値の健全性・(0,1) 外は ValueError）
+    if not (0.0 < q_level < 1.0):
+        raise ValueError(
+            f"compute_p_lower_conformal_shrinkage: q_level must be in (0,1), got {q_level} "
+            "(D-02 事前登録値・test 窓で変更不可 §11.2 聖域)"
+        )
+
+    # Shared Pattern 4 fail-loud: y_calib / p_final_calib の NaN/inf 検査
+    # （apply_race_relative_correction L227-232 と同一 idiom・silent fallback 禁止・Phase 10 gap-closure CR-01〜04 鏡像）。
+    if not np.all(np.isfinite(y_calib)):
+        n_bad = int(np.sum(~np.isfinite(y_calib)))
+        raise RuntimeError(
+            f"compute_p_lower_conformal_shrinkage: y_calib に {n_bad} 件の非 finite 値 "
+            f"(NaN/inf)・calib slice outcome 欠損 fail-loud（Shared Pattern 4・silent fallback 禁止）"
+        )
+    if not np.all(np.isfinite(p_final_calib)):
+        n_bad = int(np.sum(~np.isfinite(p_final_calib)))
+        raise RuntimeError(
+            f"compute_p_lower_conformal_shrinkage: p_final_calib に {n_bad} 件の非 finite 値 "
+            f"(NaN/inf)・calib slice prediction 欠損 fail-loud（Shared Pattern 4・silent fallback 禁止）"
+        )
+
+    # D-01: overprediction residual = max(0, p_final_calib - y_calib)（半波整流・予測が実現を上回る正方向誤差のみ）
+    r_calib = np.maximum(0.0, p_final_calib - y_calib)
+
+    # D-02: q_shrink = calib slice の r_calib の q_level 分位
+    # （np.quantile は default linear interpolation・seed 非依存・決定論的・byte-reproducible §19.1）
+    q_shrink = float(np.quantile(r_calib, q_level))
+
+    # p_lower = max(0, p_final - q_shrink)（保守的 shrinkage・[0, inf) を下からクリップ）
+    p_lower = np.maximum(0.0, p_final - q_shrink)
+
+    return p_lower, q_shrink
+
+
 __all__ = [
     "ALPHA_SEARCH_XTOL",
     "P_CAL_CLIP_EPSILON",
@@ -385,4 +491,5 @@ __all__ = [
     "solve_alpha_for_race",
     "apply_race_relative_correction",
     "compute_overprediction_penalty",
+    "compute_p_lower_conformal_shrinkage",
 ]
