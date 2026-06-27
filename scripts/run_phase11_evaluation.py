@@ -389,6 +389,9 @@ def main(argv: list[str] | None = None) -> int:
             "SC#3 deterministic smoke (theta=%s・race-relative・同一モデル同一 seed bit-identical)",
             selected_theta,
         )
+        # REVIEW CR-01: test 窓呼出と同一の §19.1 metadata 3引数を smoke にも渡す。
+        # smoke が test 窓の実運用契約（label_version="v1.0" 等）と同一条件で
+        # bit-identical 再現性を検証する（as_of_datetime は既定 FIXED_REPRODUCE_TS）。
         _assert_deterministic(
             "lightgbm_rr",
             frame,
@@ -397,6 +400,9 @@ def main(argv: list[str] | None = None) -> int:
             split_periods=BT1_PERIODS,
             category_map=cat_map,
             theta=selected_theta,
+            label_version="v1.0",
+            odds_snapshot_policy=args.odds_snapshot_policy,
+            backtest_strategy_version=args.bt_split,
         )
         logger.info("SC#3 deterministic smoke: PASS (bit-identical・codex MEDIUM)")
 

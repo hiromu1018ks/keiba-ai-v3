@@ -983,6 +983,9 @@ def _assert_deterministic(
     category_map: dict[str, Any] | None = None,
     snapshot_id: str | None = None,
     theta: float | None = None,
+    label_version: str = "unspecified",
+    odds_snapshot_policy: str = "unspecified",
+    backtest_strategy_version: str = "unspecified",
 ) -> None:
     """SC#4 reproduce smoke: 固定 seed + 固定 thread count + 固定 as_of_datetime で2回
     ``train_and_predict`` を呼出し・戻り prediction の ``p_fukusho_hit`` 列が
@@ -1000,6 +1003,15 @@ def _assert_deterministic(
     codex MEDIUM・同一モデル同一 seed の再現性・LightGBM≠CatBoost cross-family 同一性でない)。
     ``theta=float`` の場合は ``model_type`` が ``"lightgbm_rr"`` / ``"catboost_rr"`` の
     いずれか (``_rr`` サフィックス) を渡すこと (11-03 双方向 guard・codex cycle-2 MEDIUM)。
+
+    Phase 11 REVIEW CR-01 (§19.1 provenance 一貫性):
+    ``label_version`` / ``odds_snapshot_policy`` / ``backtest_strategy_version`` も
+    smoke に伝播し・両呼出で同一の §19.1 metadata 契約になることを保証する。
+    これらは ``PREDICTION_COLUMNS`` に直接書き込まれ checksum の対象になるため・
+    smoke が test 窓の実運用契約（``label_version="v1.0"`` 等）と同一条件で再現性を検証する。
+    既定値 ``"unspecified"`` は ``train_and_predict`` の sentinel 既定値と同一。
+    さらに ``pred_df`` 全体（provenance/as_of_datetime 列含む）が ``DataFrame.equals`` で
+    bit-identical であることを検証し・provenance 列の混入も再現性検査の対象に含める。
 
     Parameters
     ----------
@@ -1020,10 +1032,14 @@ def _assert_deterministic(
         Phase 11 race-relative logit temperature。``None`` (既定) の場合は v1.0 binary 等価
         (A5・SC#4 回帰防止)。``float`` の場合は race-relative model の bit-identical を検証
         (SC#3・codex MEDIUM・同一モデル同一 seed の再現性)。
+    label_version : str
+        Phase 11 REVIEW CR-01: §19.1 provenance 列。既定 ``"unspecified"`` sentinel。
+    odds_snapshot_policy : str
+        Phase 11 REVIEW CR-01: §19.1 provenance 列。既定 ``"unspecified"`` sentinel。
+    backtest_strategy_version : str
+        Phase 11 REVIEW CR-01: §19.1 provenance 列。既定 ``"unspecified"`` sentinel。
     """
-    result1 = train_and_predict(
-        feature_df,
-        model_type=model_type,
+    common_kwargs = dict(
         feature_snapshot_id=feature_snapshot_id,
         version_n=version_n,
         seed=seed,
@@ -1032,19 +1048,12 @@ def _assert_deterministic(
         category_map=category_map,
         snapshot_id=snapshot_id,
         theta=theta,
+        label_version=label_version,
+        odds_snapshot_policy=odds_snapshot_policy,
+        backtest_strategy_version=backtest_strategy_version,
     )
-    result2 = train_and_predict(
-        feature_df,
-        model_type=model_type,
-        feature_snapshot_id=feature_snapshot_id,
-        version_n=version_n,
-        seed=seed,
-        as_of_datetime=as_of_datetime,
-        split_periods=split_periods,
-        category_map=category_map,
-        snapshot_id=snapshot_id,
-        theta=theta,
-    )
+    result1 = train_and_predict(feature_df, model_type=model_type, **common_kwargs)
+    result2 = train_and_predict(feature_df, model_type=model_type, **common_kwargs)
 
     pred1 = result1["pred_df"]["p_fukusho_hit"].to_numpy()
     pred2 = result2["pred_df"]["p_fukusho_hit"].to_numpy()
@@ -1055,6 +1064,20 @@ def _assert_deterministic(
             "(review HIGH#7 / §19.1 構造的ブロック・Phase 完了不可): "
             f"seed={seed} + 固定 thread count + 固定 as_of_datetime={as_of_datetime} "
             "で2回 train_and_predict した p_fukusho_hit が bit-identical でない。"
+        )
+
+    # Phase 11 REVIEW CR-01: pred_df 全体（provenance/as_of_datetime 列含む）の bit-identical 検証。
+    # as_of_datetime 固定化の意義（checksum bit-identical・永続化パスの再現性）を機械保証する。
+    # 列単位の np.array_equal だけでは as_of_datetime 列混入の再現性破壊を検出できないため・
+    # DataFrame.equals で全列の値・dtype・index を含む完全同一性を検証する。
+    if not result1["pred_df"].equals(result2["pred_df"]):
+        raise RuntimeError(
+            f"_assert_deterministic({model_type}, theta={theta}): SC#3/SC#4 reproduce smoke 違反 "
+            "(REVIEW CR-01 / §19.1・provenance 列含む pred_df 全体の bit-identical): "
+            f"seed={seed} + 固定 as_of_datetime={as_of_datetime} + label_version={label_version} "
+            f"+ odds_snapshot_policy={odds_snapshot_policy} "
+            f"+ backtest_strategy_version={backtest_strategy_version} "
+            "で2回 train_and_predict した pred_df 全体が bit-identical でない。"
         )
 
 
