@@ -66,7 +66,7 @@ import pandas as pd
 
 from src.model.calibrator import CalibrationResult, calibrate_model
 from src.model.data import make_X_y, split_3way
-from src.model.predict import make_model_version, predict_p_fukusho
+from src.model.predict import PREDICTION_COLUMNS, make_model_version, predict_p_fukusho
 from src.model.race_relative import apply_race_relative_correction
 from src.model.trainer import (
     CB_INIT_PARAMS,
@@ -792,13 +792,38 @@ def train_and_predict(
     # prediction_load（DB 書込）は PREDICTION_COLUMNS のみ使用し・これら meta 列を無視
     # （列過多エラーなし）・_assert_valid_prediction_df は本付与前（PREDICTION_COLUMNS のみ）に
     # 実行済みで通過済み。
+    # REVIEW WR-08: meta 列（race_start_datetime / race_key）は PREDICTION_COLUMNS に含まれない
+    # 補助列であり・末尾に追加される。将来 PREDICTION_COLUMNS にこれらの列が追加された場合・
+    # silent に PREDICTION_COLUMNS の列を上書きするのを防ぐため・meta 列が PREDICTION_COLUMNS
+    # と重複しないことを付与前に assert する（fail-loud）。
     from src.model.data import make_race_key
 
     pred_df = pred_df.copy()
+    _meta_cols_to_add = ("race_start_datetime", "race_key")
+    _meta_in_prediction_cols = set(_meta_cols_to_add) & set(PREDICTION_COLUMNS)
+    if _meta_in_prediction_cols:
+        raise RuntimeError(
+            "train_and_predict: meta 列 (race_start_datetime/race_key) が "
+            f"PREDICTION_COLUMNS と重複 ({_meta_in_prediction_cols})・"
+            "silent に PREDICTION_COLUMNS の列を上書きする可能性がある (REVIEW WR-08)。"
+            "PREDICTION_COLUMNS 側にこれらの列を追加した場合は meta 付与経路を見直すこと。"
+        )
     if "race_start_datetime" in race_df_score.columns:
         pred_df["race_start_datetime"] = race_df_score["race_start_datetime"].values
     if "race_key" not in pred_df.columns:
         pred_df["race_key"] = make_race_key(race_df_score).to_numpy()
+    # REVIEW WR-08: meta 列付与後に・pred_df の先頭 len(PREDICTION_COLUMNS) 列が
+    # PREDICTION_COLUMNS と完全一致すること（= PREDICTION_COLUMNS の列順序が meta 列で
+    # 崩れていないこと）を assert する。downstream が pred_df[PREDICTION_COLUMNS] で
+    # 抽出する際の安全性を機械保証する（load_predictions の _df_to_prediction_tuples は
+    # PREDICTION_COLUMNS のみ抽出するが・他の downstream が columns == PREDICTION_COLUMNS
+    # を前提とする場合の silent 誤作動を防止）。
+    if list(pred_df.columns[: len(PREDICTION_COLUMNS)]) != list(PREDICTION_COLUMNS):
+        raise RuntimeError(
+            "train_and_predict: meta 列付与後に pred_df の先頭列が PREDICTION_COLUMNS "
+            f"と一致しない (REVIEW WR-08)・got={list(pred_df.columns[: len(PREDICTION_COLUMNS)])}・"
+            f"expected={list(PREDICTION_COLUMNS)}"
+        )
 
     return {
         "estimator": estimator,
