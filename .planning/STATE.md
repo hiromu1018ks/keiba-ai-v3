@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Ability Feature v2 & Conditional Calibration
 current_phase: 11
-current_phase_name: Race-Relative Probability Model
+current_phase_name: race-relative-probability-model
 status: executing
 stopped_at: Phase 11 context gathered
-last_updated: "2026-06-27T02:59:55.196Z"
+last_updated: "2026-06-27T04:41:01.955Z"
 last_activity: 2026-06-27
-last_activity_desc: Phase 10 complete, transitioned to Phase 11
+last_activity_desc: Phase 11 execution started
 progress:
   total_phases: 5
   completed_phases: 3
-  total_plans: 15
-  completed_plans: 15
+  total_plans: 20
+  completed_plans: 16
   percent: 60
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-16)
 
 **Core value:** オッズ非依存の確率 `p_fukusho_hit` と固定オッズ時点のEVで、過小評価されている馬の複勝払戻対象入り可能性をリークなく検出し、race_id単位・時系列順の再現可能バックテストで定量評価できること。リーク防止と再現性だけは必ず守る。
-**Current focus:** Phase 10 — opponent-strength-race-relative-features
+**Current focus:** Phase 11 — race-relative-probability-model
 
 ## Current Position
 
-Phase: 11 — Race-Relative Probability Model
-Plan: Not started
+Phase: 11 (race-relative-probability-model) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-06-27 — Phase 10 complete, transitioned to Phase 11
+Last activity: 2026-06-27 — Phase 11 execution started
 
 ## v1.1 Milestone Context
 
@@ -132,6 +132,7 @@ Last activity: 2026-06-27 — Phase 10 complete, transitioned to Phase 11
 | Phase 10 P05 | 90min | 2 tasks | 5 files |
 | Phase 10 P06 | 60min | 3 tasks | 6 files |
 | Phase 10 P07 | 55min | 2 tasks | 3 files |
+| Phase 11 P01 | 7 | 3 tasks | 3 files |
 
 ### Decisions
 
@@ -274,6 +275,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 10 Plan 04: builder.py Step5c/6c/6d 統合 (FEAT-02 21 + FEAT-03 6 = 27 feature)・feature_availability.yaml schema_version 0.6.0・CYCLE-2 HIGH-C2-3 raw_history 受渡・A6 構成変更・registry parity GREEN
 - [Phase ?]: Phase 10 Plan 05: snapshot 20260626-1a-opponentstrength-v1 生成 (feature_count=106 Parquet, model FEATURE_COLUMNS=79, delta=+27, SHA256 byte-reproducible §19.1) + FEAT-03 snapshot 境界防御的 Float64 変換 + Rule 1 fix (Step6d adjusted_rank 誤 drop)
 - [Phase 10]: Phase 10 Plan 07: SC#4 SAFE-01 proxy 排除証明完了 (AST + lookahead 注入 + 値の不変性)。W-3 cProfile 上位3位に Python ループ無し GREEN (vectorized 実装証明)・CYCLE-3 MEDIUM #3 production-scale smoke GREEN (H² 積回避)。W-3 縮小版 5.0 秒閾値は PLAN 01 設計 (CYCLE-2 HIGH-C2-1 per-source-race full-pipeline 再計算・core value 必須) と構造的に両立しない (実測 194 秒) ことが正直発覚・W-3 聖域 (後追い緩和禁止) に従い閾値温存・default skip で PLAN 更新 (閾値根拠再確認) 待ち (Rule 4 アーキテクチャ変更相当・緩和でなく構造的矛盾の正直属証)。
+- [Phase ?]: Phase 11 Plan 01: THETA_CANDIDATES=(0.5,0.75,1.0,1.25,1.5)・ALPHA_SEARCH_XTOL=1e-9・P_CAL_CLIP_EPSILON=1e-6 事前登録（§11.2 聖域・src/model/race_relative.py stub）
+- [Phase ?]: Phase 11 Plan 01: SC#3 = 同一 LightGBM 同一 seed の再現性（codex review MEDIUM・cross-family 同一性でなく・test_both_models_bit_identical で契約固定）
+- [Phase ?]: Phase 11 Plan 01: compute_overprediction_penalty 第3引数 = market_signal（SAFE-01・SC#4 で禁止トークン回避・機能は RESEARCH Pattern 3 準拠）
 
 ### Pending Todos
 
@@ -306,11 +310,11 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-06-25:
 
 ## Session Continuity
 
-**Last session:** 2026-06-27T02:18:02.802Z
+**Last session:** 2026-06-27T04:40:23.511Z
 
 **Resume file:** 
 
-.planning/phases/11-race-relative-probability-model/11-CONTEXT.md
+None
 Stopped at: Phase 11 context gathered
 Resume: `/gsd-execute-phase 9`（P04: SC#4 SAFE-01 AST audit + SC#5 ドメイン整合性可視化・rolling_speed_figure_* 6 feature を含む完成 feature_matrix が必要・本 P03 で生成可能に）
 
