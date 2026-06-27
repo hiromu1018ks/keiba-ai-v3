@@ -6,13 +6,13 @@ current_phase: 12
 current_phase_name: p_lower EV & Falsification Evaluation
 status: executing
 stopped_at: Phase 12 planned (5 plans)
-last_updated: "2026-06-27T09:51:09.933Z"
+last_updated: "2026-06-27T12:24:58.972Z"
 last_activity: 2026-06-27
-last_activity_desc: Phase 12 planned (5 plans・Wave 1-5)
+last_activity_desc: Phase 12 execution started
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 20
+  total_plans: 25
   completed_plans: 20
   percent: 80
 ---
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-16)
 
 **Core value:** オッズ非依存の確率 `p_fukusho_hit` と固定オッズ時点のEVで、過小評価されている馬の複勝払戻対象入り可能性をリークなく検出し、race_id単位・時系列順の再現可能バックテストで定量評価できること。リーク防止と再現性だけは必ず守る。
-**Current focus:** Phase 11 — race-relative-probability-model
+**Current focus:** Phase 12 — p_lower EV & Falsification Evaluation
 
 ## Current Position
 
-Phase: 12 — p_lower EV & Falsification Evaluation
-Plan: 12-01〜12-05 (5 plans・Wave 1-5・依存は直線 01→02→03→04→05)
-Status: Ready to execute — Phase 12 planned (5 plans)。core value 聖域（§11.2 test 窓・§15.2 事前登録指標不変・SAFE-01 odds proxy 排除・D-10 is_primary 非自動切替）+ live-DB 操作（schema migration・prediction p_lower 列）を含むため実行前に plan review 推奨
-Last activity: 2026-06-27 — Phase 12 planned (5 plans)
+Phase: 12 (p_lower EV & Falsification Evaluation) — EXECUTING
+Plan: 1 of 5
+Status: Executing Phase 12
+Last activity: 2026-06-27 — Phase 12 execution started
 
 ## v1.1 Milestone Context
 
