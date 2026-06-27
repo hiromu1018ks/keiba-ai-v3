@@ -75,6 +75,10 @@ def write_metadata_json(out_dir: Path, metadata_dict: dict[str, Any]) -> Path:
     byte-reproducible な JSON（``sort_keys=True``・``ensure_ascii=False``）で書込む。
     ``saved_components`` リストで何が保存されたかを明示（audit trail）。
 
+    [C-12-02-5 MEDIUM] ``allow_nan=False`` で厳密化 (§19.1・RFC 8259 strict).
+    NaN を含む dict を渡した場合は ``ValueError`` (json モジュール仕様) で fail-loud.
+    これにより q_shrink が計算不能で NaN のまま metadata に入る silent な再現性破壊を防止する.
+
     Parameters
     ----------
     out_dir : Path
@@ -83,14 +87,20 @@ def write_metadata_json(out_dir: Path, metadata_dict: dict[str, Any]) -> Path:
         保存する metadata（``model_version`` / ``base_model_type`` /
         ``feature_snapshot_id`` / ``calib_method`` / ``seed`` / ``hyperparams`` /
         ``train_calib_test_periods`` / ``saved_components`` 等）。
+        NaN/inf を含んではならない (``allow_nan=False`` で fail-loud・C-12-02-5).
 
     Returns
     -------
     Path
         書込んだ ``metadata.json`` のパス。
+
+    Raises
+    ------
+    ValueError
+        ``metadata_dict`` が NaN/inf を含む場合 (``json.dumps(allow_nan=False)`` 仕様・C-12-02-5).
     """
     path = out_dir / "metadata.json"
-    payload = json.dumps(metadata_dict, sort_keys=True, ensure_ascii=False)
+    payload = json.dumps(metadata_dict, sort_keys=True, ensure_ascii=False, allow_nan=False)
     _atomic_write_text(path, payload)
     return path
 
@@ -106,6 +116,11 @@ def save_native_artifact(
     train_calib_test_periods: dict[str, str],
     calib_method: str,
     race_relative_theta: float | None = None,
+    # Phase 12 SC#1 / EV-01: p_lower provenance (§19.1 再現性・race_relative_theta idiom と同一).
+    # theta=None/v1.0 binary の場合は全て None・race-relative の場合は事前登録値と calib 計算値.
+    p_lower_q_level: float | None = None,
+    p_lower_q_shrink: float | None = None,
+    p_lower_shrinkage_method: str | None = None,
     out_dir: str | Path | None = None,
 ) -> Path:
     """``CalibratedClassifierCV`` を base + calibrator + metadata に分離保存（review HIGH#5）。
@@ -143,6 +158,18 @@ def save_native_artifact(
         保存しない（D-10 自己完結性・θ + base logit で完全再現）。
     out_dir : str | Path | None
         出力ディレクトリ（None の場合は ``models/{model_version}``）。
+    p_lower_q_level : float | None
+        Phase 12 SC#1 / EV-01: shrinkage quantile level (D-02 事前登録値・0.90).
+        ``None`` (theta=None / v1.0 binary) の場合は ``metadata.json`` に ``null`` で記録.
+        race-relative model の場合は ``0.90`` を記録 (§19.1 再現性).
+    p_lower_q_shrink : float | None
+        Phase 12 SC#1 / EV-01: calib slice で計算した q_shrink 実数値 (D-02).
+        ``None`` (theta=None / v1.0 binary) の場合は ``null`` で記録.
+        race-relative model の場合は calib slice で計算した float を記録 (§19.1・byte-reproducible).
+    p_lower_shrinkage_method : str | None
+        Phase 12 SC#1 / EV-01: shrinkage method 識別子 (D-01).
+        ``None`` (theta=None / v1.0 binary) の場合は ``null`` で記録.
+        race-relative model の場合は ``"calibration_residual_conformal"`` を記録.
 
     Returns
     -------
@@ -213,6 +240,11 @@ def save_native_artifact(
         "race_relative_theta": race_relative_theta,
         "race_relative_alpha_search_xtol": 1e-9,  # = race_relative.ALPHA_SEARCH_XTOL
         "race_relative_p_cal_clip_epsilon": 1e-6,  # = race_relative.P_CAL_CLIP_EPSILON
+        # Phase 12 SC#1 / EV-01 provenance (§19.1 再現性・race_relative_theta idiom と同一).
+        # theta=None/v1.0 binary の場合は None・race-relative の場合は事前登録値と calib 計算値.
+        "p_lower_q_level": p_lower_q_level,
+        "p_lower_q_shrink": p_lower_q_shrink,
+        "p_lower_shrinkage_method": p_lower_shrinkage_method,
     }
     write_metadata_json(out, metadata)
     return out

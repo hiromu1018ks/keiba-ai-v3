@@ -67,7 +67,8 @@ import pandas as pd
 from src.model.calibrator import CalibrationResult, calibrate_model
 from src.model.data import make_X_y, split_3way
 from src.model.predict import PREDICTION_COLUMNS, make_model_version, predict_p_fukusho
-from src.model.race_relative import apply_race_relative_correction
+# Phase 12 SC#1 / EV-01: compute_p_lower_conformal_shrinkage (Plan 01 で追加済み・calib slice のみ・§11.2 聖域)
+from src.model.race_relative import apply_race_relative_correction, compute_p_lower_conformal_shrinkage
 from src.model.trainer import (
     CB_INIT_PARAMS,
     LGB_INIT_PARAMS,
@@ -288,6 +289,15 @@ def train_and_predict(
     label_version: str = "unspecified",
     odds_snapshot_policy: str = "unspecified",
     backtest_strategy_version: str = "unspecified",
+    # Phase 12 SC#1 / EV-01 [C-12-02-1 HIGH]: q_shrink 外部注入 API (keyword-only・§11.2 聖域)
+    # - p_lower_q_shrink: None 既定・score_split='test' 経路で calib 済み q_shrink を外部注入する唯一の経路.
+    #   呼出側 run_phase12_evaluation.py (Plan 04) が score_split='calib' で計算した値を渡す.
+    #   theta is not None かつ score_split='test' かつ p_lower_q_shrink is None の場合は RuntimeError
+    #   (test 窓 outcome を使った q_shrink 再計算経路への滑りを構造的に阻止・§11.2 聖域・Shared Pattern 1).
+    # - p_lower_q_level: 0.90 既定 (D-02 事前登録値). test 窓で変更不可. score_split='calib' 経路の
+    #   q_shrink 計算でも使用.
+    p_lower_q_shrink: float | None = None,
+    p_lower_q_level: float = 0.90,
 ) -> dict[str, Any]:
     """``trainer`` + ``calibrate_model`` + ``predict_p_fukusho`` を統合し・行整列保証付きで
     予測 DataFrame を返す orchestrator (review HIGH#2 / HIGH#7 / HIGH#12 / SC#4)。
@@ -753,6 +763,75 @@ def train_and_predict(
         )
         pred_proba = pd.Series(p_final, index=X_score.index, name="p_fukusho_hit")
 
+        # --- Phase 12 SC#1 / EV-01: p_lower 生成 (calib slice のみ・§11.2 聖域・C-12-02-1 HIGH) ---
+        # RESEARCH.md Pattern 1 / 例1 完全呼出経路・calib slice のみで q_shrink を計算する経路と
+        # 外部注入経路 (run_phase12_evaluation.py・Plan 04) の二経路のみ. test 窓 outcome を
+        # q_shrink 計算に使う経路は構造的に触れない (score_split guard L449-455・codex HIGH#1).
+        #
+        # (a) score_split='calib' 経路 (θ選択経路と同一・codex HIGH#1):
+        #     X_score == X_calib なので・p_final と y_calib は同一行集合. compute_p_lower_conformal_shrinkage
+        #     に calib slice の p_final (= p_final_calib) と y_calib を渡して q_shrink を計算する.
+        #     構造的聖域ブロック: 関数シグネチャが {p_final, y_calib, p_final_calib, q_level} のみで
+        #     test 窓 outcome 系を取らない (Plan 01 で検証済み・tests/model/test_p_lower.py Test 2).
+        # (b) score_split='test' 経路:
+        #     theta is not None かつ p_lower_q_shrink is None の場合は RuntimeError (C-12-02-1 HIGH).
+        #     test 窓で q_shrink を再計算する経路に滑るのを構造的に阻止.
+        #     p_lower_q_shrink is not None の場合は外部注入値 (calib で計算済み) を使って
+        #     max(0, p_final - q_shrink) で p_lower を算出 (§11.2 聖域・test 窓 outcome を使わない).
+        # (c) theta=None/v1.0 binary の場合は p_lower=None (後方互換・p_lower_q_shrink は無視).
+        if score_split == "calib":
+            # calib slice のみで q_shrink 計算 (X_score == X_calib・p_final == p_final_calib).
+            # y_calib は X_calib と index 整合 (review HIGH#2 で assert 済み・L498-505).
+            p_lower_arr, q_shrink_value = compute_p_lower_conformal_shrinkage(
+                p_final,
+                y_calib.to_numpy(),
+                p_final,  # score_split='calib' では score 対象 == calib slice のため p_final_calib == p_final
+                q_level=p_lower_q_level,
+            )
+            pred_proba_lower_series = pd.Series(
+                p_lower_arr, index=X_score.index, name="p_fukusho_hit_lower"
+            )
+        else:  # score_split == "test" (入力検証済み・L449-455 で "test"/"calib" のみ許容)
+            if p_lower_q_shrink is None:
+                # [C-12-02-1 HIGH] test 窓 outcome を使った q_shrink 再計算経路への滑りを構造的に阻止.
+                raise RuntimeError(
+                    "train_and_predict: score_split='test' with theta requires p_lower_q_shrink "
+                    "(§11.2 聖域・外部注入のみ・test 窓 outcome を使った q_shrink 再計算は禁止). "
+                    "呼出側 (run_phase12_evaluation.py・Plan 04) が score_split='calib' で計算した "
+                    "q_shrink 値を p_lower_q_shrink 引数で渡すこと (C-12-02-1 HIGH)."
+                )
+            q_shrink_value = float(p_lower_q_shrink)
+            # 外部注入 q_shrink を test 窓 p_final に適用 (§11.2 聖域・test 窓 outcome を使わない).
+            p_lower_arr = np.maximum(0.0, p_final - q_shrink_value)
+            pred_proba_lower_series = pd.Series(
+                p_lower_arr, index=X_score.index, name="p_fukusho_hit_lower"
+            )
+        # Shared Pattern 4 fail-loud: pred_proba_lower と pred_proba の index/長さ不整合は RuntimeError.
+        # (silent wrong-horse p_lower 防止・L700-704 と同一 idiom・Cycle 2 NEW HIGH-1 鏡像).
+        if not pred_proba_lower_series.index.equals(pred_proba.index):
+            raise RuntimeError(
+                "train_and_predict: pred_proba_lower.index != pred_proba.index "
+                "(Phase 12・Shared Pattern 4: silent wrong-horse p_lower prevented)"
+            )
+        if len(pred_proba_lower_series) != len(pred_proba):
+            raise RuntimeError(
+                f"train_and_predict: pred_proba_lower length {len(pred_proba_lower_series)} != "
+                f"pred_proba length {len(pred_proba)} (Phase 12・Shared Pattern 4: length mismatch)"
+            )
+        p_lower_provenance = {
+            "p_lower_q_level": float(p_lower_q_level),
+            "p_lower_q_shrink": float(q_shrink_value),
+            "p_lower_shrinkage_method": "calibration_residual_conformal",  # D-01
+        }
+    else:
+        # theta=None / v1.0 binary: p_lower は NULL (後方互換・A5)・pred_proba_lower は None.
+        pred_proba_lower_series = None
+        p_lower_provenance = {
+            "p_lower_q_level": None,
+            "p_lower_q_shrink": None,
+            "p_lower_shrinkage_method": None,
+        }
+
 
     # --- predict_p_fukusho 呼出 (Cycle 2 NEW HIGH-1: pred_proba 注入で再予測防止) ---
     # pred_proba を明示的に渡すことで・CatBoost の aligned 予測値が predict_p_fukusho 内部で
@@ -772,6 +851,11 @@ def train_and_predict(
         split_label=score_split_label,
         as_of_datetime=as_of_dt,
         pred_proba=pred_proba,
+        # Phase 12 SC#1 / EV-01 [C-12-02-2 MEDIUM]: pred_proba_lower 注入.
+        # theta is not None の場合は compute_p_lower_conformal_shrinkage の戻り値を注入.
+        # theta=None / v1.0 binary の場合は None で PREDICTION_COLUMNS の p_fukusho_hit_lower を
+        # 全行 NULL にする (後方互換・A5・predict_p_fukusho が C-12-01-4 で機械保証).
+        pred_proba_lower=pred_proba_lower_series,
         # Phase 11 codex HIGH#3: §19.1 metadata 3層ワイヤリング (WARNING#2 第2層)・
         # sentinel/事前登録値を predict_p_fukusho → PREDICTION_COLUMNS に伝播。
         # codex cycle-2 NEW HIGH#3: sentinel 既定値で v1.0 binary 呼出も安全。
@@ -843,6 +927,12 @@ def train_and_predict(
         "label_version": label_version,
         "odds_snapshot_policy": odds_snapshot_policy,
         "backtest_strategy_version": backtest_strategy_version,
+        # Phase 12 SC#1 / EV-01: p_lower provenance (§19.1 再現性・C-12-02-1 HIGH).
+        # theta=None/v1.0 binary の場合は全て None. race-relative の場合は事前登録値と calib 計算値.
+        # score_split='test' の場合は p_lower_q_shrink 引数の値がそのまま記録される (外部注入・§11.2 聖域).
+        "p_lower_q_level": p_lower_provenance["p_lower_q_level"],
+        "p_lower_q_shrink": p_lower_provenance["p_lower_q_shrink"],
+        "p_lower_shrinkage_method": p_lower_provenance["p_lower_shrinkage_method"],
     }
 
 
