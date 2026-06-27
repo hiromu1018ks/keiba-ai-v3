@@ -152,16 +152,25 @@ def solve_alpha_for_race(
         z = s_logits / theta + alpha
         return float(np.sum(1.0 / (1.0 + np.exp(-z))) - k)
 
-    return float(
-        brentq(
-            f,
-            ALPHA_SEARCH_BOUNDS[0],
-            ALPHA_SEARCH_BOUNDS[1],
-            xtol=ALPHA_SEARCH_XTOL,
-            rtol=ALPHA_SEARCH_RTOL,
-            maxiter=ALPHA_SEARCH_MAXITER,
+    # REVIEW WR-02: brentq が収束失敗で送出する ValueError (scipy 仕様) を
+    # docstring 契約の RuntimeError でラップする（fail-loud・sentinel fallback なし）。
+    # 発散の主因は θ が極小で α_r が ALPHA_SEARCH_BOUNDS を超える場合。
+    try:
+        return float(
+            brentq(
+                f,
+                ALPHA_SEARCH_BOUNDS[0],
+                ALPHA_SEARCH_BOUNDS[1],
+                xtol=ALPHA_SEARCH_XTOL,
+                rtol=ALPHA_SEARCH_RTOL,
+                maxiter=ALPHA_SEARCH_MAXITER,
+            )
         )
-    )
+    except ValueError as e:
+        raise RuntimeError(
+            f"solve_alpha_for_race: brentq 収束失敗（θ={theta} が極小で α_r 発散の可能性・"
+            f"候補 θ に極小値を含めないこと）: {e}"
+        ) from e
 
 
 def apply_race_relative_correction(
