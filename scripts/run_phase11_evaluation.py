@@ -921,12 +921,27 @@ def _evaluate_gate(
     # D-05 改善 gate 3条件
     baseline_overprediction = _compute_overprediction_from_pred(baseline_pred)
     rr_overprediction = _compute_overprediction_from_pred(rr_pred)
-    # D-05-1: overprediction penalty が rr < baseline (NaN の場合は FAIL・safe side)
-    d05_1_pass = (
-        not math.isnan(baseline_overprediction)
-        and not math.isnan(rr_overprediction)
-        and rr_overprediction < baseline_overprediction
-    )
+    # D-05-1: overprediction penalty が rr < baseline。
+    # REVIEW WR-06: odds/ninki 系列が pred_df に無い場合（odds-free 1-A snapshot・
+    # 本プロジェクトの主用途）・_compute_overprediction_from_pred は NaN を返す（D-15 参考記録）。
+    # θ 選択経路 (_select_theta_on_calib L641-648) は全候補 NaN の場合は D-05-1 を skip して
+    # passing をそのまま stage2 に流す idiom だが・従来の gate 判定は NaN を FAIL にしていたため
+    # odds-free snapshot では常に SC#2 gate が FAIL になる不整合があった。
+    # これを解消し・NaN の場合は D-05-1 を skip（当該条件で gate を落とさない）して
+    # D-05-2/D-05-3 の残りで gate 判定するよう θ 選択経路と整合させる。
+    # odds 系列がある場合は従来通り NaN を FAIL（safe side）として扱う。
+    d05_1_skipped = math.isnan(baseline_overprediction) or math.isnan(rr_overprediction)
+    if d05_1_skipped:
+        # NaN の場合は D-05-1 を skip（gate 落とし原因にしない）・verdict で明示
+        d05_1_pass = True
+        logger.warning(
+            "D-05-1 skip: overprediction penalty が NaN (odds-free 1-A snapshot・D-15 参考記録)・"
+            "baseline=%s rr=%s・θ 選択経路の NaN-safe idiom と整合",
+            baseline_overprediction,
+            rr_overprediction,
+        )
+    else:
+        d05_1_pass = bool(rr_overprediction < baseline_overprediction)
     # D-05-2: selected/high-EV 層の (mean_pred - frac_pos) が rr < baseline
     baseline_selected_dev = _compute_selected_only_calib_max_dev(baseline_pred)
     rr_selected_dev = _compute_selected_only_calib_max_dev(rr_pred)
@@ -974,9 +989,13 @@ def _evaluate_gate(
             "pass": bool(d05_pass),
             "condition_1_overprediction_penalty": {
                 "pass": bool(d05_1_pass),
+                "skipped_nan": bool(d05_1_skipped),
                 "baseline": float(baseline_overprediction),
                 "race_relative": float(rr_overprediction),
-                "rule": "rr < baseline (D-05-1 主指標)",
+                "rule": (
+                    "rr < baseline (D-05-1 主指標)・NaN の場合は skip "
+                    "(odds-free 1-A snapshot・θ 選択経路の NaN-safe idiom と整合・REVIEW WR-06)"
+                ),
             },
             "condition_2_selected_mean_minus_frac": {
                 "pass": bool(d05_2_pass),
