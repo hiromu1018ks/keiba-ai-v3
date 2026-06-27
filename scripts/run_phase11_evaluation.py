@@ -807,6 +807,20 @@ def _compute_selected_only_calib_max_dev(pred_df: pd.DataFrame) -> float:
     selected/high-EV 層は p_fukusho_hit 上位 X% (EV-decile 相当) で定義する。
     本 Phase 11 では selected 層を「p_fukusho_hit 上位 30%」とし・Phase 12 EVAL-01 で
     厳密な EV-decile 定義に移行する (PLAN 11-04 acceptance_criteria に従い・事前登録閾値)。
+
+    REVIEW WR-04 — 現状の簡略化と Phase 12 厳密化タイミング（呼出側が誤解しやすい点）:
+      - 現状の selected 層は **race を跨いだ全体の絶対順位** で p_fukusho_hit 上位 30% を取る
+        （race_id で group 化しない）。ある race の全馬が高確率で別 race の全馬が低確率の
+        場合・selected 層が特定 race に偏り・calib_max_dev の意味が変わる可能性がある。
+      - 本来の D-05-2 の意図は「race 内で上位の馬（EV-decile 相当）」だが・Phase 11 では
+        簡易版として全体順位を採用している（事前登録閾値 30%）。
+      - race-relative 補正後は race 内 sum(p)=k が厳密に成立するため・race 内相対順位が
+        意味を持つ。Phase 12 EVAL-01 で race_id group 化した上で各 race の上位 30% を
+        selected 層にする（または evaluate_all_segments の既存 binning を reuse して
+        segment_eval 由来の指標に置き換える）タイミングで厳密化する。
+      - 現状の簡略版は D-05 gate の実質的な検出力が docstring の意図より低い可能性があるが・
+        事前登録閾値と簡略化の旨を本 docstring に明示するため gate 契約違反と即断できない。
+        Phase 12 EVAL-01 での厳密化をもって D-05-2/D-05-3 gate の検出力を補強する。
     """
     if "p_fukusho_hit" not in pred_df.columns or "fukusho_hit_validated" not in pred_df.columns:
         return float("nan")
