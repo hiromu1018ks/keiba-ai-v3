@@ -24,6 +24,8 @@ from psycopg.errors import IntegrityError, NotNullViolation
 from src.db.schema import (
     APPLY_ORDER,
     PREDICTION_ADD_IS_PRIMARY_SQL,
+    PREDICTION_ADD_PROVENANCE_SQL,
+    PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL,
     PREDICTION_TABLE_DDL,
 )
 from src.db.prediction_load import _df_to_prediction_tuples, set_primary_model
@@ -201,6 +203,98 @@ def test_prediction_columns_matches_ddl_count():
         )
         is not None
     ), "PREDICTION_ADD_IS_PRIMARY_SQL が 'boolean NOT NULL DEFAULT false' を明示していない (REVIEW HIGH#8)"
+
+
+def test_prediction_add_provenance_columns_match_prediction_columns():
+    """PREDICTION_ADD_PROVENANCE_SQL (Phase 11 §19.1) の3列が PREDICTION_COLUMNS に含まれる (REVIEW WR-03).
+
+    Phase 11 で新規追加された PREDICTION_ADD_PROVENANCE_SQL は
+    label_version / odds_snapshot_policy / backtest_strategy_version の3列を
+    ALTER ADD COLUMN IF NOT EXISTS で追加する。この3列が:
+      (1) PREDICTION_TABLE_DDL の CREATE TABLE にも含まれる（新規 DB と既存 DB で同一契約）
+      (2) PREDICTION_COLUMNS（predict.py の loader 契約）にも含まれる
+    ことを検証し・3ファイル連鎖 Pitfall 4（DDL/PREDICTION_COLUMNS/型処理 の不整合）を防止する。
+
+    これ自体は DB 不要の静的パース検査（KEIBA_SKIP_DB_TESTS で skip しない）。
+    """
+    # provenance ALTER が追加する3列
+    provenance_cols = _extract_alter_add_columns(PREDICTION_ADD_PROVENANCE_SQL)
+    expected_provenance = [
+        "label_version",
+        "odds_snapshot_policy",
+        "backtest_strategy_version",
+    ]
+    assert provenance_cols == expected_provenance, (
+        f"PREDICTION_ADD_PROVENANCE_SQL が追加する列が期待と異なる: "
+        f"actual={provenance_cols} expected={expected_provenance}"
+    )
+    # CREATE TABLE DDL にも同一3列が含まれる（新規 DB / 既存 DB 同一契約）
+    ddl_cols = _parse_ddl_columns(PREDICTION_TABLE_DDL)
+    for col in expected_provenance:
+        assert col in ddl_cols, (
+            f"PREDICTION_TABLE_DDL に provenance 列 {col} が無い・"
+            f"新規 DB と既存 DB で契約が異なる（Pitfall 4）"
+        )
+    # PREDICTION_COLUMNS（loader 契約）にも含まれる
+    for col in expected_provenance:
+        assert col in PREDICTION_COLUMNS, (
+            f"PREDICTION_COLUMNS に provenance 列 {col} が無い・"
+            f"loader が書き込めない（Pitfall 4）"
+        )
+    # NOT NULL DEFAULT 'unspecified' sentinel を明示（codex cycle-2 NEW HIGH#3・空文字でなく sentinel）
+    for col in expected_provenance:
+        assert (
+            re.search(
+                rf"ADD COLUMN IF NOT EXISTS {col}\s+varchar\(32\)\s+NOT NULL\s+DEFAULT\s+'unspecified'",
+                PREDICTION_ADD_PROVENANCE_SQL,
+                re.IGNORECASE,
+            )
+            is not None
+        ), (
+            f"PREDICTION_ADD_PROVENANCE_SQL が '{col} varchar(32) NOT NULL DEFAULT 'unspecified'' "
+            f"を明示していない (codex cycle-2 NEW HIGH#3・空文字 sentinel でなく明示 sentinel)"
+        )
+
+
+def test_prediction_extend_model_type_domain_is_constraint_not_column():
+    """PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL は CHECK 制約拡張で列追加でない (REVIEW WR-03).
+
+    Phase 11 の PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL は
+    DROP CONSTRAINT IF EXISTS + ADD CONSTRAINT ... CHECK (model_type IN (...)) であり・
+    列追加（ADD COLUMN）を含まないことを検証する。
+    lightgbm_rr / catboost_rr が model_type domain に含まれることも検証（race-relative 永続化要件）。
+    """
+    # ADD COLUMN を含まない（CHECK 制約拡張のみ）
+    assert "ADD COLUMN" not in PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL.upper(), (
+        "PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL に ADD COLUMN が含まれる・"
+        "本 SQL は CHECK 制約拡張であるべき（REVIEW WR-03）"
+    )
+    # DROP CONSTRAINT IF EXISTS + ADD CONSTRAINT の idempotent 形式
+    assert (
+        re.search(
+            r"DROP CONSTRAINT IF EXISTS prediction_model_type_domain",
+            PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL,
+            re.IGNORECASE,
+        )
+        is not None
+    ), "PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL に DROP CONSTRAINT IF EXISTS が無い（idempotent 形式）"
+    assert (
+        re.search(
+            r"ADD CONSTRAINT prediction_model_type_domain CHECK \(model_type IN \((.*?)\)\)",
+            PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL,
+            re.IGNORECASE,
+        )
+        is not None
+    ), "PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL に ADD CONSTRAINT ... CHECK (model_type IN (...)) が無い"
+    # race-relative model_type (lightgbm_rr / catboost_rr) が domain に含まれる
+    assert "'lightgbm_rr'" in PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL, (
+        "PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL の model_type domain に 'lightgbm_rr' が無い・"
+        "race-relative 予測行が DB に INSERT できない（codex cycle-2 NEW HIGH#1）"
+    )
+    assert "'catboost_rr'" in PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL, (
+        "PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL の model_type domain に 'catboost_rr' が無い・"
+        "race-relative 予測行が DB に INSERT できない（codex cycle-2 NEW HIGH#1）"
+    )
 
 
 def test_apply_order_includes_prediction_add_is_primary():
