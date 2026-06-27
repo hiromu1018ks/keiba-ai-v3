@@ -1029,6 +1029,132 @@ def check_acceptance_gate(
     }
 
 
+# ---------------------------------------------------------------------------
+# Phase 12 (Plan 03) SC#4 専用 WARN gate — §15.2 gate とは完全分離 (D-06・C-12-03-2 選択 A)
+# ---------------------------------------------------------------------------
+# CONTEXT D-06 / 12-CONTEXT.md:
+#   - §15.2 既存 BLOCK/WARN gate (calibration_max_dev/Brier/LogLoss/sum(p)) は一切不変 (後知恵すり替え禁止・聖域)。
+#   - selected-only calibration / odds-band conditional calibration = Phase 12 専用 WARN gate
+#     (core value 再定式化「オッズ帯別条件付き calibration・過大でないこと」の直接的測定)。
+#   - BLOCK にはしない (Phase 12 は切替判断材料フェーズ・WARN が適切・v1.0 の4倍過大を catch)。
+#
+# [C-12-03-2 / HIGH] 本関数は check_acceptance_gate (§15.2 gate) とは完全分離 (選択 A・推奨)。
+#   - check_acceptance_gate の signature・return dict は §15.2 gate のまま一切触らない。
+#   - 呼出側 run_phase12_evaluation.py (Plan 04) が check_acceptance_gate (§15.2) と
+#     check_phase12_warn_gate (Phase 12) を段階的に呼び・両結果を report に併載する。
+#
+# [C-12-04-3 / C2-12-03-4] 事前登録閾値は src/eval/falsification.py の constants block に集約
+#   (重複定義回避・閾値 drift 防止)。本関数は keyword-only 引数の default 値として import するが・
+#   src.eval.falsification → src.model.segment_eval → src.model.evaluator の import chain があるため・
+#   module-level import は循環参照になる。よって default 値を関数内で解決する遅延 import パターンを採用
+#   (呼出側が明示的に threshold を渡せば import 不要・default 解決時のみ import 発生)。
+
+
+def check_phase12_warn_gate(
+    *,
+    selected_only_calib_max_dev: float,
+    odds_band_calib_max_dev: dict[str, float],
+    selected_only_threshold: float | None = None,
+    odds_band_threshold: float | None = None,
+) -> dict[str, Any]:
+    """Phase 12 SC#4 オッズ帯別条件付き calibration 専用 WARN gate (D-06・§15.2 gate とは分離).
+
+    core value 再定式化「オッズ帯別条件付き calibration (過大でないこと)」の直接的測定として・
+    (a) selected-only (p_lower EV で選ばれた馬) の calib_max_dev と (b) 各 odds_band の
+    conditional calib_max_dev を WARN gate に掛ける。**BLOCK でなく WARN** (D-06・Phase 12 は
+    切替判断材料フェーズ)。v1.0 の「p=0.16 → 実 0.04 (4倍過大)」を catch する gate。
+
+    **[C-12-03-2 / HIGH] §15.2 gate とは完全分離 (選択 A・推奨):**
+        本関数は :func:`check_acceptance_gate` (§15.2 gate) を呼び出さず・signature も return dict
+        も完全に独立。呼出側 (``run_phase12_evaluation.py``・Plan 04) が :func:`check_acceptance_gate`
+        と本関数を段階的に呼び・両結果を report に併載する。これにより §15.2 gate の
+        signature/return dict を完全に不変にする (D-06 違反リスク最小)。
+
+    **[C-12-04-3] 事前登録閾値の集約:**
+        ``selected_only_threshold`` / ``odds_band_threshold`` の default 値は
+        :mod:`src.eval.falsification` の constants block
+        (``PHASE12_SELECTED_ONLY_CALIB_MAX_DEV_THRESHOLD`` / ``PHASE12_ODDS_BAND_CALIB_MAX_DEV_THRESHOLD``)
+        から遅延 import する。循環参照回避のため module-level でなく関数内 import。
+        呼出側が明示的に threshold を渡せば import 発生しない。
+
+    **binning 契約 (codex review HIGH#2・bit-identical):**
+        ``odds_band_calib_max_dev`` の keys は :data:`src.model.segment_eval.ODDS_BAND_LABELS`
+        (``"1.0-2.9" / "3.0-4.9" / "5.0-9.9" / "10+"``) に準拠する。呼出側が
+        :func:`src.model.segment_eval._odds_band` で binning した結果の calib_max_dev を渡す。
+
+    §11.2 聖域・事前登録パターン Phase 10 D-12 / 11 D-03 踏襲:
+        閾値は事前登録値・test 窓で変更不可。docstring に固定値を明示。
+
+    Parameters
+    ----------
+    selected_only_calib_max_dev : float
+        selected-only (p_lower EV で選ばれた馬) の calib_max_dev。投票層の過大予測度合い。
+    odds_band_calib_max_dev : dict[str, float]
+        各 odds_band の conditional calib_max_dev。keys は ODDS_BAND_LABELS に準拠。
+        一部 band 欠損可 (欠損 band は WARN 判定から skip)。
+    selected_only_threshold : float | None
+        selected-only calib_max_dev の WARN 閾値 (既定 ``PHASE12_SELECTED_ONLY_CALIB_MAX_DEV_THRESHOLD=0.10``)。
+        None の場合は falsification.py から遅延 import した事前登録値を使用。
+    odds_band_threshold : float | None
+        odds_band conditional calib_max_dev の WARN 閾値 (既定 ``PHASE12_ODDS_BAND_CALIB_MAX_DEV_THRESHOLD=0.15``)。
+        None の場合は falsification.py から遅延 import した事前登録値を使用。
+
+    Returns
+    -------
+    dict
+        ``phase12_warn_triggered`` (bool) / ``phase12_warn_reasons`` (list[str]) /
+        ``phase12_block_triggered`` (常に False・D-06 BLOCK でなく WARN) /
+        ``phase12_selected_only_calib_max_dev`` (float) /
+        ``phase12_odds_band_calib_max_dev`` (dict[str, float]) /
+        ``selected_only_threshold`` (float) / ``odds_band_threshold`` (float)。
+    """
+    # [C-12-04-3] 事前登録閾値の遅延 import (循環参照回避・falsification → segment_eval → evaluator chain)
+    if selected_only_threshold is None or odds_band_threshold is None:
+        from src.eval.falsification import (  # noqa: E402
+            PHASE12_ODDS_BAND_CALIB_MAX_DEV_THRESHOLD,
+            PHASE12_SELECTED_ONLY_CALIB_MAX_DEV_THRESHOLD,
+        )
+        if selected_only_threshold is None:
+            selected_only_threshold = PHASE12_SELECTED_ONLY_CALIB_MAX_DEV_THRESHOLD
+        if odds_band_threshold is None:
+            odds_band_threshold = PHASE12_ODDS_BAND_CALIB_MAX_DEV_THRESHOLD
+
+    warn_reasons: list[str] = []
+    so_threshold = float(selected_only_threshold)
+    ob_threshold = float(odds_band_threshold)
+
+    # (a) selected-only calib_max_dev > threshold の場合の理由追加 (投票層の過大予測)
+    if float(selected_only_calib_max_dev) > so_threshold:
+        warn_reasons.append(
+            f"phase12_selected_only_calib_max_dev: selected-only calib_max_dev="
+            f"{float(selected_only_calib_max_dev):.3f} > threshold={so_threshold:.3f} "
+            f"(投票層の過大予測・SC#4・D-06 WARN)"
+        )
+
+    # (b) 各 odds_band で conditional calib_max_dev > threshold の場合の理由追加
+    # band 順序は ODDS_BAND_LABELS に従う (決定論的・bit-identical・codex HIGH#2)
+    for band_label in ("1.0-2.9", "3.0-4.9", "5.0-9.9", "10+"):
+        if band_label not in odds_band_calib_max_dev:
+            continue
+        band_dev = float(odds_band_calib_max_dev[band_label])
+        if band_dev > ob_threshold:
+            warn_reasons.append(
+                f"phase12_odds_band_calib_max_dev[{band_label}]: calib_max_dev="
+                f"{band_dev:.3f} > threshold={ob_threshold:.3f} "
+                f"(オッズ帯別条件付き calibration 過大・SC#4・D-06 WARN)"
+            )
+
+    return {
+        "phase12_warn_triggered": len(warn_reasons) > 0,
+        "phase12_warn_reasons": warn_reasons,
+        "phase12_block_triggered": False,  # D-06: BLOCK でなく WARN
+        "phase12_selected_only_calib_max_dev": float(selected_only_calib_max_dev),
+        "phase12_odds_band_calib_max_dev": dict(odds_band_calib_max_dev),
+        "selected_only_threshold": so_threshold,
+        "odds_band_threshold": ob_threshold,
+    }
+
+
 def compute_monotonicity_warn(bins_dict: dict[str, Any]) -> dict[str, float]:
     """bin 単調性 WARN 指標（D-03・曖昧 WARN・人間判定参考）。
 

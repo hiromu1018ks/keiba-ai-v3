@@ -536,4 +536,94 @@ __all__ = [
     "evaluate_all_segments",
     "render_segment_curves_html",
     "write_segment_reports",
+    "compute_roi_by_bin",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Phase 12 (Plan 03) EV-decile / disagreement ROI — compute_roi_by_bin 別関数
+# ---------------------------------------------------------------------------
+# [C-12-03-3 / MEDIUM] EVAL-01 拡張評価指標 (EV-decile ROI / model-market disagreement ROI) は
+# evaluate_segment_axis (calibration curve 用 API・bit-identical binning 契約) でなく・本関数で計算する。
+# evaluate_segment_axis は不変 (calibration curve 用 API の契約を破らない)。
+# binning は pd.qcut(duplicates='drop') のみ (codex review HIGH#2・独自 binning 禁止)。
+# D-07: gate 化しない・switch_recommendation (D-09) 入力 + 報告のみ。
+
+
+def compute_roi_by_bin(
+    df: pd.DataFrame,
+    *,
+    bin_col: str,
+    n_bins: int = 10,
+) -> pd.DataFrame:
+    """EV-decile / model-market disagreement 等・任意の連続値 bin で ROI (回収率/P/L/hit_rate) を集計.
+
+    Phase 12 EVAL-01 (D-07) の拡張評価指標。:func:`evaluate_segment_axis` (calibration curve 用 API)
+    とは別関数で・binning は ``pd.qcut(duplicates='drop')`` のみ (bit-identical・codex HIGH#2)。
+    ``evaluate_segment_axis`` の契約は一切変更しない (C-12-03-3・calibration curve 用 API 保護)。
+
+    各 bin で ``recovery_rate = sum(payout_amount) / sum(effective_stake)``・
+    ``profit_loss = sum(profit)``・``hit_rate = mean(fukusho_hit)`` を計算する
+    (:func:`src.ev.metrics.compute_backtest_metrics` の group-by 適用と同等の集計・純粋関数・DB 不要)。
+
+    **[C-12-03-3 / MEDIUM] binning 契約:**
+        ``pd.qcut(df[bin_col], n_bins, labels=False, duplicates='drop')`` で決定論的に bin を構築。
+        ``duplicates='drop'`` で同値過多による bin 削減を許容 (segment_eval binning の既定 idiom)。
+        ``np.digitize`` (ODDS_BAND_EDGES 等の固定 edge 用) は使わず・連続値の quantile binning に特化。
+
+    **D-07 (gate 化しない):**
+        本関数の戻り値は switch_recommendation (D-09) の入力 + 報告のみ。§15.2 gate や
+        Phase 12 WARN gate の対象でない (D-07・報告のみの診断指標・現実回収率 0.78-0.92 を正直に測る)。
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        ``bin_col`` / ``payout_amount`` / ``effective_stake`` / ``profit`` / ``fukusho_hit`` 列を含む
+        DataFrame (backtest 結果・prediction + label + HARAI join 済み)。
+    bin_col : str
+        binning 対象の連続値列名 (例: ``"EV_lower"``・``"disagreement"``)。
+    n_bins : int
+        bin 数 (既定 10)。``pd.qcut(duplicates='drop')`` で同値過多の場合は減る。
+
+    Returns
+    -------
+    pd.DataFrame
+        ``bin`` (int・bin index) / ``n_samples`` (int) / ``recovery_rate`` (float) /
+        ``profit_loss`` (float) / ``hit_rate`` (float)。bin 昇順・2回呼出で bit-identical。
+    """
+    if bin_col not in df.columns:
+        raise ValueError(f"compute_roi_by_bin: bin_col={bin_col!r} が df に存在しない")
+    required = {"payout_amount", "effective_stake", "profit", "fukusho_hit"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"compute_roi_by_bin: 必須列 {missing} が df に存在しない")
+
+    # 欠損行を binning 対象から除外 (silent fallback 禁止・Shared Pattern 4 鏡像)
+    valid_mask = df[bin_col].notna() & df["payout_amount"].notna() & df["effective_stake"].notna()
+    df_valid = df.loc[valid_mask].copy()
+    if len(df_valid) == 0:
+        return pd.DataFrame(columns=["bin", "n_samples", "recovery_rate", "profit_loss", "hit_rate"])
+
+    # pd.qcut(duplicates='drop') で決定論的に bin 構築 (bit-identical・codex HIGH#2)
+    df_valid["_roi_bin"] = pd.qcut(df_valid[bin_col], n_bins, labels=False, duplicates="drop")
+
+    rows: list[dict[str, float | int]] = []
+    for bin_idx in sorted(df_valid["_roi_bin"].dropna().unique()):
+        sub = df_valid[df_valid["_roi_bin"] == bin_idx]
+        total_payout = float(sub["payout_amount"].sum())
+        total_effective_stake = float(sub["effective_stake"].sum())
+        recovery_rate = (
+            total_payout / total_effective_stake if total_effective_stake > 0 else 0.0
+        )
+        profit_loss = float(sub["profit"].sum())
+        hit_rate = float(sub["fukusho_hit"].mean()) if len(sub) > 0 else 0.0
+        rows.append(
+            {
+                "bin": int(bin_idx),
+                "n_samples": int(len(sub)),
+                "recovery_rate": recovery_rate,
+                "profit_loss": profit_loss,
+                "hit_rate": hit_rate,
+            }
+        )
+    return pd.DataFrame(rows)

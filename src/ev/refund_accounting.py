@@ -175,3 +175,90 @@ def determine_stake_payout(
         "profit": payout - stake_per_bet,
         "effective_stake": stake_per_bet,
     }
+
+
+# ---------------------------------------------------------------------------
+# Phase 12 (Plan 03) snapshot→final payout slippage (D-07・C-12-03-5)
+# ---------------------------------------------------------------------------
+# CONTEXT D-07 / 12-CONTEXT.md Claude's Discretion「snapshot→final slippage の具体的測定」:
+#   HARAI PayFukusyoPay (final payout) と odds_snapshot fuku_odds_lower の差分。
+#   planner 事前登録測定式: payout/100 - fuku_odds_lower (100円あたり payout を odds 単位に揃える)。
+#
+# [C-12-03-5 / MEDIUM] 2種類の signature を提供し・呼出側が slot lookup を二重/欠落しないようにする:
+#   (1) row ベース版 compute_snapshot_final_slippage_from_row は _lookup_payfukusyo_pay を呼んで
+#       slot を解決する経路を持つ。
+#   (2) payout_amount 受け取り版 compute_snapshot_final_slippage は呼出側が _lookup_payfukusyo_pay で
+#       解決済みの payout_amount を渡す想定。
+#   二重 slot lookup を避けるためどちらかを使う (silent バグ回避・docstring で明示)。
+
+
+def compute_snapshot_final_slippage(
+    *,
+    payout_amount: float,
+    fuku_odds_lower: float,
+) -> float:
+    """snapshot (fuku_odds_lower) → final payout (HARAI PayFukusyoPay) の slippage を計算 (D-07).
+
+    planner 事前登録測定式 (CONTEXT Claude's Discretion): ``payout/100 - fuku_odds_lower``。
+    HARAI ``PayFukusyoPay`` は 100 円あたりの払戻金額 (例 '200' = 200 円)・``fuku_odds_lower`` は
+    JODDS snapshot の複勝オッズ下限 (例 1.5 倍)。``payout/100`` で倍率単位に揃えて差分を取る。
+
+    **[C-12-03-5 / MEDIUM] payout_amount 受け取り版:**
+        本関数は呼出側が :func:`_lookup_payfukusyo_pay` 等で slot 解決済みの ``payout_amount`` を
+        受け取る想定。row から slot を解決する必要がある場合は
+        :func:`compute_snapshot_final_slippage_from_row` を使う (二重 slot lookup を避けるため・
+        どちらかを使う)。
+
+    NaN 伝播 (payout=0 no_bet や odds=NaN) は呼出側で filter する想定。
+    本関数は NaN をそのまま返す (silent fallback 禁止・Shared Pattern 4・0/100 - odds 等の計算結果を
+    そのまま返すことで・呼出側が filter 条件を明示することを強要する)。
+
+    Parameters
+    ----------
+    payout_amount : float
+        HARAI ``PayFukusyoPay`` (100 円あたり・呼出側が slot 解決済み)。
+    fuku_odds_lower : float
+        JODDS snapshot の複勝オッズ下限 (倍率・例 1.5)。
+
+    Returns
+    -------
+    float
+        ``payout_amount / 100.0 - fuku_odds_lower`` (倍率単位の差分)。
+        正: final payout が snapshot odds より高い (有利・slippage の恩恵)。
+        負: final payout が snapshot odds より低い (不利・slippage の損失)。
+    """
+    return float(payout_amount) / 100.0 - float(fuku_odds_lower)
+
+
+def compute_snapshot_final_slippage_from_row(
+    row: pd.Series,
+    fuku_odds_lower: float,
+) -> float:
+    """row から slot を解決して snapshot→final payout slippage を計算 (D-07・C-12-03-5 row ベース版).
+
+    内部で :func:`_lookup_payfukusyo_pay` を呼んで ``row.umaban`` を
+    ``PayFukusyoUmaban1..5`` slot と照合し・該当 slot の ``PayFukusyoPay`` を取得して
+    :func:`compute_snapshot_final_slippage` に渡す。
+
+    **[C-12-03-5 / MEDIUM] 二重 slot lookup 回避:**
+        本関数は :func:`_lookup_payfukusyo_pay` を自動で呼ぶ。呼出側が既に ``_lookup_payfukusyo_pay``
+        等で slot を解決済みの場合は :func:`compute_snapshot_final_slippage` (payout_amount 受け取り版)
+        を使うこと (二重 slot lookup を避けるため・どちらかを使う)。docstring で経路を明示。
+
+    Parameters
+    ----------
+    row : pd.Series
+        ``umaban`` / ``payfukusyoumaban1..5`` / ``payfukusyopay1..5`` 列を含む prediction + HARAI join 済み row。
+    fuku_odds_lower : float
+        JODDS snapshot の複勝オッズ下限 (倍率)。
+
+    Returns
+    -------
+    float
+        ``_lookup_payfukusyo_pay(row) / 100.0 - fuku_odds_lower``。
+        該当 slot なし (payout=0) の場合は ``0/100 - fuku_odds_lower`` (= ``-fuku_odds_lower``)。
+    """
+    payout_amount = _lookup_payfukusyo_pay(row)
+    return compute_snapshot_final_slippage(
+        payout_amount=payout_amount, fuku_odds_lower=fuku_odds_lower
+    )
