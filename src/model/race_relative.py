@@ -116,10 +116,43 @@ def solve_alpha_for_race(
     ------
     RuntimeError
         brentq が収束しない（θ が極小で α_r 発散・候補 θ に極小値を含めないこと）。
-    NotImplementedError
-        本 stub では未実装（Wave 1・plan 11-02 で実装）。
+        また ``s_logits`` に非 finite 値（NaN/inf）が含まれる場合も RuntimeError
+        （D-09 fail-loud 鏡像・binary logit 欠損は許容しない）。
+    ValueError
+        ``theta <= 0`` の場合・または ``k`` が ``0 < k < n`` を満たさない場合。
     """
-    raise NotImplementedError("Phase 11 Wave 1 (11-02) で実装")
+    # ---- brentq 前 fail-loud guard（D-09 鏡像・codex review MEDIUM 対応） ----
+    # 構造的に不健全な入力が brentq に渡るのを防ぐ。これらは呼出側のバグであり
+    # silent fallback しない（Phase 10 gap-closure CR-01〜04 と同じ方針）。
+    if not np.all(np.isfinite(s_logits)):
+        raise RuntimeError(
+            "solve_alpha_for_race: s_logits に非 finite 値（NaN/inf）が含まれる・"
+            "binary logit 欠損は許容しない（D-09 fail-loud 鏡像・silent fallback 禁止）"
+        )
+    if not (theta > 0):
+        raise ValueError(
+            f"solve_alpha_for_race: theta > 0 が必須・theta={theta}"
+        )
+    n = len(s_logits)
+    if not (0 < int(k) < n):
+        raise ValueError(
+            f"solve_alpha_for_race: 0 < k < n が必須・k={int(k)} n={n}"
+        )
+
+    def f(alpha: float) -> float:
+        z = s_logits / theta + alpha
+        return float(np.sum(1.0 / (1.0 + np.exp(-z))) - k)
+
+    return float(
+        brentq(
+            f,
+            ALPHA_SEARCH_BOUNDS[0],
+            ALPHA_SEARCH_BOUNDS[1],
+            xtol=ALPHA_SEARCH_XTOL,
+            rtol=ALPHA_SEARCH_RTOL,
+            maxiter=ALPHA_SEARCH_MAXITER,
+        )
+    )
 
 
 def apply_race_relative_correction(
@@ -167,11 +200,45 @@ def apply_race_relative_correction(
     Raises
     ------
     RuntimeError
-        ``p_cal`` に NaN/inf が含まれる（D-09 fail-loud）。
-    NotImplementedError
-        本 stub では未実装（Wave 1・plan 11-02 で実装）。
+        ``p_cal`` に NaN/inf が含まれる（D-09 fail-loud）。また race 内で
+        ``k_per_race`` が一意でない場合も RuntimeError（D-08/D-09・呼出側バグ）。
     """
-    raise NotImplementedError("Phase 11 Wave 1 (11-02) で実装")
+    # D-09 fail-loud: p_cal の NaN/inf 検査（neutral 補完・silent fallback 禁止）。
+    # src/utils/calibrator.py L86-94 の raise ValueError idiom と同一方針で・
+    # `python -O` でも生存する（assert でない）。
+    if not np.all(np.isfinite(p_cal)):
+        n_bad = int(np.sum(~np.isfinite(p_cal)))
+        raise RuntimeError(
+            f"apply_race_relative_correction: p_cal に {n_bad} 件の非 finite 値 "
+            f"(NaN/inf)・binary logit 欠損 fail-loud（D-09・silent fallback 禁止）"
+        )
+
+    # step 6: p_cal を clip(ε, 1−ε) して logit 変換 → s_i（Pitfall 1 対策・
+    # IsotonicRegression の 0/1 端点で logit(±inf) 回避）。
+    p_clipped = np.clip(p_cal, P_CAL_CLIP_EPSILON, 1.0 - P_CAL_CLIP_EPSILON)
+    s_logits = np.log(p_clipped / (1.0 - p_clipped))
+
+    p_final = np.empty_like(p_cal, dtype=float)
+
+    # step 7-8: race 毎に α_r を解き final p を算出（race 自己完結・D-10）。
+    # np.unique(race_ids) で他 race の logit が混入しないことを構造的に保証（Pitfall 5）。
+    for rid in np.unique(race_ids):
+        mask = race_ids == rid
+        s_race = s_logits[mask]
+        # race 内 k_per_race 一意性 guard（codex review MEDIUM・D-08/D-09）。
+        # 呼出側が race 内一意を保証すべき値が混入した場合は silent fallback せず fail-loud。
+        k_values = np.unique(k_per_race[mask])
+        if len(k_values) != 1:
+            raise RuntimeError(
+                f"apply_race_relative_correction: race {rid!r} 内で k_per_race が一意でない"
+                f"（D-08・予測時点固定頭数ルール違反）: k_values={k_values.tolist()}"
+            )
+        k = int(k_values[0])
+        alpha_r = solve_alpha_for_race(s_race, theta, k)
+        # step 8: p_final = sigmoid(s_i/θ + α_r)（sum(p)=k 厳密・D-10 自己完結）。
+        p_final[mask] = 1.0 / (1.0 + np.exp(-(s_race / theta + alpha_r)))
+
+    return p_final
 
 
 def compute_overprediction_penalty(
