@@ -281,6 +281,19 @@ def compute_overprediction_penalty(
       - selected/high-EV 層: ``cell_filter_mask`` で市場シグナル帯 in {high} AND 予測確率 bin
         in {top EV deciles} に制限。
 
+    REVIEW WR-07 — ``n_total`` スケールの注意（呼出側が誤解しやすい点）:
+      - ``cell_filter_mask=None`` (overall) の場合: ``n_total`` は全サンプル数。
+        各セルの ``count / n_total`` の和は 1.0 になり・penalty は全サンプルの
+        重み付け平均（全サンプルベースのスケール）。
+      - ``cell_filter_mask`` 指定 (selected/high-EV 層) の場合: ``n_total`` は
+        **mask 後件数（= selected 層のサイズ）** になる。各セルの ``count / n_total``
+        の和は 1.0 になり・penalty は selected 層内の重み付け平均（selected 層内ベース）。
+      - つまり戻り値のスケールが overall と selected で異なる（overall は全サンプル和ベース・
+        selected は selected 内和ベース）。両者を直接比較する gate では注意が必要。
+        現状の呼出側 (``_compute_overprediction_from_pred``) は ``cell_filter_mask=None`` で
+        呼ぶため影響しないが・将来の拡張で selected 層の overprediction を計算する際は
+        ``n_total`` が mask 後件数になることを前提に呼出側でスケール解釈すること。
+
     本関数は SC#2 改善 gate（D-05 必須条件 1）の主指標。θ 選択（D-03 step 2）でも使用。
     市場シグナル（人気帯相当）は feature でなく evaluation 専用の external signal であり・
     モデル特徴量には混入しない（SAFE-01・SC#4 は feature 側の聖域・evaluation は別層）。
