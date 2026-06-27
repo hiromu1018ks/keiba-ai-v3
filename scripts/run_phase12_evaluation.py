@@ -927,13 +927,38 @@ def _evaluate_gate(
     }
 
 
+# Phase 12 の pred_df (eval コピー) 列構成に合わせた segment 軸 (D-15 参考記録).
+# segment_eval.SEGMENT_AXES 既定は Phase 6 feature matrix 向け (race_date/jyocd/entry_count/
+# ninki/fukuoddslower) だが・Phase 12 の eval コピーは PREDICTION_COLUMNS + label/odds JOIN 構成で
+# race_date (PREDICTION_COLUMNS 補助メタ) / jyocd (PK 系) / entry_count (_ensure_entry_count) /
+# fuku_odds_lower (_attach_odds_to_pred) を持ち・ninki / fukuoddslower は持たない。
+# よって pred_df の実列に合わせた axes を渡し・WARN skip (segment_eval.py の warnings.warn) を回避する。
+# segment_eval.py の既定契約 (y_true_col='fukusho_hit' / SEGMENT_AXES) は Phase 6 保護のため触れない。
+_PHASE12_SEGMENT_AXES: dict[str, str] = {
+    "year": "race_date",
+    "month": "race_date",
+    "jyocd": "jyocd",
+    "entry_count": "entry_count",
+    "odds_band": "fuku_odds_lower",  # SEGMENT_AXES 既定は fukuoddslower・pred_df は fuku_odds_lower
+    # ninki: pred_df に ninki 列が無いため除外 (WARN skip 回避・Pitfall 6)
+}
+
+
 def _safe_evaluate_all_segments(pred_df: pd.DataFrame) -> dict[str, Any]:
     """segment_eval.evaluate_all_segments を try/except で呼ぶ (参考記録・gate 継続).
 
-    run_phase11_evaluation.py L979-985 と同一 idiom (D-15 参考記録・gate 判定には使わない)。
+    D-15 参考記録 (gate 判定には使わない)。Phase 12 の eval コピー pred_df の列構成に合わせて
+    ``y_true_col='fukusho_hit_validated'`` と :data:`_PHASE12_SEGMENT_AXES` を明示渡す。
+    segment_eval.py の既定契約 (``y_true_col='fukusho_hit'`` / :data:`SEGMENT_AXES`) は Phase 6
+    保護のため触らない (他フェーズ回帰回避)。旧実装はデフォルト引数で呼び ``fukusho_hit`` 列が
+    pred_df に無いため ValueError → WARNING 2行 (baseline/rr) となっていた (本修正の対象)。
     """
     try:
-        return evaluate_all_segments(pred_df)
+        return evaluate_all_segments(
+            pred_df,
+            y_true_col="fukusho_hit_validated",
+            axes=_PHASE12_SEGMENT_AXES,
+        )
     except Exception as e:  # pragma: no cover - 参考記録
         logger.warning("segment_eval 失敗 (参考記録・gate 継続): %s", e)
         return {"error": str(e)}
