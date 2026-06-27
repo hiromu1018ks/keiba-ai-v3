@@ -6,14 +6,14 @@ current_phase: 12
 current_phase_name: p_lower EV & Falsification Evaluation
 status: executing
 stopped_at: Completed 12-01-PLAN.md (statsmodels + p_lower + migration)
-last_updated: "2026-06-27T13:02:25.151Z"
+last_updated: "2026-06-27T13:28:41.645Z"
 last_activity: 2026-06-27
 last_activity_desc: Phase 12 execution started
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 25
-  completed_plans: 21
+  completed_plans: 22
   percent: 80
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 12 (p_lower EV & Falsification Evaluation) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-06-27 — Phase 12 execution started
 
@@ -138,6 +138,7 @@ Last activity: 2026-06-27 — Phase 12 execution started
 | Phase 11 P04 | 9 min | 2 tasks | 2 files |
 | Phase 12 P01 | 15min | - tasks | - files |
 | Phase 12 P01 | 15min | 2 tasks | 9 files |
+| Phase 12 P02 | 40min | 2 tasks | 7 files |
 
 ### Decisions
 
@@ -296,6 +297,11 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 12] plan 12-01: [C-12-01-1 HIGH] scripts/run_apply_schema.py 手動 step list（APPLY_ORDER 不参照）にも prediction_add_p_lower を挿入（schema.py APPLY_ORDER だけでは run_apply_schema.py は適用しない）
 - [Phase ?]: [Phase 12] plan 12-01: [C-12-01-4 MEDIUM] predict_p_fukusho に pred_proba_lower 引数追加（race-relative 経路は非 NULL・v1.0 binary 経路は None を機械保証）
 - [Phase ?]: [Phase 12] plan 12-01: docstring 直接トークン名 (odds/ninki/fukuodds) を一般化表現に置換（Phase 09 decision 踏襲・test_audit_race_relative.py SQL 文字列 scan との両立）
+- [Phase 12]: [C-12-02-1 HIGH] p_lower_q_shrink/p_lower_q_level を train_and_predict の keyword-only 引数で追加・test 窓外部注入 API を構造化 (§11.2 聖域・score_split='test'+theta+None → RuntimeError)
+- [Phase 12]: [C-12-02-5] artifact.write_metadata_json を allow_nan=False で厳密化・NaN の JSON 化を ValueError で検出 (§19.1・RFC 8259 strict)
+- [Phase 12]: [C-12-02-3] ev_rank._rank に p_col を伝播し EV 計算と rank 条件の確率基準を一致 (投票層定義分裂回避)
+- [Phase 12]: [C-12-02-4] Phase 12 専用 reports を REPORT_COLUMNS_PHASE12 + report_columns 切替で分離・Phase 5 既存 REPORT_COLUMNS は不変 (regression 回避)
+- [Phase 12]: purchase_simulator p_min_base='p_lower' を Phase 12 評価のデフォルト経路に事前登録 (Pitfall 7 投票層明示)
 
 ### Pending Todos
 
@@ -328,7 +334,7 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-06-25:
 
 ## Session Continuity
 
-**Last session:** 2026-06-27T13:02:25.144Z
+**Last session:** 2026-06-27T13:27:21.490Z
 
 **Resume file:** 
 
