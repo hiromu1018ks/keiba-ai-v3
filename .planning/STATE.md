@@ -4,17 +4,17 @@ milestone: v1.1
 milestone_name: Ability Feature v2 & Conditional Calibration
 current_phase: 12
 current_phase_name: p_lower EV & Falsification Evaluation
-status: executing
+status: verifying
 stopped_at: Completed 12-03-PLAN.md (falsification + WARN gate + ROI + slippage)
-last_updated: "2026-06-27T13:50:41.150Z"
+last_updated: "2026-06-27T14:14:50.610Z"
 last_activity: 2026-06-27
 last_activity_desc: Phase 12 execution started
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 25
-  completed_plans: 23
-  percent: 92
+  completed_plans: 24
+  percent: 80
 ---
 
 # Project State
@@ -29,8 +29,8 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 12 (p_lower EV & Falsification Evaluation) — EXECUTING
-Plan: 4 of 5
-Status: Ready to execute
+Plan: 5 of 5
+Status: Phase complete — ready for verification
 Last activity: 2026-06-27 — Phase 12 execution started
 
 ## v1.1 Milestone Context
@@ -140,6 +140,7 @@ Last activity: 2026-06-27 — Phase 12 execution started
 | Phase 12 P01 | 15min | 2 tasks | 9 files |
 | Phase 12 P02 | 40min | 2 tasks | 7 files |
 | Phase 12 P03 | 45min | 2 tasks | 9 files |
+| Phase 12 P04 | 775s | 1 tasks | 2 files |
 
 ### Decisions
 
@@ -311,6 +312,10 @@ Recent decisions affecting current work:
 - [Phase 12] plan 12-03: [C-12-04-3 / C3-12-03-1] Phase 12 定数を src/eval/falsification.py constants block に集約 (Q_LEVEL_SHRINKAGE=0.90 含む・Plan 04 が import・重複定義回避・閾値 drift 防止)
 - [Phase 12] plan 12-03: verdict feature_gap (model_p pvalue<α) / structural_limit (>=α) は過度な保証主張でない (α=0.05 事前登録・market 条件付き residual 検出・D-05/D-01 修正文)
 - [Phase 12] plan 12-03: 循環参照回避 (src.eval.falsification → src.model.segment_eval → src.model.evaluator chain) のため・evaluator.py から falsification constants への import は関数内 (遅延 import) で実装
+- [Phase ?]: C-12-04-1 HIGH: _compute_q_shrink_on_calib を race_key+umaban fail-loud key-join (Phase 11 _attach_label_to_pred idiom) で実装・calib slice のみ・join 失敗は RuntimeError
+- [Phase ?]: D-09: compute_switch_recommendation は SC#4 WARN gate + p_lower EV + falsification で switch/hold/reject を report のみ (D-10: set_primary_model Call 0件・人間承認の別アクション)
+- [Phase ?]: C-12-04-4 MEDIUM: docstring は load_predictions を呼ぶ事実を正確に反映・Phase 11 docstring の誤りを踏襲せず・D-10 対象を set_primary_model のみに限定
+- [Phase ?]: C-12-04-5 HIGH: migration (PREDICTION_ADD_P_LOWER_SQL) は run_apply_schema.py (owner/admin) に一本化・本 script からは実行しない (Phase 11 L286-290 idiom)
 
 ### Pending Todos
 
@@ -343,7 +348,7 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-06-25:
 
 ## Session Continuity
 
-**Last session:** 2026-06-27T13:50:41.143Z
+**Last session:** 2026-06-27T14:12:44.239Z
 
 **Resume file:** 
 
