@@ -285,6 +285,9 @@ def train_and_predict(
     snapshot_id: str | None = None,
     theta: float | None = None,
     score_split: str = "test",
+    label_version: str = "unspecified",
+    odds_snapshot_policy: str = "unspecified",
+    backtest_strategy_version: str = "unspecified",
 ) -> dict[str, Any]:
     """``trainer`` + ``calibrate_model`` + ``predict_p_fukusho`` を統合し・行整列保証付きで
     予測 DataFrame を返す orchestrator (review HIGH#2 / HIGH#7 / HIGH#12 / SC#4)。
@@ -382,6 +385,16 @@ def train_and_predict(
         でなく ``X_calib`` を予測対象とし・``predict_p_fukusho`` に ``split_label="calib"``
         を渡す（codex review HIGH#1・§11.2 聖域の機械保証・θ 選択経路が test 窓に触れない
         構造的ブロック）。許容値: ``{"test", "calib"}``。それ以外は ``ValueError``。
+    label_version : str
+        §19.1 再現性 metadata。既定値 ``"unspecified"`` sentinel (codex cycle-2 NEW HIGH#3)。
+        orchestrator は値を推測せず呼出側から受け取った値をそのまま ``predict_p_fukusho``
+        に伝播。run_phase11_evaluation.py が事前登録値を渡し・v1.0 binary 呼出
+        (theta=None/3引数省略) は sentinel で安全 (NOT NULL 違反回避・loader 空文字→None 変換回避)。
+    odds_snapshot_policy : str
+        §19.1 再現性 metadata。既定値 ``"unspecified"`` sentinel (codex cycle-2 NEW HIGH#3)。
+        orchestrator は値を推測せず呼出側から受け取った値をそのまま伝播。
+    backtest_strategy_version : str
+        §19.1 再現性 metadata。既定値 ``"unspecified"`` sentinel (codex cycle-2 NEW HIGH#3)。
 
     Returns
     -------
@@ -400,6 +413,8 @@ def train_and_predict(
           (``None`` = v1.0 等価・or float = calib slice で選んだ事前登録値・§19.1)
         - ``score_split``: Phase 11 予測対象 split provenance
           (``"test"`` / ``"calib"``・codex HIGH#1)
+        - ``label_version`` / ``odds_snapshot_policy`` / ``backtest_strategy_version``:
+          §19.1 再現性 metadata provenance (codex HIGH#3・呼出側から受け取った値をそのまま返却)
 
     Raises
     ------
@@ -747,6 +762,12 @@ def train_and_predict(
         split_label=score_split_label,
         as_of_datetime=as_of_dt,
         pred_proba=pred_proba,
+        # Phase 11 codex HIGH#3: §19.1 metadata 3層ワイヤリング (WARNING#2 第2層)・
+        # sentinel/事前登録値を predict_p_fukusho → PREDICTION_COLUMNS に伝播。
+        # codex cycle-2 NEW HIGH#3: sentinel 既定値で v1.0 binary 呼出も安全。
+        label_version=label_version,
+        odds_snapshot_policy=odds_snapshot_policy,
+        backtest_strategy_version=backtest_strategy_version,
     )
 
     # pred_df に backtest 用 meta 列（race_start_datetime / race_key）を付与
@@ -783,6 +804,10 @@ def train_and_predict(
         # Phase 11 race-relative provenance（§19.1 再現性・codex HIGH#1）
         "race_relative_theta": theta,
         "score_split": score_split,
+        # Phase 11 codex HIGH#3: §19.1 metadata provenance (呼出側から受け取った値をそのまま返却)
+        "label_version": label_version,
+        "odds_snapshot_policy": odds_snapshot_policy,
+        "backtest_strategy_version": backtest_strategy_version,
     }
 
 
@@ -957,6 +982,7 @@ def _assert_deterministic(
     split_periods: dict[str, tuple[str, str]] | None = None,
     category_map: dict[str, Any] | None = None,
     snapshot_id: str | None = None,
+    theta: float | None = None,
 ) -> None:
     """SC#4 reproduce smoke: 固定 seed + 固定 thread count + 固定 as_of_datetime で2回
     ``train_and_predict`` を呼出し・戻り prediction の ``p_fukusho_hit`` 列が
@@ -968,10 +994,18 @@ def _assert_deterministic(
     Phase 9 P03 REVIEW H1-b: ``snapshot_id`` も reproduce smoke に伝播し・両 snapshot で
     同一契約 (FEATURE_COLUMNS 選択含む) で bit-identical になることを検証。失敗時は ``RuntimeError``。
 
+    Phase 11 codex HIGH#8 (``theta`` パラメータ・SC#3 bit-identical・同一モデル同一 seed の再現性):
+    ``theta=None`` の場合は v1.0 binary の bit-identical (SC#4 回帰防止)。
+    ``theta=float`` の場合は race-relative model の bit-identical (SC#3 実データ実証・
+    codex MEDIUM・同一モデル同一 seed の再現性・LightGBM≠CatBoost cross-family 同一性でない)。
+    ``theta=float`` の場合は ``model_type`` が ``"lightgbm_rr"`` / ``"catboost_rr"`` の
+    いずれか (``_rr`` サフィックス) を渡すこと (11-03 双方向 guard・codex cycle-2 MEDIUM)。
+
     Parameters
     ----------
     model_type : str
-        ``"lightgbm"`` または ``"catboost"``。
+        ``"lightgbm"`` または ``"catboost"`` (``theta=None`` 既定)・または
+        ``"lightgbm_rr"`` / ``"catboost_rr"`` (``theta=float`` 指定時)。
     feature_df : pd.DataFrame
         label-joined frame (``train_and_predict`` と同一契約)。
     as_of_datetime : datetime
@@ -982,6 +1016,10 @@ def _assert_deterministic(
         Phase 5 HIGH-A cycle-2 BT-train-only frozen category map。
     snapshot_id : str | None
         Phase 9 P03 REVIEW H1-b: FEATURE_COLUMNS 選択用 snapshot_id。
+    theta : float | None
+        Phase 11 race-relative logit temperature。``None`` (既定) の場合は v1.0 binary 等価
+        (A5・SC#4 回帰防止)。``float`` の場合は race-relative model の bit-identical を検証
+        (SC#3・codex MEDIUM・同一モデル同一 seed の再現性)。
     """
     result1 = train_and_predict(
         feature_df,
@@ -993,6 +1031,7 @@ def _assert_deterministic(
         split_periods=split_periods,
         category_map=category_map,
         snapshot_id=snapshot_id,
+        theta=theta,
     )
     result2 = train_and_predict(
         feature_df,
@@ -1004,6 +1043,7 @@ def _assert_deterministic(
         split_periods=split_periods,
         category_map=category_map,
         snapshot_id=snapshot_id,
+        theta=theta,
     )
 
     pred1 = result1["pred_df"]["p_fukusho_hit"].to_numpy()
@@ -1011,7 +1051,7 @@ def _assert_deterministic(
 
     if not np.array_equal(pred1, pred2):
         raise RuntimeError(
-            f"_assert_deterministic({model_type}): SC#4 reproduce smoke 違反 "
+            f"_assert_deterministic({model_type}, theta={theta}): SC#3/SC#4 reproduce smoke 違反 "
             "(review HIGH#7 / §19.1 構造的ブロック・Phase 完了不可): "
             f"seed={seed} + 固定 thread count + 固定 as_of_datetime={as_of_datetime} "
             "で2回 train_and_predict した p_fukusho_hit が bit-identical でない。"

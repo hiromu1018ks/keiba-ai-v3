@@ -237,21 +237,33 @@ def main(argv: list[str] | None = None) -> int:
     REVIEW H6: load_feature_matrix → load_labels → build_training_frame → load_frozen_maps →
     orchestrator.train_and_predict の正しい API chain を呼ぶ。
     REVIEW H2/H7/H8: 生 trainer API は直接呼ばない。
-    D-07: 本 script は comparison のみで prediction 永続化 (load_predictions / primary 切替) は
-    行わない。実際の永続化は 11-05 で実施 (primary 立ては Phase 12)。
+    D-07 (is_primary 立てない): 本 script は race-relative model 行を prediction_load.load_predictions
+    (public wrapper・codex HIGH#4) で model_version scoped swap として追加するが・set_primary_model
+    は呼ばない (is_primary=true は v1.0 binary のみ保持・primary 切替は Phase 12)。
+    codex cycle-2 NEW HIGH#2: orchestrator.train_and_predict 呼出は as_of_datetime=FIXED_REPRODUCE_TS
+    固定で PK が両実行で一致し checksum bit-identical (永続化パスで datetime.now(UTC) 既定を使わない)。
     """
     args = parse_args(argv)
 
     # 遅延 import: live-DB 依存 (KEIBA_SKIP_DB_TESTS unset でのみ実行)
     from src.config.settings import Settings
     from src.db.connection import make_pool, readonly_cursor
+    from src.db.prediction_load import load_predictions
+    from src.db.schema import (
+        PREDICTION_ADD_PROVENANCE_SQL,
+        PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL,
+    )
     from src.model.data import (
         build_training_frame,
         load_feature_matrix,
         load_frozen_maps,
         load_labels,
     )
-    from src.model.orchestrator import train_and_predict
+    from src.model.orchestrator import (
+        FIXED_REPRODUCE_TS,
+        _assert_deterministic,
+        train_and_predict,
+    )
 
     settings = Settings()
     logger.info("readonly DSN: %s", settings.dsn_masked)
@@ -270,7 +282,25 @@ def main(argv: list[str] | None = None) -> int:
     readonly_pool = make_pool(
         settings, role="readonly", configure=_configure_statement_timeout
     )
+    # Phase 11 codex HIGH#3/#4・codex cycle-2 NEW HIGH#1/#2: 永続化パス用 etl pool。
+    # readonly は prediction 書込権限を持たないため・load_predictions 呼出には etl ロールが必要。
+    # make_pool(role='etl') が KEIBA_ETL_DB_USER で接続し prediction スキーマへの書込を許可。
+    etl_pool = make_pool(settings, role="etl", configure=_configure_statement_timeout)
     try:
+        # ---- Phase 11 codex cycle-2 NEW HIGH#1/#3: schema migration 適用 (idempotent) ----
+        # Task 1 で定義した両 migration (provenance 3列 DEFAULT 'unspecified' sentinel +
+        # CHECK 制約 lightgbm_rr/catboost_rr 拡張) を etl cursor で実行。idempotent・2回目以降は
+        # IF NOT EXISTS / DROP IF EXISTS で no-op。Phase 6 の is_primary migration 適用 idiom と同一。
+        with etl_pool.connection() as etl_conn:
+            with etl_conn.cursor() as etl_cur:
+                etl_cur.execute("SET statement_timeout = '30s'")
+                etl_cur.execute(PREDICTION_ADD_PROVENANCE_SQL)
+                etl_cur.execute(PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL)
+            etl_conn.commit()
+        logger.info(
+            "schema migration 適用完了: provenance 3列 + model_type_domain lightgbm_rr/catboost_rr 拡張"
+        )
+
         with readonly_cursor(readonly_pool) as cur:
             # 二重防衛: configure callback と cursor 内 SET の両方で statement_timeout を設定。
             cur.execute("SET statement_timeout = '30s'")
@@ -315,6 +345,9 @@ def main(argv: list[str] | None = None) -> int:
 
         # ---- baseline (theta=None・v1.0 binary)・test 窓評価 ----
         # theta=None で補正層スキップ (A5 後方互換・v1.0 binary と等価)
+        # codex cycle-2 NEW HIGH#2: as_of_datetime=FIXED_REPRODUCE_TS 固定で PK が両実行で一致し
+        # checksum bit-identical (§19.1 再現性・datetime.now(UTC) 既定を使わない)。
+        # codex HIGH#3: §19.1 metadata 3引数 (WARNING#2 第1層・事前登録値で渡す)。
         logger.info("baseline (theta=None) test 窓評価")
         baseline_result = train_and_predict(
             frame,
@@ -326,6 +359,10 @@ def main(argv: list[str] | None = None) -> int:
             category_map=cat_map,
             theta=None,
             score_split="test",
+            as_of_datetime=FIXED_REPRODUCE_TS,
+            label_version="v1.0",
+            odds_snapshot_policy=args.odds_snapshot_policy,
+            backtest_strategy_version=args.bt_split,
         )
         # ---- race-relative (theta=selected_theta)・test 窓評価 (一回のみ・θ 再選択なし) ----
         rr_model_version = make_model_version(
@@ -346,10 +383,60 @@ def main(argv: list[str] | None = None) -> int:
             category_map=cat_map,
             theta=selected_theta,
             score_split="test",
+            as_of_datetime=FIXED_REPRODUCE_TS,
+            label_version="v1.0",
+            odds_snapshot_policy=args.odds_snapshot_policy,
+            backtest_strategy_version=args.bt_split,
         )
 
         baseline_model_version = make_model_version(
             args.baseline_snapshot_id, "lightgbm", 1
+        )
+
+        # ---- Phase 11 codex HIGH#8/MEDIUM: SC#3 bit-identical deterministic smoke ----
+        # theta=selected_theta で race-relative model が同一 LightGBM 同一 seed で bit-identical
+        # になることを検証 (FIXED_REPRODUCE_TS + 固定 seed/thread + np.array_equal)。
+        # 同一モデル同一 seed の再現性を検証するのであり・LightGBM≠CatBoost cross-family 同一性でない。
+        logger.info(
+            "SC#3 deterministic smoke (theta=%s・race-relative・同一モデル同一 seed bit-identical)",
+            selected_theta,
+        )
+        _assert_deterministic(
+            "lightgbm_rr",
+            frame,
+            feature_snapshot_id=args.baseline_snapshot_id,
+            snapshot_id=args.baseline_snapshot_id,
+            split_periods=BT1_PERIODS,
+            category_map=cat_map,
+            theta=selected_theta,
+        )
+        logger.info("SC#3 deterministic smoke: PASS (bit-identical・codex MEDIUM)")
+
+        # ---- Phase 11 codex HIGH#4 / cycle-2 NEW HIGH#1/#2/#3: SC#5 model_version-scoped ----
+        # idempotent swap via load_predictions (public wrapper)。
+        # rr_result["pred_df"] を prediction.fukusho_prediction に永続化。model_type='lightgbm_rr'
+        # が CHECK 制約拡張で許容 (codex cycle-2 NEW HIGH#1)。as_of_datetime=FIXED_REPRODUCE_TS
+        # 固定で PK が一致し・2回実行で checksum bit-identical (codex cycle-2 NEW HIGH#2)。
+        # sentinel/事前登録値で NOT NULL 違反回避 (codex cycle-2 NEW HIGH#3)。
+        # D-07: is_primary 立てない (set_primary_model を呼ばない・v1.0 binary 行は保持)。
+        logger.info(
+            "SC#5 idempotent swap: model_type=lightgbm_rr model_version=%s (load_predictions public wrapper)",
+            rr_model_version,
+        )
+        with etl_pool.connection() as etl_conn:
+            with etl_conn.cursor() as etl_cur:
+                etl_cur.execute("SET statement_timeout = '30s'")
+                checksum1 = load_predictions(etl_cur, rr_result["pred_df"])
+                checksum2 = load_predictions(etl_cur, rr_result["pred_df"])
+            etl_conn.commit()
+        if checksum1 != checksum2:
+            raise RuntimeError(
+                f"SC#5 idempotent violation: 2回実行で checksum 不一致 "
+                f"(as_of_datetime=FIXED_REPRODUCE_TS 固定・codex cycle-2 NEW HIGH#2) "
+                f"checksum1={checksum1!r} checksum2={checksum2!r}"
+            )
+        logger.info(
+            "SC#5 idempotent swap: PASS (2回実行 checksum bit-identical=%s)", checksum1
         )
 
         # _attach_label_to_pred で label JOIN (run_phase10_evaluation.py L500-560 と同一 idiom)
@@ -377,6 +464,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     finally:
         readonly_pool.close()
+        etl_pool.close()
 
     json_path, md_path = _write_reports(eval_dir, result)
     logger.info("wrote %s", json_path)
