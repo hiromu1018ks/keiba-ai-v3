@@ -409,6 +409,7 @@ def main(argv: list[str] | None = None) -> int:
             split_periods=BT1_PERIODS,
             category_map=cat_map,
             theta=selected_theta,
+            p_lower_q_shrink=0.0,  # Phase 12 C-12-02-1 compat: Phase 11 は p_lower 概念無し・0.0 (非 shrinkage) で rr smoke 再現性検証
             label_version="v1.0",
             odds_snapshot_policy=args.odds_snapshot_policy,
             backtest_strategy_version=args.bt_split,

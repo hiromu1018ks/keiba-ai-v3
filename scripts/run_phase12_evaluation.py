@@ -991,6 +991,7 @@ def main(argv: list[str] | None = None) -> int:
             split_periods=BT1_PERIODS,
             category_map=cat_map,
             theta=selected_theta,
+            p_lower_q_shrink=q_shrink_value,  # Phase 12 C-12-02-1: rr test-window smoke に実 q_shrink を注入 (聖域ガード充足)
             label_version="v1.0",
             odds_snapshot_policy=args.odds_snapshot_policy,
             backtest_strategy_version=args.bt_split,

@@ -1108,6 +1108,7 @@ def _assert_deterministic(
     category_map: dict[str, Any] | None = None,
     snapshot_id: str | None = None,
     theta: float | None = None,
+    p_lower_q_shrink: float | None = None,
     label_version: str = "unspecified",
     odds_snapshot_policy: str = "unspecified",
     backtest_strategy_version: str = "unspecified",
@@ -1173,6 +1174,10 @@ def _assert_deterministic(
         category_map=category_map,
         snapshot_id=snapshot_id,
         theta=theta,
+        # Phase 12 C-12-02-1: score_split='test' (train_and_predict 既定) + theta!=None は
+        # p_lower_q_shrink が必須 (§11.2 聖域ガード)。smoke は再現性検証が目的 (q_shrink 正確性でない)
+        # ので呼出側の値をそのまま伝播。run_phase12 は実 q_shrink・run_phase11 は 0.0 (p_lower 概念無し) を渡す。
+        p_lower_q_shrink=p_lower_q_shrink,
         label_version=label_version,
         odds_snapshot_policy=odds_snapshot_policy,
         backtest_strategy_version=backtest_strategy_version,
