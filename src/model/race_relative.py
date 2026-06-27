@@ -36,6 +36,15 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import brentq
 
+# binning 契約の import 再利用（D-03/D-05・codex review HIGH#2 対応）。
+# race_relative 内に np.linspace による独自 bin edge 再定義は持たない
+# （true import-level parity・evaluator が binning 実装の唯一の正）。
+from src.model.evaluator import (  # noqa: E402
+    CALIBRATION_CURVE_BINS,
+    _compute_calibration_curve_bins,
+)
+from src.model.segment_eval import _odds_band  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # researcher 裁量 #1: α_r 二分探索の収束仕様（docstring で明示・test で検証）
 # ---------------------------------------------------------------------------
@@ -289,7 +298,47 @@ def compute_overprediction_penalty(
     NotImplementedError
         本 stub では未実装（Wave 1・plan 11-02 で実装）。
     """
-    raise NotImplementedError("Phase 11 Wave 1 (11-02) で実装")
+    # selected/high-EV 層の制限（呼出側が mask を構築・overall は None）。
+    if cell_filter_mask is not None:
+        y_true = y_true[cell_filter_mask]
+        y_pred = y_pred[cell_filter_mask]
+        market_signal = market_signal[cell_filter_mask]
+
+    n_total = float(len(y_pred))
+    if n_total == 0:
+        return float("nan")
+
+    # 市場シグナル帯: segment_eval._odds_band を import 再利用（bit-identical・codex HIGH#2）。
+    odds_b = _odds_band(pd.Series(market_signal))
+
+    penalty = 0.0
+    # 各市場シグナル帯内で・予測確率 bin は evaluator._compute_calibration_curve_bins
+    # (strategy='uniform', n_bins=CALIBRATION_CURVE_BINS) を呼出して bit-identical に算出。
+    # race_relative 内に独自 bin edge（np.linspace 等）を再定義しない（codex HIGH#2）。
+    for ob in np.unique(odds_b):
+        cell_mask = odds_b == ob
+        if int(cell_mask.sum()) == 0:
+            continue
+        y_true_cell = y_true[cell_mask]
+        y_pred_cell = y_pred[cell_mask]
+        bins = _compute_calibration_curve_bins(
+            y_true_cell,
+            y_pred_cell,
+            strategy="uniform",
+            n_bins=CALIBRATION_CURVE_BINS,
+        )
+        count_arr = bins["counts"]
+        mean_pred_arr = bins["mean_pred"]
+        frac_pos_arr = bins["frac_pos"]
+        # 半波整流 ECE: max(0, mean_pred_cell - frac_pos_cell) のサンプル数重み付け和。
+        for j in range(len(count_arr)):
+            count = int(count_arr[j])
+            if count == 0:
+                continue
+            overprediction = max(0.0, float(mean_pred_arr[j]) - float(frac_pos_arr[j]))
+            penalty += (count / n_total) * overprediction
+
+    return float(penalty)
 
 
 __all__ = [
