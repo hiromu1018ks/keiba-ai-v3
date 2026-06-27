@@ -1,0 +1,235 @@
+# ruff: noqa: E501
+"""Phase 11 SC#1/#3/#4/D-02〜D-10 race-relative 補正層（pure 関数・stub）.
+
+本モジュールは Phase 11 で導入するレース内相対確率モデルの補正層であり・binary 本体
+（``src/model/trainer.py`` の LightGBM/CatBoost・``objective='binary'``）は **一切変更しない**
+（D-01・SC#3 bit-identical 維持）。その上に logit temperature θ と per-race intercept α_r の
+二分探索（``scipy.optimize.brentq``）を乗せ・各 race で ``sum_i p_i = k``（複勝払戻対象数・
+8頭以上=3・5-7頭=2）を厳密に満たすレース内相対確率を生成する（MODEL-01・D-02）。
+
+設計の核心（CONTEXT D-01〜D-10・CLAUDE.md leak-prevention 設定）:
+
+- **binary 本体不変（D-01）**: ``trainer.train_lightgbm`` / ``train_catboost`` は再利用するのみ。
+  補正層は binary model の出力（``predict_proba → clip → logit`` 経路）を消費し・
+  特徴量や学習ロジックには触れない。
+- **補正層のみ追加**: logit temperature θ + per-race α_r 二分探索（D-02）。sigmoid + per-race
+  intercept で ``p_i ∈ (0,1)`` を厳密に保ち・``k * softmax`` の ``p>1`` リスクを回避。
+- **test 窓 outcome 不使用（D-10 自己完結性）**: α_r は各 race の base logit ``s_i`` と払戻対象数
+  ``k`` のみから決定し・test 窓の outcome ラベルを使わない・他 race の情報を使わない。
+  θ のみ calib slice（later-disjoint）で fit する。
+- **市場情報 proxy 不使用（SAFE-01・SC#4）**: 本モジュールの AST に市場情報 proxy
+  トークン（``tests/audit/test_audit_race_relative.py`` が定義する禁止集合）の
+  Name/Attribute/string-constant は0件（静的証明）。レース内相対補正は純粋に logit 演算のみで行う。
+- **fail-loud（D-09）**: ``p_cal`` に NaN/inf がある場合は ``RuntimeError``（neutral 補完・
+  silent fallback 禁止・Phase 10 gap-closure CR-01〜04 鏡像）。
+
+本 stub は Wave 0（本 plan 11-01）で公開 API の契約（定数 + 関数シグネチャ + docstring）のみを
+固定し・実装は Wave 1（11-02）が埋める。関数本体は ``raise NotImplementedError`` のみ。
+
+参考: 11-RESEARCH.md Pattern 1/2/3（実証検証済みコード断片）/ 11-PATTERNS.md /
+      src/utils/calibrator.py（pure 関数 + sklearn/scipy idiom の踏襲元）.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+from scipy.optimize import brentq
+
+# ---------------------------------------------------------------------------
+# researcher 裁量 #1: α_r 二分探索の収束仕様（docstring で明示・test で検証）
+# ---------------------------------------------------------------------------
+# |sum(p) - k| の理論上界 ≈ 2 * ALPHA_SEARCH_XTOL（brentq の xtol 仕様）。
+# 実測では 4.44e-16 に達する（RESEARCH Pattern 1 実証検証）。
+ALPHA_SEARCH_XTOL: float = 1e-9
+# brentq の rtol（相対許容誤差）・x のスケール不変性のため xtol より小さく設定。
+ALPHA_SEARCH_RTOL: float = 1e-12
+# brentq の反復数上限。理論反復数上限 < 50（brentq は superlinear 収束）・200 は safety margin。
+ALPHA_SEARCH_MAXITER: int = 200
+# brentq の探索区間。α_r = logit(k/n) を中心に十分な余裕を持たせる（n=頭数・最大18）。
+# logit(3/18) ≈ -1.61・極端な k/n でも ±100 は十分な上界。
+ALPHA_SEARCH_BOUNDS: tuple[float, float] = (-100.0, 100.0)
+
+# ---------------------------------------------------------------------------
+# researcher 裁量 #2: clip 閾値（logit 変換前の p_cal 用・Pitfall 1 対策）
+# ---------------------------------------------------------------------------
+# IsotonicRegression は正例群に 1.0・負例群に 0.0 を生成する（段階関数）。
+# logit(0) = -inf / logit(1) = +inf で α_r 二分探索が NaN 伝播するため・
+# logit 変換前に ``np.clip(p_cal, ε, 1-ε)`` を必須適用（D-09 fail-loud の前段）。
+# ε=1e-6 で logit 動的範囲 ±13.8（base logit ±10 と同オーダー）・sum(p)=k 精度 <1e-12 を同時達成
+# （RESEARCH Pattern 1 Pitfall 1 実証検証）。
+P_CAL_CLIP_EPSILON: float = 1e-6
+
+# ---------------------------------------------------------------------------
+# D-03 事前登録 θ 候補集合（§11.2 聖域・test 窓での選び直し禁止）
+# ---------------------------------------------------------------------------
+# θ=1 が baseline（logit temperature なし・binary baseline と同一 logit スケール）。
+# θ>1 が平坦化（logit を縮小・確率が 1/n に近づく）・θ<1 が尖鋭化（logit を拡大）。
+# θ<0.5 では尖鋭化で α_r が発散し brentq が符号不一致で失敗するため候補に含めない
+# （RESEARCH Pattern 1 境界挙動・Pitfall 2 実証）。
+# この候補集合は Plan 11-01 で事前登録し・test 窓で選び直さない（§11.2 聖域・D-03）。
+# 選択ルール（calib slice のみ）: (1) 足切り D-04 非劣化 → (2) overprediction penalty 最小 →
+# (3) tie-break calib_max_dev → θ=1 に近い候補。
+THETA_CANDIDATES: tuple[float, ...] = (0.5, 0.75, 1.0, 1.25, 1.5)
+
+
+def solve_alpha_for_race(
+    s_logits: np.ndarray,
+    theta: float,
+    k: int,
+) -> float:
+    """race 内で ``sum_i sigmoid(s_i/θ + α) = k`` を満たす α を brentq で解く（D-02・D-10 自己完結）.
+
+    数学的健全性（RESEARCH Pattern 1 実証検証済み・HIGH confidence）:
+      - ``f(α) = Σ sigmoid(s_i/θ + α) − k`` は α について厳密単調増加・連続
+        （sigmoid 単調増加の和は単調増加）。
+      - 値域: ``lim_{α→−∞} f(α) = −k``・``lim_{α→+∞} f(α) = n − k``（n=頭数）。
+      - ``k ∈ (0, n)`` なので ``0 ∈ (−k, n−k) ⊂ 値域`` → IVT より唯一の解が存在。
+      - brentq は ``|sum(p) − k| ≤ ALPHA_SEARCH_XTOL`` (1e-9) で収束（実測 4.44e-16）。
+
+    境界挙動:
+      - ``θ → ∞``: ``sigmoid(s_i/θ + α) → sigmoid(α)``（logit 平坦化）。
+        解は ``α = logit(k/n)`` に収束（実証: θ=1e6 で α=-1.609438 = logit(3/18)）。
+      - ``θ → 0+``: logit 尖鋭化・α_r 発散。brentq が符号不一致で失敗する。
+        → 候補 θ に極小値（θ < 0.5 等）を含めない根拠（THETA_CANDIDATES 事前登録）。
+
+    D-10 自己完結性: α_r 計算に test 窓 outcome は使わない・他 race 情報は使わない。
+    ``s_logits`` と ``k`` のみから決定（adversarial test で逆証明・test_audit_race_relative.py）。
+
+    Parameters
+    ----------
+    s_logits : np.ndarray
+        race 内全馬の base logit（``apply_race_relative_correction`` で ``p_cal → clip → logit``
+        変換済み・finite・D-09 fail-loud 前提）。
+    theta : float
+        logit temperature（θ=1 が baseline・θ>1 で平坦化・θ<1 で尖鋭化）。
+        THETA_CANDIDATES のいずれか（calib slice で選択・test 窓選び直し禁止 §11.2）。
+    k : int
+        払戻対象数（8頭以上=3・5-7頭=2・D-08 予測時点固定頭数ルール・同着不反映）。
+
+    Returns
+    -------
+    float
+        ``sum_i sigmoid(s_i/θ + α) = k`` を満たす α_r（brentq 収束値・精度 ≤ 1e-9）。
+
+    Raises
+    ------
+    RuntimeError
+        brentq が収束しない（θ が極小で α_r 発散・候補 θ に極小値を含めないこと）。
+    NotImplementedError
+        本 stub では未実装（Wave 1・plan 11-02 で実装）。
+    """
+    raise NotImplementedError("Phase 11 Wave 1 (11-02) で実装")
+
+
+def apply_race_relative_correction(
+    p_cal: np.ndarray,
+    theta: float,
+    k_per_race: np.ndarray,
+    race_ids: np.ndarray,
+) -> np.ndarray:
+    """race 毎に α_r 二分探索を適用し・``sum_i p_i = k`` を厳密に満たす final p を返す.
+
+    D-06 パイプライン step 6-8（base calib → 補正の順序・補正後に追加 calib なし）:
+      - step 6: ``p_cal`` を ``clip(ε, 1−ε)`` して logit 変換 → ``s_i``
+        （Pitfall 1 対策・IsotonicRegression の 0/1 端点で logit(±inf) 回避）。
+      - step 7: race 毎に ``solve_alpha_for_race(s_i, θ, k)`` で α_r を解く
+        （race 自己完結・``np.unique(race_ids)`` で他 race 情報混入を構造的排除・D-10）。
+      - step 8: ``p_final = sigmoid(s_i/θ + α_r)``（``sum(p)=k`` 厳密・D-10 自己完結）。
+
+    D-09 fail-loud: ``p_cal`` に NaN/inf がある行は ``RuntimeError``（neutral 補完不採用・
+    silent fallback 禁止・Phase 10 gap-closure CR-01〜04 鏡像）。特徴量欠損
+    （LightGBM/CatBoost が NaN として native 処理して logit を出す）とは区別する。
+
+    D-10 race 自己完結性（adversarial 5段階鋳型で逆証明）:
+      - race_id 毎に独立ループ（``np.unique(race_ids)``）・他 race の logit は混入しない。
+      - outcome（y_true）は引数に取らない・α_r 計算に使わない。
+
+    補正後に追加 calib をしない（D-06・sum(p)=k が崩れ α_r 再適用でループになるため）。
+
+    Parameters
+    ----------
+    p_cal : np.ndarray
+        calibrated probability（``fit_prefit_calibrator`` 通過後・``predict_proba[:,1]``）。
+        finite であること（D-09・NaN/inf は RuntimeError）。
+    theta : float
+        logit temperature（THETA_CANDIDATES のいずれか・calib slice で選択）。
+    k_per_race : np.ndarray
+        各行に対応する払戻対象数（race 内で一意・D-08 予測時点固定頭数ルール）。
+    race_ids : np.ndarray
+        各行に対応する race 識別子（race 毎に独立ループのために使用）。
+
+    Returns
+    -------
+    np.ndarray
+        ``p_cal`` と同一 shape の final probability 配列。race 内で ``sum(p) = k`` が厳密に成立。
+
+    Raises
+    ------
+    RuntimeError
+        ``p_cal`` に NaN/inf が含まれる（D-09 fail-loud）。
+    NotImplementedError
+        本 stub では未実装（Wave 1・plan 11-02 で実装）。
+    """
+    raise NotImplementedError("Phase 11 Wave 1 (11-02) で実装")
+
+
+def compute_overprediction_penalty(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    market_signal: np.ndarray,
+    *,
+    cell_filter_mask: np.ndarray | None = None,
+) -> float:
+    """overprediction penalty = Σ_cells (count_cell/N_total) × max(0, mean_pred − frac_pos)（D-03/D-05）.
+
+    厳密定義（RESEARCH Pattern 3・researcher 裁量 #4 確定値）:
+      - 市場シグナル帯 × 予測確率 bin の各セルで ``(mean_pred, frac_pos, count)`` を計算
+        （binning 契約は ``src/model/segment_eval.py`` / ``src/model/evaluator.py`` から
+        import 再利用・bit-identical・独自 binning 禁止）。
+      - 各セルの overprediction = ``max(0, mean_pred_cell − frac_pos_cell)``（半波整流・
+        予測率 > 実現率 の正方向誤差だけを重く見る）。
+      - セル全体をサンプル数で重み付け平均（ECE 風・対称）。
+
+    スケール切り替え（``cell_filter_mask``）:
+      - overall: ``cell_filter_mask=None`` → 全セル。
+      - selected/high-EV 層: ``cell_filter_mask`` で市場シグナル帯 in {high} AND 予測確率 bin
+        in {top EV deciles} に制限。
+
+    本関数は SC#2 改善 gate（D-05 必須条件 1）の主指標。θ 選択（D-03 step 2）でも使用。
+    市場シグナル（人気帯相当）は feature でなく evaluation 専用の external signal であり・
+    モデル特徴量には混入しない（SAFE-01・SC#4 は feature 側の聖域・evaluation は別層）。
+
+    Parameters
+    ----------
+    y_true : np.ndarray
+        バイナリ実測ラベル（0/1）。
+    y_pred : np.ndarray
+        予測確率（race-relative 補正後の ``p_final`` または v1.0 binary baseline）。
+    market_signal : np.ndarray
+        市場シグナル（評価軸の外部参照・feature でない）。binning は ``segment_eval._odds_band``
+        と同一契約で ``segment_eval`` から import 再利用。
+    cell_filter_mask : np.ndarray | None
+        ``None`` の場合は全行（overall）。selected/high-EV 層は呼出側で mask を構築。
+
+    Returns
+    -------
+    float
+        overprediction penalty（0 以上・小さいほど良い）。``n_total == 0`` の場合は NaN。
+
+    Raises
+    ------
+    NotImplementedError
+        本 stub では未実装（Wave 1・plan 11-02 で実装）。
+    """
+    raise NotImplementedError("Phase 11 Wave 1 (11-02) で実装")
+
+
+__all__ = [
+    "ALPHA_SEARCH_XTOL",
+    "P_CAL_CLIP_EPSILON",
+    "THETA_CANDIDATES",
+    "solve_alpha_for_race",
+    "apply_race_relative_correction",
+    "compute_overprediction_penalty",
+]
