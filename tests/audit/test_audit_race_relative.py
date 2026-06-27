@@ -469,3 +469,52 @@ def test_false_pass_detection_power() -> None:
         f"false positive: docstring の 'odds-free'/'市場情報 proxy 不使用' 言及が検出対象になった: "
         f"{doc_odds_hits} (whitelist で無害 prose を除外すべき)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 12 regression: compute_p_lower_conformal_shrinkage 追加後も race_relative.py SAFE-01 維持
+# ---------------------------------------------------------------------------
+def test_p_lower_addition_preserves_race_relative_safe01() -> None:
+    """[Phase 12 regression・SAFE-01] compute_p_lower_conformal_shrinkage 追加後も race_relative.py の
+    SAFE-01 聖域（forbidden Name/Attribute 0件）が維持されること.
+
+    Phase 12 Plan 01 で src.model.race_relative に追加された compute_p_lower_conformal_shrinkage は
+    race_relative.py の apply_race_relative_correction と同一 tier の純粋関数であり・市場情報 proxy
+    (odds/ninki/fukuodds/ninkij/tansyouodds) を Name/Attribute に持たない（SAFE-01 聖域）。
+
+    本テストは compute_p_lower_conformal_shrinkage 追加後も・既存の race_relative.py SAFE-01 audit
+    (test_no_odds_ninki_proxy) が GREEN を維持することの明示的 regression 検証・p_lower 関数が
+    odds proxy を持たないことの二重保証（詳細は tests/audit/test_audit_p_lower_falsification.py）。
+
+    cross-reference: tests/audit/test_audit_p_lower_falsification.py（Phase 12 専用 adversarial）.
+    cross-reference: tests/audit/test_audit_field_strength.py::test_no_odds_ninki_proxy_in_race_relative_source
+    （Phase 10 からの 既存 audit・Phase 12 拡張後も GREEN を維持すべき）。
+    """
+    # 既存の _scan_module_for_forbidden_tokens を使って race_relative 全体の SAFE-01 を再検証
+    # （compute_p_lower_conformal_shrinkage 追加で prohibited Name/Attribute が混入していないか）
+    name_attr, const_str = _scan_module_for_forbidden_tokens(race_relative)
+    assert not name_attr, (
+        f"Phase 12 regression: compute_p_lower_conformal_shrinkage 追加後に race_relative.py に "
+        f"forbidden Name/Attribute が存在 (SAFE-01 違反): {name_attr}"
+    )
+    # const_str は docstring 中の 'odds-free' / '市場情報 proxy 不使用' 等・whitelist 対象の無害 prose
+    # のみであることを検証（forbidden な odds/ninki proxy の SQL 埋込みでない）
+    assert not const_str, (
+        f"Phase 12 regression: compute_p_lower_conformal_shrinkage 追加後に race_relative.py に "
+        f"SQL 文字列 proxy トークンが存在 (REVIEW H5/H3 違反): {const_str}"
+    )
+
+    # compute_p_lower_conformal_shrinkage のみの関数レベル AST scan でも forbidden 0件（C2-12-01-2・
+    # race_relative 全体 scan の false-red 回避と二重保証）
+    from src.model.race_relative import compute_p_lower_conformal_shrinkage
+
+    fn_name_attr, fn_const_str = _scan_module_for_forbidden_tokens(
+        compute_p_lower_conformal_shrinkage
+    )
+    assert not fn_name_attr, (
+        f"compute_p_lower_conformal_shrinkage 関数本体に forbidden Name/Attribute が存在 "
+        f"(SAFE-01 違反): {fn_name_attr}"
+    )
+    assert not fn_const_str, (
+        f"compute_p_lower_conformal_shrinkage 関数本体に SQL 文字列 proxy が存在: {fn_const_str}"
+    )

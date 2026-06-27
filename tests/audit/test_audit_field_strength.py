@@ -410,6 +410,63 @@ def _fs_history_row(
     return row
 
 
+# ---------------------------------------------------------------------------
+# Phase 12 regression: p_lower / falsification 追加後も FEATURE_COLUMNS SAFE-01 proxy 排除維持
+# ---------------------------------------------------------------------------
+def test_phase12_p_lower_falsification_no_feature_columns_route() -> None:
+    """[Phase 12 regression・SAFE-01] p_lower / falsification 層が FEATURE_COLUMNS 経由しないこと.
+
+    Phase 12 で追加された src.model.race_relative.compute_p_lower_conformal_shrinkage および
+    src.eval.falsification (fit_market_implied_calibrator / run_falsification_test) は
+    evaluation 専用層であり・FEATURE_COLUMNS / build_training_frame / load_feature_matrix 等
+    feature 構築経路を import・参照しない（SAFE-01 聖域・層分離）。
+
+    Phase 12 拡張後も本 audit (test_audit_field_strength.py) の SAFE-01 proxy 排除契約が
+    維持されることの regression 検証（p_lower/falsification 追加で feature 経路が変わらない）。
+    [C-12-05-4] snapshot skip 可能テストだけで SC#5 GREEN を判定しない・live-DB フルスイートを
+    完了条件にする（次 checkpoint Task 2 で実施）。
+
+    cross-reference: tests/audit/test_audit_p_lower_falsification.py（Phase 12 専用 adversarial）.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    from src.eval import falsification
+    from src.model import race_relative
+
+    feature_construction_tokens = {
+        "FEATURE_COLUMNS",
+        "build_training_frame",
+        "load_feature_matrix",
+        "FEATURE_SNAPSHOT",
+        "_derive_feature_columns",
+    }
+
+    for mod_name, mod_obj in [
+        ("race_relative", race_relative),
+        ("falsification", falsification),
+    ]:
+        source = inspect.getsource(mod_obj)
+        tree = ast.parse(textwrap.dedent(source))
+        violations: list[str] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id in feature_construction_tokens:
+                violations.append(f"Name({node.id}) @ line {node.lineno}")
+            elif (
+                isinstance(node, ast.Attribute)
+                and node.attr in feature_construction_tokens
+            ):
+                violations.append(f"Attribute({node.attr}) @ line {node.lineno}")
+            elif isinstance(node, ast.alias) and node.name in feature_construction_tokens:
+                violations.append(f"Import({node.name}) @ line {node.lineno}")
+        assert not violations, (
+            f"Phase 12 regression: {mod_name}.py に feature 構築経路への参照が存在 "
+            f"(SAFE-01 層分離違反・p_lower/falsification が FEATURE_COLUMNS 経由で odds/ninki を"
+            f"受け取る経路が開いている可能性): {violations}"
+        )
+
+
 def test_lookahead_injection_detected(monkeypatch: pytest.MonkeyPatch) -> None:
     """D-01 PIT 保護 adversarial（opponent-vs-source・strict <）: ``_pit_cutoff_prefilter`` を ``<=`` 版に
     差替えると same-day opponent が混入し profile 値（field_strength_mean）が変化する（guard 有効の逆証明）.
