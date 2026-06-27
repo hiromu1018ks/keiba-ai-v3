@@ -104,6 +104,17 @@ if str(_REPO_ROOT) not in sys.path:
 # §15.2 事前登録指標不変: binning 定数を evaluator/segment_eval から import 再利用 (再定義禁止)
 # [C-12-04-3 / C2-12-04-2 / C3-12-03-1] Phase 12 事前登録定数は falsification.py (Plan 03) の
 # constants block から import し run script に重複定義しない (BT1_PERIODS のみ run script 固有)。
+# [gap-closure] JODDS odds pipeline を run_backtest.py の PROVEN pattern で統合 (gap-closure):
+# falsification / _compute_recovery (EV) / _compute_odds_band_calib_max_dev (SC#4 gate) /
+# switch_recommendation が fuku_odds_lower/fuku_odds_upper を必要とするが・commit d0881f1 の初期実装は
+# odds join を欠いており・live-DB で falsification が WARNING skip されていた (D-15 参考記録で握り潰し)。
+# eval コピー (baseline_pred / rr_pred) にのみ odds を付与し・rr_test_result["pred_df"] は
+# 20-col PREDICTION_COLUMNS のまま維持 (SC#5 idempotent swap の聖域・load_predictions が PREDICTION_COLUMNS
+# のみ抽出するため odds 列が混入しても書込まれないが・eval コピーへの付与で契約を明示)。
+from src.ev.odds_snapshot import (  # noqa: E402
+    fetch_jodds,
+    select_odds_snapshot,
+)
 from src.eval.falsification import (  # noqa: E402
     HOLM_ALPHA,
     LOGIT_CLIP_EPS,
@@ -295,6 +306,290 @@ def _attach_label_to_pred(
         raise RuntimeError(
             f"_attach_label_to_pred: pred_df の {n_missing} 行に label が JOIN できなかった "
             "(silent leak・§19.1 聖域)"
+        )
+    return merged
+
+
+# ---------------------------------------------------------------------------
+# [gap-closure] _attach_odds_to_pred / _derive_test_years — JODDS odds pipeline 統合
+# ---------------------------------------------------------------------------
+# gap-closure bug #2 の根治: falsification / _compute_recovery / _compute_odds_band_calib_max_dev /
+# switch_recommendation が eval コピー上の fuku_odds_lower/fuku_odds_upper + entry_count を必要とするが・
+# 初期実装 (commit d0881f1) は odds join を欠き・live-DB で falsification が WARNING skip されていた。
+# run_backtest.py L448-460 / L575-600 の PROVEN pattern (fetch_jodds → select_odds_snapshot →
+# race_key+umaban merge + HIGH-2 len assert) を踏襲する。
+# §11.2 / SAFE-01 聖域: odds は eval コピー (baseline_pred / rr_pred) のみに付与し・
+# rr_test_result["pred_df"] (PREDICTION_COLUMNS 20-col) には触れない (load_predictions は
+# PREDICTION_COLUMNS のみ抽出するため odds 列が混入しても書込まれないが・契約を明示)。
+def _derive_test_years(split_periods: dict[str, tuple[str, str]]) -> list[str]:
+    """split_periods の test 期間をカバーする年リストを導出する (性能最適化・全期間 JODDS 回避).
+
+    run_backtest.py L1153-1157 と同一 idiom: test 期間 ("2023-01-01","2023-12-31") → ["2023"]。
+    複数年またぎ (例: 2023-07..2024-06) → ["2023","2024"]。fetch_jodds の ``years`` 引数に渡す。
+    """
+    start_year = int(split_periods["test"][0][:4])
+    end_year = int(split_periods["test"][1][:4])
+    if end_year < start_year:
+        raise ValueError(
+            f"_derive_test_years: test 期間の end_year < start_year ({start_year} > {end_year})・"
+            "split_periods['test'] の順序を確認"
+        )
+    return [str(y) for y in range(start_year, end_year + 1)]
+
+
+def _attach_odds_to_pred(
+    pred_df: pd.DataFrame,
+    *,
+    jodds_df: pd.DataFrame,
+    odds_snapshot_policy: str,
+    caller_label: str,
+) -> pd.DataFrame:
+    """eval コピー pred_df に JODDS 固定時点 odds (fuku_odds_lower/upper) を JOIN する (gap-closure).
+
+    run_backtest.py L448-460 (_build_race_times_per_horse) + L575-600 (merge + HIGH-2 len assert) の
+    PROVEN pattern を踏襲。``select_odds_snapshot`` は ``merge_asof(direction='backward')`` で
+    cutoff (= race_start_datetime - N分) 以下の最大 snapshot を per-horse で選択 (D-02 未来リーク
+    構造的不可・§13 PIT プリミティブと同一思想)。
+
+    本関数は SAFE-01 聖域を守るため・odds を ``pred_df`` の copy に付与する (入力破壊禁止・純粋関数)。
+    FEATURE_COLUMNS には触れない (orchestrator.train_and_predict の FEATURE_COLUMNS allowlist が保証)。
+
+    Parameters
+    ----------
+    pred_df : pd.DataFrame
+        eval コピー (_attach_label_to_pred 戻り値)。必須列: ``race_key, umaban, race_start_datetime``。
+        ``race_start_datetime`` は orchestrator が pred_df の meta 列として付与済み (orchestrator.py
+        L867-898・PREDICTION_COLUMNS に含まれない補助列)。
+    jodds_df : pd.DataFrame
+        ``fetch_jodds`` の戻り値 (test 期間の JODDS snapshot・中間オッズ datakubun='1' 固定)。
+    odds_snapshot_policy : str
+        ``'30min_before'`` / ``'10min_before'`` (D-01 事前登録・run_backtest と同一)。
+    caller_label : str
+        エラー文言用の呼出側ラベル ('baseline' / 'race_relative')。
+
+    Returns
+    -------
+    pd.DataFrame
+        ``pred_df`` と同行数。``fuku_odds_lower`` / ``fuku_odds_upper`` / ``odds_snapshot_at`` /
+        ``odds_source_type`` / ``odds_missing_reason`` 列が付与される (cross-plan contract・snake_case)。
+        既存列は維持 (suffixes=('', '_snap') で衝突時も左側優先)。
+
+    Raises
+    ------
+    RuntimeError
+        merge 後行数が ``pred_df`` と不一致 (HIGH-2 cartesian duplication・snapshot が馬単位でない)。
+    """
+    if "race_start_datetime" not in pred_df.columns:
+        raise RuntimeError(
+            f"_attach_odds_to_pred: pred_df に race_start_datetime 列がない ({caller_label})・"
+            "orchestrator.train_and_predict が meta 列として付与するはず (orchestrator.py L867-898)"
+        )
+    out = pred_df.copy()
+    # umaban 型正規化 (merge key・Int64・run_backtest L581 と同一 idiom)
+    out["umaban"] = pd.to_numeric(out["umaban"], errors="coerce").astype("Int64")
+
+    # 馬単位 race_times 構築 (run_backtest L448-460 と同一)
+    race_times = out[["race_key", "umaban", "race_start_datetime"]].copy()
+
+    # select_odds_snapshot: per-horse cutoff 以下最大 snapshot (D-02 未来リーク構造的不可)
+    snapshot = select_odds_snapshot(jodds_df, race_times, odds_snapshot_policy)
+
+    # HIGH-2: pred_df と snapshot を (race_key, umaban) で merge + 行数不変 assert (run_backtest L590-599)
+    merged = out.merge(
+        snapshot, on=["race_key", "umaban"], how="left", suffixes=("", "_snap")
+    )
+    if len(merged) != len(out):
+        raise RuntimeError(
+            f"_attach_odds_to_pred: HIGH-2 cartesian duplication 検出 ({caller_label})・"
+            f"len(before)={len(out)} != len(after)={len(merged)} "
+            "(snapshot が馬単位でない・race_key 単独 JOIN 等)"
+        )
+    return merged
+
+
+def _ensure_entry_count(pred_df: pd.DataFrame, *, caller_label: str) -> pd.DataFrame:
+    """eval コピー pred_df に ``entry_count`` 列を確保する (gap-closure・check_sum_p_distribution 用).
+
+    gap-closure bug #1: ``check_sum_p_distribution`` (evaluator.py L602-669) が ``entry_count_col``
+    引数で ``entry_count`` を要求するが・orchestrator は ``sales_start_entry_count`` を付与し
+    ``entry_count`` 列は提供しない (orchestrator.py L731)・frame にも ``sales_start_entry_count``
+    しか無い場合が多い。本関数は以下の優先順位で ``entry_count`` を確保する:
+
+      1. 既に ``entry_count`` 列が存在する → 何もしない (unit test 合成 df 等との両立)。
+      2. ``sales_start_entry_count`` 列が存在する → その値を ``entry_count`` に alias。
+      3. ``final_starter_count`` 列が存在する → その値を ``entry_count`` に alias (確定出走頭数)。
+      4. いずれも無い → ``race_key`` の group count で導出 (最後の fallback・run_backtest の
+         主モデル pred_df は race_key を持つため安全)。導出できない場合は RuntimeError (silent skip 禁止)。
+
+    SAFE-01 聖域: 本関数は eval コピーにのみ作用し・rr_test_result["pred_df"] には触れない。
+    """
+    if "entry_count" in pred_df.columns:
+        return pred_df
+    out = pred_df.copy()
+    if "sales_start_entry_count" in out.columns:
+        out["entry_count"] = out["sales_start_entry_count"]
+        return out
+    if "final_starter_count" in out.columns:
+        out["entry_count"] = out["final_starter_count"]
+        return out
+    if "race_key" in out.columns:
+        # race_key group の行数 = そのレースの馬数 (entry_count の定義)。
+        # sales_start_entry_count は frame に無くとも race_key の group size で復元できる。
+        counts = out.groupby("race_key")["race_key"].transform("size")
+        out["entry_count"] = counts.astype("int64")
+        return out
+    raise RuntimeError(
+        f"_ensure_entry_count: {caller_label} pred_df に entry_count / sales_start_entry_count / "
+        "final_starter_count / race_key のいずれも無い・entry_count を導出できない "
+        "(check_sum_p_distribution / falsification field_size 共変量が必須)"
+    )
+
+
+def _build_falsification_windows(
+    *,
+    frame: pd.DataFrame,
+    split_periods: dict[str, tuple[str, str]],
+    readonly_pool,
+    odds_snapshot_policy: str,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """falsification 用の odds-enriched train/calib df を構築する (gap-closure・§11.2 聖域).
+
+    gap-closure bug #2 の根治の副次側面: ``fit_market_implied_calibrator`` は train/calib 窓の
+    ``fuku_odds_lower`` + ``fukusho_hit_validated`` を必要とするが・frame (FEATURE_COLUMNS 由来)
+    は odds-free (D-07/§13.4 odds-free allowlist)。本関数は frame から train/calib slice を
+    切り出し・JODDS を fetch して odds を付与した eval 専用 df を返す。
+
+    §11.2 聖域 (test 窓 sanctuary):
+        本関数は train/calib 窓のみを扱う (``split_periods['train']`` / ``['calib']``)。
+        test 窓の ``frame`` 行・test 窓 outcome 系は扱わない (Shared Pattern 6)。
+
+    SAFE-01 聖域:
+        本関数が返す df は ``run_falsification_pipeline`` (evaluation 専用層・falsification.py 内
+        SAFE-01-ALLOW) のみが消費する。FEATURE_COLUMNS / build_training_frame / load_feature_matrix
+        等 feature 構築経路には一切触れない。
+
+    Parameters
+    ----------
+    frame : pd.DataFrame
+        ``build_training_frame`` 戻り値 (label-joined・odds-free)。``race_date`` / ``race_key`` /
+        ``umaban`` / ``race_start_datetime`` / ``fukusho_hit_validated`` 列を含むこと。
+    split_periods : dict
+        ``{"train": (start, end), "calib": (start, end), ...}``。``train``/``calib`` を使用。
+    readonly_pool
+        ``make_pool(role='readonly', ...)`` の pool。JODDS fetch 用。
+    odds_snapshot_policy : str
+        ``'30min_before'`` / ``'10min_before'``。各馬の固定時点 snapshot を選択 (D-01 事前登録)。
+
+    Returns
+    -------
+    tuple[pd.DataFrame, pd.DataFrame]
+        ``(train_df_with_odds, calib_df_with_odds)``。両者とも ``fuku_odds_lower`` /
+        ``fuku_odds_upper`` / ``fukusho_hit_validated`` 列を持つ。
+    """
+    if "race_date" not in frame.columns:
+        raise RuntimeError(
+            "_build_falsification_windows: frame に race_date 列がない・train/calib 切出不能"
+        )
+    train_start, train_end = split_periods["train"]
+    calib_start, calib_end = split_periods["calib"]
+    frame_dt = pd.to_datetime(frame["race_date"], errors="coerce")
+    train_mask = (frame_dt >= pd.Timestamp(train_start)) & (frame_dt <= pd.Timestamp(train_end))
+    calib_mask = (frame_dt >= pd.Timestamp(calib_start)) & (frame_dt <= pd.Timestamp(calib_end))
+    train_df = frame.loc[train_mask].copy()
+    calib_df = frame.loc[calib_mask].copy()
+    if len(train_df) == 0 or len(calib_df) == 0:
+        raise RuntimeError(
+            f"_build_falsification_windows: train ({len(train_df)} 行) / calib ({len(calib_df)} 行) "
+            "が空・split_periods と frame の race_date を確認"
+        )
+
+    # umaban 型正規化 (JODDS merge key・Int64)
+    for df in (train_df, calib_df):
+        df["umaban"] = pd.to_numeric(df["umaban"], errors="coerce").astype("Int64")
+
+    # JODDS fetch (train/calib 窓の年のみ・全期間取得回避)
+    train_years = [str(y) for y in range(
+        int(train_start[:4]), int(train_end[:4]) + 1
+    )]
+    calib_years = [str(y) for y in range(
+        int(calib_start[:4]), int(calib_end[:4]) + 1
+    )]
+    fetch_years = sorted(set(train_years) | set(calib_years))
+    logger.info(
+        "[gap-closure] falsification 用 JODDS fetch: years=%s (train+calib 窓)",
+        fetch_years,
+    )
+    from src.db.connection import readonly_cursor
+
+    with readonly_cursor(readonly_pool) as jodds_cur:
+        jodds_cur.execute("SET statement_timeout = '30s'")
+        jodds_df = fetch_jodds(jodds_cur, years=fetch_years)
+
+    # 各窓に odds を付与 (run_backtest L575-600 と同一 pattern・select_odds_snapshot で固定時点)
+    train_with_odds = _attach_odds_to_window(
+        train_df, jodds_df=jodds_df, odds_snapshot_policy=odds_snapshot_policy,
+        caller_label="falsification_train",
+    )
+    calib_with_odds = _attach_odds_to_window(
+        calib_df, jodds_df=jodds_df, odds_snapshot_policy=odds_snapshot_policy,
+        caller_label="falsification_calib",
+    )
+
+    # odds が JOIN できなかった行 (no_bet / snapshot 無) は falsification 回帰から除外
+    # (NaN odds は fit_market_implied_calibrator で NaN 伝播して RuntimeError になるため)。
+    train_usable = train_with_odds["fuku_odds_lower"].notna()
+    calib_usable = calib_with_odds["fuku_odds_lower"].notna()
+    n_train_drop = int((~train_usable).sum())
+    n_calib_drop = int((~calib_usable).sum())
+    if n_train_drop > 0 or n_calib_drop > 0:
+        logger.info(
+            "[gap-closure] falsification train/calib で odds 欠損行を除外: "
+            "train drop=%d (usable=%d) calib drop=%d (usable=%d)",
+            n_train_drop,
+            int(train_usable.sum()),
+            n_calib_drop,
+            int(calib_usable.sum()),
+        )
+    train_with_odds = train_with_odds.loc[train_usable].copy()
+    calib_with_odds = calib_with_odds.loc[calib_usable].copy()
+    if len(train_with_odds) == 0 or len(calib_with_odds) == 0:
+        raise RuntimeError(
+            f"_build_falsification_windows: odds 付与後の train ({len(train_with_odds)}) / "
+            f"calib ({len(calib_with_odds)}) が空・JODDS 取得状況を確認 (years={fetch_years})"
+        )
+    return train_with_odds, calib_with_odds
+
+
+def _attach_odds_to_window(
+    df: pd.DataFrame,
+    *,
+    jodds_df: pd.DataFrame,
+    odds_snapshot_policy: str,
+    caller_label: str,
+) -> pd.DataFrame:
+    """frame slice (train/calib) に JODDS 固定時点 odds を JOIN する (gap-closure・falsification 用).
+
+    ``_attach_odds_to_pred`` と同一の merge pattern だが・frame slice は PREDICTION_COLUMNS でなく
+    FEATURE_COLUMNS + label 系列 (race_date / race_key / umaban / race_start_datetime /
+    fukusho_hit_validated 等) を持つ。``race_start_datetime`` は load_feature_matrix が snapshot に
+    同梱する (orchestrator L867-898 が pred_df の meta 列として付与する元)。
+    """
+    if "race_start_datetime" not in df.columns:
+        raise RuntimeError(
+            f"_attach_odds_to_window: df に race_start_datetime 列がない ({caller_label})・"
+            "load_feature_matrix の snapshot が race_start_datetime を含む必要がある"
+        )
+    out = df.copy()
+    out["umaban"] = pd.to_numeric(out["umaban"], errors="coerce").astype("Int64")
+    race_times = out[["race_key", "umaban", "race_start_datetime"]].copy()
+    snapshot = select_odds_snapshot(jodds_df, race_times, odds_snapshot_policy)
+    merged = out.merge(
+        snapshot, on=["race_key", "umaban"], how="left", suffixes=("", "_snap")
+    )
+    if len(merged) != len(out):
+        raise RuntimeError(
+            f"_attach_odds_to_window: HIGH-2 cartesian duplication 検出 ({caller_label})・"
+            f"len(before)={len(out)} != len(after)={len(merged)}"
         )
     return merged
 
@@ -1026,11 +1321,69 @@ def main(argv: list[str] | None = None) -> int:
         baseline_pred = _attach_label_to_pred(baseline_result["pred_df"], label_joined_frame=frame)
         rr_pred = _attach_label_to_pred(rr_test_result["pred_df"], label_joined_frame=frame)
 
+        # ---- [gap-closure] JODDS odds JOIN (eval コピーのみ・SAFE-01 聖域) ----
+        # gap-closure bug #2 の根治: falsification / _compute_recovery (EV) /
+        # _compute_odds_band_calib_max_dev (SC#4 gate) / switch_recommendation が odds を必要とする。
+        # run_backtest.py L575-600 の PROVEN pattern で JODDS を test 窓期間のみ fetch し・
+        # eval コピー (baseline_pred / rr_pred) に merge する。
+        # rr_test_result["pred_df"] / baseline_result["pred_df"] は触れない (SC#5 idempotent swap 用・
+        # PREDICTION_COLUMNS 20-col 維持・load_predictions が PREDICTION_COLUMNS のみ抽出)。
+        test_years = _derive_test_years(BT1_PERIODS)
+        logger.info(
+            "[gap-closure] JODDS fetch 開始: test_years=%s policy=%s (falsification/EV/SC#4 gate 用)",
+            test_years,
+            args.odds_snapshot_policy,
+        )
+        with readonly_cursor(readonly_pool) as jodds_cur:
+            jodds_cur.execute("SET statement_timeout = '30s'")
+            jodds_df = fetch_jodds(jodds_cur, years=test_years)
+        logger.info(
+            "[gap-closure] JODDS fetch 完了: rows=%d (test 期間のみ・全期間取得回避)",
+            len(jodds_df),
+        )
+        baseline_pred = _attach_odds_to_pred(
+            baseline_pred,
+            jodds_df=jodds_df,
+            odds_snapshot_policy=args.odds_snapshot_policy,
+            caller_label="baseline",
+        )
+        rr_pred = _attach_odds_to_pred(
+            rr_pred,
+            jodds_df=jodds_df,
+            odds_snapshot_policy=args.odds_snapshot_policy,
+            caller_label="race_relative",
+        )
+        # gap-closure bug #1 の根治: check_sum_p_distribution / falsification field_size 共変量が
+        # 必須とする entry_count を sales_start_entry_count 等から確保 (eval コピーのみ)。
+        baseline_pred = _ensure_entry_count(baseline_pred, caller_label="baseline")
+        rr_pred = _ensure_entry_count(rr_pred, caller_label="race_relative")
+        n_odds_baseline = int(baseline_pred["fuku_odds_lower"].notna().sum())
+        n_odds_rr = int(rr_pred["fuku_odds_lower"].notna().sum())
+        logger.info(
+            "[gap-closure] odds JOIN 完了: baseline usable_odds=%d/%d rr usable_odds=%d/%d "
+            "(usable = fuku_odds_lower not NaN・no_bet sentinel は NaN 化済み)",
+            n_odds_baseline,
+            len(baseline_pred),
+            n_odds_rr,
+            len(rr_pred),
+        )
+
         # ---- (5) [C-12-03-1 HIGH] falsification pipeline (falsification-spec.json 事前書き出し含む) ----
-        falsification_spec_path = eval_dir / "falsification-spec.json"
-        falsification_result = _safe_run_falsification_pipeline(
+        # [gap-closure] falsification の fit_market_implied_calibrator は train/calib 窓の
+        # fuku_odds_lower + fukusho_hit_validated を必要とするが・frame (FEATURE_COLUMNS 由来) は
+        # odds-free (D-07/§13.4)。よって frame の train/calib slice を取り出し・JODDS odds を付与した
+        # eval 専用 df を構築する (SAFE-01: feature 構築経路でなく evaluation 専用層の境界)。
+        # train/calib 窓の年も fetch する (test 窓と合わせて JODDS を取得)。
+        falsification_train_df, falsification_calib_df = _build_falsification_windows(
             frame=frame,
             split_periods=BT1_PERIODS,
+            readonly_pool=readonly_pool,
+            odds_snapshot_policy=args.odds_snapshot_policy,
+        )
+        falsification_spec_path = eval_dir / "falsification-spec.json"
+        falsification_result = _safe_run_falsification_pipeline(
+            train_df=falsification_train_df,
+            calib_df=falsification_calib_df,
             test_pred_df=rr_pred,
             falsification_spec_path=falsification_spec_path,
         )
@@ -1083,12 +1436,19 @@ def main(argv: list[str] | None = None) -> int:
 
 def _safe_run_falsification_pipeline(
     *,
-    frame: pd.DataFrame,
-    split_periods: dict[str, tuple[str, str]],
+    train_df: pd.DataFrame,
+    calib_df: pd.DataFrame,
     test_pred_df: pd.DataFrame,
     falsification_spec_path: Path,
 ) -> dict[str, Any] | None:
     """``run_falsification_pipeline`` を try/except で呼ぶ (falsification 失敗時は None・report に明記).
+
+    [gap-closure] 呼出側が odds-enriched な train_df / calib_df (JODDS fuku_odds_lower +
+    fukusho_hit_validated 付き) と test_pred_df (odds-enriched eval コピー) を明示的に渡す形に変更。
+    旧実装は frame から train/calib を切り出していたが・frame は FEATURE_COLUMNS 由来で odds 列を
+    持たない (D-07/§13.4 odds-free allowlist) ため・falsification が必ず WARNING skip されていた
+    (gap-closure bug #2 の副次症状)。SAFE-01: odds は evaluation 専用層の境界 (falsification.py 内
+    SAFE-01-ALLOW 注記)・feature 構築経路から切り離されている。
 
     falsification-spec.json の事前書き出しは ``run_falsification_pipeline`` 内で実行されるため・
     仮に回帰 fit が失敗した場合でも spec は事前書き出しされた状態を保つ (C-12-03-1 HIGH 監査証跡)。
@@ -1102,23 +1462,8 @@ def _safe_run_falsification_pipeline(
         # それでも falsification-spec.json だけは事前書き出しして監査証跡を残す (C-12-03-1)
         write_falsification_spec(falsification_spec_path)
         return None
-    # train/calib 窓の抽出 (frame から split periods で切出)
-    if "split" not in frame.columns or "race_date" not in frame.columns:
-        logger.warning(
-            "falsification: frame に split/race_date 列がない・train/calib 切出不能・skip (D-15 参考記録)"
-        )
-        write_falsification_spec(falsification_spec_path)
-        return None
 
-    train_start, train_end = split_periods["train"]
-    calib_start, calib_end = split_periods["calib"]
-    frame_dt = pd.to_datetime(frame["race_date"], errors="coerce")
-    train_mask = (frame_dt >= pd.Timestamp(train_start)) & (frame_dt <= pd.Timestamp(train_end))
-    calib_mask = (frame_dt >= pd.Timestamp(calib_start)) & (frame_dt <= pd.Timestamp(calib_end))
-    train_df = frame.loc[train_mask].copy()
-    calib_df = frame.loc[calib_mask].copy()
-
-    # 必須列の存在確認
+    # 必須列の存在確認 (train/calib は呼出側が odds-enriched で渡した前提)
     for df, name in ((train_df, "train"), (calib_df, "calib")):
         if "fuku_odds_lower" not in df.columns or "fukusho_hit_validated" not in df.columns:
             logger.warning(
