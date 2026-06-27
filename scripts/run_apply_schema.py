@@ -136,6 +136,14 @@ def apply(dsn: str, reader: str, etl: str, sql_text: str, dry_run: bool) -> None
                     "prediction_extend_model_type_domain",
                     schema_module.PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL,
                 ),
+                # Phase 12 Plan 12-01 SC#1 p_lower 列追加 ALTER
+                # （schema.py APPLY_ORDER と同期・idempotent・owner/admin 権限・
+                #  memory: migration-privilege-admin-required・review C-12-01-1 HIGH:
+                #  APPLY_ORDER だけでは run_apply_schema.py は適用しない・ハードコード step list への挿入が必須）
+                (
+                    "prediction_add_p_lower",
+                    schema_module.PREDICTION_ADD_P_LOWER_SQL,
+                ),
                 # Phase 5: backtest_table DDL も GRANT の直前に適用
                 # （schema.py APPLY_ORDER と同期・BACK-03 backtest_id 8カラム PK + CHECK・T-05-13）
                 ("backtest_table", schema_module.BACKTEST_TABLE_DDL),

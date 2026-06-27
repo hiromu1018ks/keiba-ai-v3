@@ -46,8 +46,9 @@ def _make_prediction_row(
     umaban: int = 1,
     kettonum: int = 100,
     is_primary=None,
+    p_fukusho_hit_lower=None,
 ) -> dict:
-    """PREDICTION_COLUMNS 19 列を埋めた1行分の dict を返す（provenance 3列含む・Phase 11）。"""
+    """PREDICTION_COLUMNS 20 列を埋めた1行分の dict を返す（provenance 3列 + p_lower 含む・Phase 11/12）。"""
     row = {
         "model_type": model_type,
         "model_version": model_version,
@@ -62,6 +63,8 @@ def _make_prediction_row(
         "umaban": umaban,
         "kettonum": kettonum,
         "p_fukusho_hit": 0.42,
+        # Phase 12 SC#1 (EV-01): p_fukusho_hit_lower（デフォルト None で v1.0 binary 行想定）。
+        "p_fukusho_hit_lower": p_fukusho_hit_lower,
         "race_date": pd.Timestamp("2023-06-04"),
         "split": "test",
         # Phase 11 SC#5 §19.1 metadata (provenance・test 用 sentinel 相当の事前登録値)
@@ -132,17 +135,18 @@ def _seed_two_models(write_cur, tag: str, as_of_dt: datetime, snapshot_id: str =
 
 
 def test_prediction_columns_includes_is_primary():
-    """PREDICTION_COLUMNS に 'is_primary' が含まれ・長さが19・末尾に追加されている (Pitfall 4)。
+    """PREDICTION_COLUMNS に 'is_primary' が含まれ・長さが20・末尾に追加されている (Pitfall 4)。
 
-    19 = 旧15 + is_primary(1) + Phase 11 provenance 3列 (label_version /
-    odds_snapshot_policy / backtest_strategy_version)。provenance は is_primary の前。
+    20 = 旧15 + is_primary(1) + Phase 11 provenance 3列 (label_version /
+    odds_snapshot_policy / backtest_strategy_version) + Phase 12 p_fukusho_hit_lower (1)。
+    provenance は is_primary の前。p_fukusho_hit_lower は p_fukusho_hit の直後。
     """
     assert "is_primary" in PREDICTION_COLUMNS, (
         "PREDICTION_COLUMNS に is_primary が無い（Pitfall 4 3ファイル連鎖違反）"
     )
-    assert len(PREDICTION_COLUMNS) == 19, (
-        f"PREDICTION_COLUMNS 長さが19でない: {len(PREDICTION_COLUMNS)} "
-        "(旧15+is_primary=16→Phase 11 provenance 3列追加で19期待)"
+    assert len(PREDICTION_COLUMNS) == 20, (
+        f"PREDICTION_COLUMNS 長さが20でない: {len(PREDICTION_COLUMNS)} "
+        "(旧15+is_primary=16→Phase 11 provenance 3列=19→Phase 12 p_lower 1列=20期待)"
     )
     assert PREDICTION_COLUMNS[-1] == "is_primary", (
         f"is_primary は末尾であるべき: 末尾={PREDICTION_COLUMNS[-1]!r}"

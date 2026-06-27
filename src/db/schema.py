@@ -76,6 +76,10 @@ CREATE TABLE IF NOT EXISTS prediction.fukusho_prediction (
     kettonum int,
     -- 予測値
     p_fukusho_hit double precision NOT NULL,
+    -- Phase 12 SC#1: p_fukusho_hit の下側信頼限界 (conformal 風 shrinkage).
+    -- v1.0 binary 行は NULL (後方互換). race-relative 行は p_lower を持つ.
+    -- CHECK 制約 prediction_p_lower_range で [0,1] を保証 (NULL 許容で v1.0 行を保持).
+    p_fukusho_hit_lower double precision,
     -- 補助メタ（Phase 5/6/7 が参照）
     race_date date,
     split varchar(16),
@@ -88,6 +92,7 @@ CREATE TABLE IF NOT EXISTS prediction.fukusho_prediction (
     PRIMARY KEY (model_type, model_version, feature_snapshot_id, as_of_datetime,
                  year, jyocd, kaiji, nichiji, racenum, umaban, kettonum),
     CONSTRAINT prediction_fukusho_hit_range CHECK (p_fukusho_hit >= 0 AND p_fukusho_hit <= 1),
+    CONSTRAINT prediction_p_lower_range CHECK (p_fukusho_hit_lower IS NULL OR (p_fukusho_hit_lower >= 0 AND p_fukusho_hit_lower <= 1)),
     CONSTRAINT prediction_model_type_domain CHECK (model_type IN ('lightgbm','catboost','logreg','lightgbm_rr','catboost_rr')),
     CONSTRAINT prediction_calib_method_domain CHECK (calib_method IN ('isotonic','sigmoid'))
 );
@@ -178,6 +183,41 @@ ALTER TABLE prediction.fukusho_prediction
     DROP CONSTRAINT IF EXISTS prediction_model_type_domain;
 ALTER TABLE prediction.fukusho_prediction
     ADD CONSTRAINT prediction_model_type_domain CHECK (model_type IN ('lightgbm','catboost','logreg','lightgbm_rr','catboost_rr'));
+"""
+
+# ---------------------------------------------------------------------------
+# Phase 12 Plan 12-01: prediction.fukusho_prediction へ p_fukusho_hit_lower 列追加 ALTER
+# (SC#1 / EV-01・D-01/D-02・idempotent ALTER・CHECK 制約・3ファイル連鎖・Pitfall 4)
+#
+# - p_fukusho_hit_lower: p_fukusho_hit の下側信頼限界 (conformal 風 shrinkage).
+#   compute_p_lower_conformal_shrinkage が calib slice のみで計算した q_shrink を
+#   差し引いて保守的に生成する。
+# - NULL 許容: v1.0 binary 行（theta=None・is_primary=t）は p_lower を持たないため NULL。
+#   race-relative 行（theta != None・is_primary=f）は compute_p_lower_conformal_shrinkage の
+#   戻り値で非 NULL になる（C-12-01-4 MEDIUM 機械保証）。
+# - idempotent ALTER: PREDICTION_ADD_IS_PRIMARY_SQL / PREDICTION_ADD_PROVENANCE_SQL と同一 idiom
+#   （ADD COLUMN IF NOT EXISTS / DROP CONSTRAINT IF EXISTS + ADD）。
+# - CHECK 制約 prediction_p_lower_range で [0,1] を保証（NULL 許容で v1.0 行を保持）。
+# - ALTER TABLE は owner/admin 権限必要（memory: migration-privilege-admin-required・
+#   scripts/run_apply_schema.py に一本化・etl ロールでは InsufficientPrivilege）。
+# - 本 Phase のコードは migration を実行しない（run_apply_schema.py の step list に追加のみ・
+#   実行は Plan 04/05 checkpoint で人間が行う）。
+# ---------------------------------------------------------------------------
+PREDICTION_ADD_P_LOWER_SQL = """
+ALTER TABLE prediction.fukusho_prediction
+    ADD COLUMN IF NOT EXISTS p_fukusho_hit_lower double precision;
+ALTER TABLE prediction.fukusho_prediction
+    DROP CONSTRAINT IF EXISTS prediction_p_lower_range;
+ALTER TABLE prediction.fukusho_prediction
+    ADD CONSTRAINT prediction_p_lower_range
+    CHECK (p_fukusho_hit_lower IS NULL OR
+           (p_fukusho_hit_lower >= 0 AND p_fukusho_hit_lower <= 1));
+COMMENT ON COLUMN prediction.fukusho_prediction.p_fukusho_hit_lower IS
+    'Phase 12 SC#1: p_fukusho_hit の下側信頼限界 (conformal 風 shrinkage・D-01/D-02). '
+    'compute_p_lower_conformal_shrinkage が calib slice のみで計算した q_shrink を差し引く. '
+    'v1.0 binary 行は NULL (後方互換・theta=None 呼出). '
+    'race-relative 行は p_lower を持つ (C-12-01-4: NULL 混入を許さない). '
+    'CHECK 制約 prediction_p_lower_range で [0,1] を保証 (NULL 許容で v1.0 行を保持).';
 """
 
 # ---------------------------------------------------------------------------
@@ -393,6 +433,11 @@ APPLY_ORDER = [
     # Phase 11 Plan 11-05: prediction_model_type_domain CHECK 制約 lightgbm_rr/catboost_rr 拡張
     # （codex cycle-2 NEW HIGH#1・DROP IF EXISTS + ADD idempotent migration）。
     ("prediction_extend_model_type_domain", PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL),
+    # Phase 12 Plan 12-01: p_fukusho_hit_lower 列追加 ALTER（SC#1/EV-01・idempotent・CHECK 制約
+    # prediction_p_lower_range・3ファイル連鎖 Pitfall 4・owner/admin 権限・memory: migration-privilege-admin-required）。
+    # C-12-01-1 HIGH: schema.py APPLY_ORDER への追加だけでなく scripts/run_apply_schema.py の
+    # 手動 step list にも挿入必須（APPLY_ORDER を参照しないハードコード list）。
+    ("prediction_add_p_lower", PREDICTION_ADD_P_LOWER_SQL),
     # Phase 5: backtest_table DDL も GRANT の直前に適用（CREATE SCHEMA で backtest
     # スキーマ自体は既に作成済・GRANT が GRANT SELECT ON ALL TABLES で本テーブルを拾えるように）
     ("backtest_table", BACKTEST_TABLE_DDL),
@@ -419,6 +464,7 @@ __all__ = [
     "PREDICTION_ADD_IS_PRIMARY_SQL",
     "PREDICTION_ADD_PROVENANCE_SQL",
     "PREDICTION_EXTEND_MODEL_TYPE_DOMAIN_SQL",
+    "PREDICTION_ADD_P_LOWER_SQL",
     "BACKTEST_TABLE_DDL",
     "APPLY_ORDER",
 ]

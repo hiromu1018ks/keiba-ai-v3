@@ -68,6 +68,8 @@ def _make_synthetic_prediction_df(
                 "umaban": umaban_offset + i + 1,
                 "kettonum": 1000 + umaban_offset + i,
                 "p_fukusho_hit": 0.1 + 0.05 * i,  # [0.1, 0.55] 範囲
+                # Phase 12 SC#1 (EV-01): p_fukusho_hit_lower（v1.0 binary 行想定・None で NULL INSERT）。
+                "p_fukusho_hit_lower": None,
                 "race_date": pd.Timestamp("2024-01-01").date(),
                 "split": "test",
                 # Phase 11 Plan 11-05 codex HIGH#3: SC#5 §19.1 metadata 3列 (sentinel 'unspecified'

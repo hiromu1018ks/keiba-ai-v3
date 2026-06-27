@@ -59,12 +59,14 @@ import pandas as pd
 # (review HIGH#1: 11カラム PK / Phase 6 D-09: is_primary 末尾追加 /
 #  Phase 11 codex HIGH#3: SC#5 §19.1 metadata 3列追加・DEFAULT 'unspecified' sentinel)
 # ---------------------------------------------------------------------------
-# provenance (5) + PK RACE_KEY (7) + 予測値 (1) + 補助メタ (2) +
-# §19.1 metadata (3・codex HIGH#3) + is_primary (1) = 19 列
+# provenance (5) + PK RACE_KEY (7) + 予測値 (2) + 補助メタ (2) +
+# §19.1 metadata (3・codex HIGH#3) + is_primary (1) = 20 列
 # schema.py の PREDICTION_TABLE_DDL + PREDICTION_ADD_IS_PRIMARY_SQL +
-# PREDICTION_ADD_PROVENANCE_SQL の定義順と完全一致すること
+# PREDICTION_ADD_PROVENANCE_SQL + PREDICTION_ADD_P_LOWER_SQL の定義順と完全一致すること
 # (prediction_load.py がこの順序で INSERT する・Pitfall 4 3ファイル連鎖)。
 # §19.1 metadata 3列の既定値は sentinel 'unspecified' (codex cycle-2 NEW HIGH#3・空文字 '' でない)。
+# Phase 12 SC#1 (EV-01): p_fukusho_hit_lower は p_fukusho_hit の直後に追加。
+# v1.0 binary 行は None (後方互換)・race-relative 行は compute_p_lower_conformal_shrinkage の戻り値 (C-12-01-4)。
 PREDICTION_COLUMNS: list[str] = [
     # provenance (§19.1 再現性・NOT NULL)
     "model_type",
@@ -82,6 +84,9 @@ PREDICTION_COLUMNS: list[str] = [
     "kettonum",
     # 予測値
     "p_fukusho_hit",
+    # Phase 12 SC#1 (EV-01): p_fukusho_hit の下側信頼限界 (conformal 風 shrinkage).
+    # v1.0 binary 行は None (後方互換)・race-relative 行は非 None (C-12-01-4 MEDIUM 機械保証)。
+    "p_fukusho_hit_lower",
     # 補助メタ (Phase 5/6/7 が参照)
     "race_date",
     "split",
@@ -189,6 +194,7 @@ def predict_p_fukusho(
     split_label: str,
     as_of_datetime: datetime | None = None,
     pred_proba: np.ndarray | pd.Series | None = None,
+    pred_proba_lower: np.ndarray | pd.Series | None = None,
     label_version: str = "unspecified",
     odds_snapshot_policy: str = "unspecified",
     backtest_strategy_version: str = "unspecified",
@@ -235,6 +241,13 @@ def predict_p_fukusho(
         ``np.ndarray`` の場合は ``len == len(X)`` を assert し ``pd.Series(index=X.index)``
         に正規化。``pd.Series`` の場合は ``index.equals(X.index)`` を assert。
         違反は ``RuntimeError`` (silent wrong-horse prediction 防止・Cycle 2 NEW HIGH-1)。
+    pred_proba_lower : np.ndarray | pd.Series | None
+        Phase 12 SC#1 (EV-01): p_fukusho_hit の下側信頼限界。``None`` の場合は
+        ``df["p_fukusho_hit_lower"]`` を全行 None で埋める（v1.0 binary 行・後方互換・C-12-01-4）。
+        race-relative 呼出側（theta != None）は ``compute_p_lower_conformal_shrinkage`` の
+        戻り値 ``p_lower`` を渡す。``np.ndarray`` / ``pd.Series`` の場合は ``pred_proba`` と
+        同一の整列・長さ検証を行う（silent wrong-horse p_lower 防止・Cycle 2 NEW HIGH-1 鏡像）。
+        違反は ``RuntimeError``。
     label_version : str
         §19.1 再現性 metadata。既定値 ``"unspecified"`` sentinel (codex cycle-2 NEW HIGH#3・
         空文字 ``''`` でない・loader 空文字→None 変換回避・NOT NULL 違反回避)。
@@ -287,6 +300,35 @@ def predict_p_fukusho(
                 f"got {type(pred_proba).__name__}"
             )
 
+    # --- pred_proba_lower の取得 (Phase 12 SC#1 / EV-01・C-12-01-4) ---
+    # None の場合は v1.0 binary 行として全行 None で埋める（後方互換・C-12-01-4）。
+    # 非 None の場合は pred_proba と同一の整列・長さ検証を行う（silent wrong-horse p_lower 防止）。
+    if pred_proba_lower is None:
+        pred_lower_series: pd.Series | None = None  # 後で全行 None で埋める
+    elif isinstance(pred_proba_lower, pd.Series):
+        if not pred_proba_lower.index.equals(X.index):
+            raise RuntimeError(
+                "predict_p_fukusho: pred_proba_lower.index does not match X.index "
+                "(Phase 12 C-12-01-4: silent wrong-horse p_lower prevented). "
+                f"pred_proba_lower.index={list(pred_proba_lower.index)[:5]}... "
+                f"X.index={list(X.index)[:5]}..."
+            )
+        pred_lower_series = pred_proba_lower.rename("p_fukusho_hit_lower")
+    elif isinstance(pred_proba_lower, np.ndarray):
+        if len(pred_proba_lower) != len(X):
+            raise RuntimeError(
+                f"predict_p_fukusho: pred_proba_lower length {len(pred_proba_lower)} != "
+                f"len(X) {len(X)} (Phase 12 C-12-01-4: length mismatch prevented)."
+            )
+        pred_lower_series = pd.Series(
+            pred_proba_lower, index=X.index, name="p_fukusho_hit_lower"
+        )
+    else:
+        raise TypeError(
+            f"predict_p_fukusho: pred_proba_lower must be np.ndarray or pd.Series or None, "
+            f"got {type(pred_proba_lower).__name__}"
+        )
+
     # --- as_of_datetime の確定 (review MEDIUM: 制御可能) ---
     if as_of_datetime is None:
         as_of_dt = datetime.now(UTC)
@@ -312,6 +354,14 @@ def predict_p_fukusho(
     for col in PK_COLUMNS:
         df[col] = race_df[col].values
     df["p_fukusho_hit"] = pred_series.values
+    # Phase 12 SC#1 (EV-01): p_fukusho_hit_lower を p_fukusho_hit の直後に付与（C-12-01-4）。
+    # v1.0 binary 呼出 (pred_proba_lower=None) は全行 None で NULL INSERT（後方互換）。
+    # race-relative 呼出 (pred_proba_lower 非 None) は compute_p_lower_conformal_shrinkage の
+    # 戻り値を渡すため・全行非 None になる（C-12-01-4: NULL 混入を許さない・silent NaN でなく明示 None/values）。
+    if pred_lower_series is None:
+        df["p_fukusho_hit_lower"] = None
+    else:
+        df["p_fukusho_hit_lower"] = pred_lower_series.values
     df["race_date"] = race_df["race_date"].values
     df["split"] = split_label
     # Phase 11 codex HIGH#3: SC#5 §19.1 metadata (sentinel/事前登録値で付与・codex cycle-2 NEW HIGH#3)
@@ -387,6 +437,20 @@ def _assert_valid_prediction_df(df: pd.DataFrame) -> None:
             f"_assert_valid_prediction_df: p_fukusho_hit out of [0,1] range. "
             f"min={float(p.min())}, max={float(p.max())}"
         )
+
+    # 3b. p_fukusho_hit_lower ∈ [0, 1]（NULL 許容・Phase 12 SC#1・v1.0 binary 行は NULL）
+    # RESEARCH Pattern 2 / 12-PATTERNS.md L176-182: dropna してから範囲チェック。
+    # v1.0 binary 行（theta=None・pred_proba_lower 未渡）は全行 None/NaN で valid（後方互換）。
+    # race-relative 行（theta != None・pred_proba_lower 渡）は非 None で [0,1] であること（C-12-01-4）。
+    p_lower = df["p_fukusho_hit_lower"]
+    if p_lower.notna().any():
+        pl_valid = p_lower.dropna()
+        if (pl_valid < 0).any() or (pl_valid > 1).any():
+            raise ValueError(
+                f"_assert_valid_prediction_df: p_fukusho_hit_lower out of [0,1] range. "
+                f"min={float(pl_valid.min())}, max={float(pl_valid.max())} "
+                "(Phase 12 SC#1: NULL は可・非 NULL は [0,1] 必須)"
+            )
 
     # 4. PK 11カラムで一意
     pk_11 = ["model_type", "model_version", "feature_snapshot_id", "as_of_datetime"] + PK_COLUMNS

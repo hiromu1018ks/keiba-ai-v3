@@ -88,8 +88,9 @@ _PK_ORDER_COLUMNS = [
 # _df_to_prediction_tuples — DataFrame → INSERT 用 tuple list
 # ---------------------------------------------------------------------------
 
-# float 型の予測値列
-_FLOAT_COLS = {"p_fukusho_hit"}
+# float 型の予測値列（Phase 12 SC#1: p_fukusho_hit_lower 追加・3ファイル連鎖 Pitfall 4・C-12-01-4）
+# v1.0 binary 行は p_fukusho_hit_lower=None で NULL INSERT（CHECK 制約で NULL 許容・後方互換）。
+_FLOAT_COLS = {"p_fukusho_hit", "p_fukusho_hit_lower"}
 # int 型の PK 列
 _INT_COLS = {"year", "kaiji", "racenum", "umaban", "kettonum"}
 # bool 型の列 (Phase 6 D-09 / REVIEW HIGH#8: None→False 正規化・NOT NULL 整合)
