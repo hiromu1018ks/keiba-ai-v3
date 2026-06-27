@@ -5,16 +5,16 @@ milestone_name: Ability Feature v2 & Conditional Calibration
 current_phase: 12
 current_phase_name: p_lower EV & Falsification Evaluation
 status: executing
-stopped_at: Completed 12-01-PLAN.md (statsmodels + p_lower + migration)
-last_updated: "2026-06-27T13:28:41.645Z"
+stopped_at: Completed 12-03-PLAN.md (falsification + WARN gate + ROI + slippage)
+last_updated: "2026-06-27T13:50:41.150Z"
 last_activity: 2026-06-27
 last_activity_desc: Phase 12 execution started
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 25
-  completed_plans: 22
-  percent: 80
+  completed_plans: 23
+  percent: 92
 ---
 
 # Project State
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 12 (p_lower EV & Falsification Evaluation) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-06-27 — Phase 12 execution started
 
@@ -139,6 +139,7 @@ Last activity: 2026-06-27 — Phase 12 execution started
 | Phase 12 P01 | 15min | - tasks | - files |
 | Phase 12 P01 | 15min | 2 tasks | 9 files |
 | Phase 12 P02 | 40min | 2 tasks | 7 files |
+| Phase 12 P03 | 45min | 2 tasks | 9 files |
 
 ### Decisions
 
@@ -302,6 +303,14 @@ Recent decisions affecting current work:
 - [Phase 12]: [C-12-02-3] ev_rank._rank に p_col を伝播し EV 計算と rank 条件の確率基準を一致 (投票層定義分裂回避)
 - [Phase 12]: [C-12-02-4] Phase 12 専用 reports を REPORT_COLUMNS_PHASE12 + report_columns 切替で分離・Phase 5 既存 REPORT_COLUMNS は不変 (regression 回避)
 - [Phase 12]: purchase_simulator p_min_base='p_lower' を Phase 12 評価のデフォルト経路に事前登録 (Pitfall 7 投票層明示)
+- [Phase 12] plan 12-03: [C-12-03-1 HIGH] run_falsification_test docstring「pre-registered evaluation regression fitted on the test window」正確表現・曖昧否定表現「学習しない」は 0 件・write_falsification_spec ヘルパー byte-reproducible (sort_keys/ensure_ascii=False/allow_nan=False)
+- [Phase 12] plan 12-03: [C-12-03-2 HIGH 選択 A・推奨] §15.2 gate (check_acceptance_gate signature/return 完全不変) と Phase 12 WARN gate (check_phase12_warn_gate 分離関数) を完全分離・D-06 違反リスク最小・BLOCK でなく WARN
+- [Phase 12] plan 12-03: [C-12-03-3 MEDIUM] compute_roi_by_bin 別関数 (pd.qcut duplicates='drop') ・evaluate_segment_axis (calibration curve 用 API) は完全不変 (bit-identical binning 契約保護)
+- [Phase 12] plan 12-03: [C-12-03-4 MEDIUM] fit_market_implied_calibrator は base=train・calibrator=calib 2-window 分離 (FrozenEstimator + CalibratedClassifierCV・同一 calib slice で二重 fit しない)
+- [Phase 12] plan 12-03: [C-12-03-5 MEDIUM] refund_accounting.compute_snapshot_final_slippage は row ベース版 (_lookup_payfukusyo_pay 呼ぶ) + payout_amount 受け取り版の 2 種 (二重 slot lookup 回避)
+- [Phase 12] plan 12-03: [C-12-04-3 / C3-12-03-1] Phase 12 定数を src/eval/falsification.py constants block に集約 (Q_LEVEL_SHRINKAGE=0.90 含む・Plan 04 が import・重複定義回避・閾値 drift 防止)
+- [Phase 12] plan 12-03: verdict feature_gap (model_p pvalue<α) / structural_limit (>=α) は過度な保証主張でない (α=0.05 事前登録・market 条件付き residual 検出・D-05/D-01 修正文)
+- [Phase 12] plan 12-03: 循環参照回避 (src.eval.falsification → src.model.segment_eval → src.model.evaluator chain) のため・evaluator.py から falsification constants への import は関数内 (遅延 import) で実装
 
 ### Pending Todos
 
@@ -334,7 +343,7 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-06-25:
 
 ## Session Continuity
 
-**Last session:** 2026-06-27T13:27:21.490Z
+**Last session:** 2026-06-27T13:50:41.143Z
 
 **Resume file:** 
 
