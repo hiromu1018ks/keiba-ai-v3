@@ -153,7 +153,29 @@ Plans:
   4. 特徴量にオッズ/人気/過去人気/過去オッズ proxy が入っていないこと・LightGBM categorical code が非負 int32 であること（`.cat.codes.min()>=0` fail-loud）を adversarial leak diagnostic で証明できる（SAFE-01・SC#3 踏襲）
   5. 新 `p_fukusho_hit` の prediction テーブルが `§19.1` 再現性メタデータ（model_version・feature_snapshot_id・label_version・`odds_snapshot_policy`・`backtest_strategy_version`）付きで DB に model_version-scoped idempotent swap で永続化される（HIGH#1 踏襲）
 
-**Plans**: TBD
+**Plans**: 5/5 plans (Wave 0-4・binary 不変 + race_relative.py 補正層 + orchestrator theta 統合 + adversarial audit + live-DB SC#2/SC#3/SC#5 実証)
+
+Plans:
+
+**Wave 0** (TDD RED・test stub + race_relative.py API stub)
+
+- [ ] 11-01-PLAN.md — race_relative.py 公開 API stub + 事前登録定数（θ 候補 {0.5,0.75,1.0,1.25,1.5}・ε=1e-6・xtol=1e-9）+ test_race_relative.py/test_audit_race_relative.py stub RED（MODEL-01/SAFE-01・D-02/D-03/D-09/D-10・SC#1/#3/#4）
+
+**Wave 1** *(blocked on Wave 0)*
+
+- [ ] 11-02-PLAN.md — race_relative.py 補正層本体実装（Pattern 1/2/3・brentq α_r 二分探索・sum(p)=k 厳密・D-09 fail-loud・D-10 自己完結・overprediction penalty bit-identical binning）→ test_race_relative.py 12テスト GREEN（MODEL-01/SAFE-01）
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 11-03-PLAN.md — orchestrator.train_and_predict theta 引数 + 補正層呼出（D-01/D-06・A5 後方互換・SC#3 bit-identical）+ artifact.py metadata.json theta provenance（α_r 不保存・D-10）+ predict.py MODEL_TYPE_TO_SHORT 拡張（lgbrr/cbrr）（MODEL-01/SAFE-01）
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [ ] 11-04-PLAN.md — test_audit_race_relative.py D-10 adversarial 実装（α_r 自己完結 outcome swap + cross-race leak 検出・4テスト GREEN）+ scripts/run_phase11_evaluation.py 新規（v1.0 vs race-relative 3-way 比較・SC#2 gate D-04 非劣化+D-05 改善3条件・θ 選択経路 calib slice のみ §11.2 聖域・is_primary 立てない D-07）（MODEL-01/SAFE-01）
+
+**Wave 4** *(blocked on Wave 3・live-DB・checkpoint)*
+
+- [ ] 11-05-PLAN.md — live-DB SC#2 gate honest 記録 + SC#5 model_version-scoped idempotent swap（2回実行 checksum bit-identical・v1.0 binary 行保持）+ SC#3 bit-identical 実データ実証（FIXED_REPRODUCE_TS + np.array_equal・theta=selected_theta）・checkpoint:human-verify（MODEL-01/SAFE-01）
 
 ### Phase 12: p_lower EV & Falsification Evaluation
 

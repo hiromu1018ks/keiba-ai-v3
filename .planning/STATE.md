@@ -71,7 +71,7 @@ Last activity: 2026-06-27 — Phase 10 complete, transitioned to Phase 11
 | 08 | 3 | - | - |
 | 09 | 0/5 | - | - |
 | 10 | 9 | - | - |
-| 11 | 0/? | - | - |
+| 11 | 0/5 | - | planned |
 | 12 | 0/? | - | - |
 
 **Recent Trend:**
