@@ -521,8 +521,17 @@ def _build_falsification_windows(
     )
     from src.db.connection import readonly_cursor
 
+    # JODDS fetch は test 窓 1 年で 41s / train+calib 4 年で ~3-4min 見込み (millions of rows)。
+    # 標準 statement_timeout='30s' では train+calib 窓の fetch が QueryCanceled になる。
+    # JODDS fetch は SELECT-only (readonly cursor) で副作用なし・意図的に重い集計クエリのため・
+    # この fetch スコープのみ statement_timeout を '600s' (10min) に延長する (sanctuary:
+    # pool の configure callback は 30s のまま・本 cursor の SET LOCAL 相当の上書き)。
+    # memory: subagent-db-query-statement-timeout の趣旨 (孤立 CPU 張り付き防止) は・
+    # 本 cursor が with ブロックを抜けたら readonly_cursor が閉じて pool に返却されるため
+    # 他の cursor に伝播しない (connection 毎の SET・pool の configure callback は次 checkin
+    # で再適用される) ことで守られる。
     with readonly_cursor(readonly_pool) as jodds_cur:
-        jodds_cur.execute("SET statement_timeout = '30s'")
+        jodds_cur.execute("SET statement_timeout = '600s'")
         jodds_df = fetch_jodds(jodds_cur, years=fetch_years)
 
     # 各窓に odds を付与 (run_backtest L575-600 と同一 pattern・select_odds_snapshot で固定時点)
@@ -1335,7 +1344,11 @@ def main(argv: list[str] | None = None) -> int:
             args.odds_snapshot_policy,
         )
         with readonly_cursor(readonly_pool) as jodds_cur:
-            jodds_cur.execute("SET statement_timeout = '30s'")
+            # test 窓 1 年の JODDS fetch は数百万行・readonly cursor で SELECT-only。
+            # pool の既定 statement_timeout='30s' だとサーバー側実行が長引いた場合に QueryCanceled
+            # になるため・本 fetch スコープのみ '600s' に延長 (documented rationale は
+            # _build_falsification_windows と同一・SELECT-only で副作用なし)。
+            jodds_cur.execute("SET statement_timeout = '600s'")
             jodds_df = fetch_jodds(jodds_cur, years=test_years)
         logger.info(
             "[gap-closure] JODDS fetch 完了: rows=%d (test 期間のみ・全期間取得回避)",
