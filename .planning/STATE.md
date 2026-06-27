@@ -4,16 +4,16 @@ milestone: v1.1
 milestone_name: Ability Feature v2 & Conditional Calibration
 current_phase: 11
 current_phase_name: Race-Relative Probability Model
-status: completed
+status: executing
 stopped_at: None
-last_updated: "2026-06-26T22:41:45.563Z"
-last_activity: 2026-06-26
+last_updated: "2026-06-27T00:37:56.240Z"
+last_activity: 2026-06-27
 last_activity_desc: Phase 10 complete, transitioned to Phase 11
 progress:
   total_phases: 5
   completed_phases: 3
-  total_plans: 13
-  completed_plans: 13
+  total_plans: 15
+  completed_plans: 15
   percent: 60
 ---
 
@@ -30,8 +30,8 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 
 Phase: 11 — Race-Relative Probability Model
 Plan: Not started
-Status: Phase 10 fully complete
-Last activity: 2026-06-26 — Phase 10 complete, transitioned to Phase 11
+Status: Executing Phase 10
+Last activity: 2026-06-27 — Phase 10 complete, transitioned to Phase 11
 
 ## v1.1 Milestone Context
 
@@ -52,7 +52,7 @@ Last activity: 2026-06-26 — Phase 10 complete, transitioned to Phase 11
 
 **Velocity:**
 
-- Total plans completed: 47 (v1.0) + 0 (v1.1)
+- Total plans completed: 49 (v1.0) + 0 (v1.1)
 - Average duration: — min
 - Total execution time: 0.0 hours
 
@@ -70,7 +70,7 @@ Last activity: 2026-06-26 — Phase 10 complete, transitioned to Phase 11
 | 07 | 3 | - | - |
 | 08 | 3 | - | - |
 | 09 | 0/5 | - | - |
-| 10 | 7 | - | - |
+| 10 | 9 | - | - |
 | 11 | 0/? | - | - |
 | 12 | 0/? | - | - |
 

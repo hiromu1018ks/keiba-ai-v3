@@ -137,8 +137,8 @@ Plans:
 
 **Gap-Closure (post-ship・10-REVIEW.md findings 対応)**
 
-- [ ] 10-08-PLAN.md — gap-closure 本体（10-REVIEW.md 4 Critical + 6 Warning の fail-loud 化・堅牢化・live-DB snapshot 再生成検証・CR-01〜04/WR-01〜06・Phase 11 入力 snapshot 整合・core value「リーク防止」の鏡像「silent fallback 禁止」機械保証）
-- [ ] 10-09-PLAN.md — 10-06-PLAN doc truth 数値訂正（baseline feature count 79 → 35・substantive 達成済み・doc 正確性・コード変更なし）
+- [x] 10-08-PLAN.md — gap-closure 本体（10-REVIEW.md 4 Critical + 6 Warning の fail-loud 化・堅牢化・live-DB snapshot 再生成検証・CR-01〜04/WR-01〜06・Phase 11 入力 snapshot 整合・core value「リーク防止」の鏡像「silent fallback 禁止」機械保証）
+- [x] 10-09-PLAN.md — 10-06-PLAN doc truth 数値訂正（baseline feature count 79 → 35・substantive 達成済み・doc 正確性・コード変更なし）
 
 ### Phase 11: Race-Relative Probability Model
 
@@ -185,6 +185,6 @@ Plans:
 | 8. Adversarial Audit Suite | v1.0 | 3/3 | Complete | 2026-06-25 |
 | 9. Speed Figure Foundation | v1.1 | 5/5 | Complete   | 2026-06-25 |
 | 9.1. Speed Ability Profile Expansion (INSERTED) | v1.1 | 1/1 | Complete | 2026-06-26 |
-| 10. Opponent Strength & Race-Relative Features | v1.1 | 7/7 | Complete    | 2026-06-26 |
+| 10. Opponent Strength & Race-Relative Features | v1.1 | 9/9 | Complete    | 2026-06-26 |
 | 11. Race-Relative Probability Model | v1.1 | 0/? | Not started | - |
 | 12. p_lower EV & Falsification Evaluation | v1.1 | 0/? | Not started | - |
