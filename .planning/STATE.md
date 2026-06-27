@@ -5,10 +5,10 @@ milestone_name: Ability Feature v2 & Conditional Calibration
 current_phase: 12
 current_phase_name: p_lower EV & Falsification Evaluation
 status: executing
-stopped_at: Phase 12 context gathered
+stopped_at: Phase 12 planned (5 plans)
 last_updated: "2026-06-27T09:51:09.933Z"
 last_activity: 2026-06-27
-last_activity_desc: Phase 11 complete, transitioned to Phase 12
+last_activity_desc: Phase 12 planned (5 plans・Wave 1-5)
 progress:
   total_phases: 5
   completed_phases: 4
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 12 — p_lower EV & Falsification Evaluation
-Plan: Not started
-Status: Ready to execute 11-04-PLAN.md（D-10 adversarial + run_phase11_evaluation.py）
-Last activity: 2026-06-27 — Phase 11 complete, transitioned to Phase 12
+Plan: 12-01〜12-05 (5 plans・Wave 1-5・依存は直線 01→02→03→04→05)
+Status: Ready to execute — Phase 12 planned (5 plans)。core value 聖域（§11.2 test 窓・§15.2 事前登録指標不変・SAFE-01 odds proxy 排除・D-10 is_primary 非自動切替）+ live-DB 操作（schema migration・prediction p_lower 列）を含むため実行前に plan review 推奨
+Last activity: 2026-06-27 — Phase 12 planned (5 plans)
 
 ## v1.1 Milestone Context
 
@@ -72,7 +72,7 @@ Last activity: 2026-06-27 — Phase 11 complete, transitioned to Phase 12
 | 09 | 0/5 | - | - |
 | 10 | 9 | - | - |
 | 11 | 5 | - | - |
-| 12 | 0/? | - | - |
+| 12 | 5/? | - | - |
 
 **Recent Trend:**
 

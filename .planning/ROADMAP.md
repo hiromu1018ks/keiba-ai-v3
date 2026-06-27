@@ -193,10 +193,24 @@ Plans:
 **Plans:** 5 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 12-01-PLAN.md — statsmodels 依存 + compute_p_lower_conformal_shrinkage 純粋関数 + prediction p_fukusho_hit_lower 列 DDL migration 連鎖（3ファイル・Pitfall 4・EV-01/SAFE-01）
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 12-02-PLAN.md — orchestrator L754 後 p_lower 挿入 + artifact metadata（q_level/q_shrink・§19.1）+ EV 层 p_lower 切替（ev_rank p_col / purchase_simulator p_min_base='p_lower' / report）（EV-01）
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 12-03-PLAN.md — src/eval/falsification.py 新規（clustered SE・market_implied 再校正・Holm・logit clipping・§11.2 聖域）+ evaluator WARN gate（§15.2 不変・D-06）+ segment_eval binning 拡張 + refund_accounting slippage（EVAL-01/EVAL-02/SAFE-01）
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 12-04-PLAN.md — scripts/run_phase12_evaluation.py 新規（run_phase11_evaluation.py 構造踏襲）+ reports/12-* + switch_recommendation（D-09）+ set_primary_model Call 0件（D-10・AST check）（EV-01/EVAL-01/EVAL-02/SAFE-01）
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 12-05-PLAN.md — 対抗的監査 test_audit_p_lower_falsification.py（5段階鋳型・SAFE-01 proxy 排除 AST + falsification leakage + set_primary_model Call 0件）+ SC#5 byte-reproducible スモーク + checkpoint:human-verify（live-DB・SAFE-01）
 
 ## Progress
