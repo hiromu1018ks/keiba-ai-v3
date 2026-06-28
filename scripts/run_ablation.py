@@ -68,9 +68,26 @@ from src.model.data import (  # noqa: E402
     load_feature_matrix,
     load_labels,
     make_race_key,
+    make_X_y,
+    split_3way,
 )
-from src.model.orchestrator import FIXED_REPRODUCE_TS, train_and_predict  # noqa: E402
+from src.model.orchestrator import (  # noqa: E402
+    FIXED_REPRODUCE_TS,
+    _apply_category_map,
+    _merge_params,
+    train_and_predict,
+)
 from src.utils.group_split import BT_WINDOWS  # noqa: E402
+
+# column-drop モード用 (train_and_predict を通さない自前 chain・内部関数 import 再利用)
+from src.model.calibrator import calibrate_model  # isort: skip  # noqa: E402
+from src.model.predict import make_model_version, predict_p_fukusho  # isort: skip  # noqa: E402
+from src.model.trainer import (  # isort: skip  # noqa: E402
+    LGB_INIT_PARAMS,
+    _prepare_lightgbm_train_eval,
+    _split_train_eval_tail,
+    train_lightgbm,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("run_ablation")
@@ -87,7 +104,9 @@ MODEL_TYPE_RR = "lightgbm_rr"
 # 新 universe は外部参照が無いため・ゲートは「universe 確認 + pipeline 正準性 + byte-reproducible」で担保。
 A0_V1_0_05_BACKTEST = 0.6471421933085502  # 参考: 古い v1.0.0 バグ universe
 A0_V1_0_09_STOPGATE = 0.7017790428749333  # 参考: 古い v1.0.0 (09系 selector)
-A0_V1_1_UNIVERSE_MIN_ROWS = 40000  # 新 universe (v1.1.0) の _full_candidate_rows 下限 (1勝/未勝利復帰)
+A0_V1_1_UNIVERSE_MIN_ROWS = (
+    40000  # 新 universe (v1.1.0) の _full_candidate_rows 下限 (1勝/未勝利復帰)
+)
 A0_V1_0_BUGGY_MAX_ROWS = 25000  # 古い v1.0.0 バグ universe (過剰除外) の上限
 
 
@@ -260,11 +279,136 @@ def run_column_drop(
 
     TODO (段階2): A3 フル特徴量 (exclude=[]) で snap-swap モードと回収率完全一致をクロスチェック
     してから本格運用。一致が column-drop 妥当性の命綱 (ユーザー指示 b)。
+
+    Note: theta (race_relative) は別途 (B1・q_shrink 計算が必要・guard C-12-02-1)。
     """
-    raise NotImplementedError(
-        "column-drop モードは段階2 (snap-swap A0-A3 測定後に実装)。"
-        "A3 フル特徴量クロスチェックで train_and_predict との一致を検証してから C/D/E に使用。"
+    if theta is not None:
+        raise NotImplementedError(
+            "column-drop + theta(race_relative) は B1 で別途実装 (q_shrink 計算が必要・guard C-12-02-1)"
+        )
+
+    bt = _bt1()
+    periods = rb._carve_calib_from_train_tail(bt)
+    logger.info(
+        "column-drop: snapshot=%s exclude=%d theta=%s",
+        snapshot_id,
+        len(exclude_features),
+        theta,
     )
+
+    feature_df = _prepare_feature_df(snapshot_id, readonly_pool)
+    bt_map = rb._fit_bt_category_map(feature_df, periods["train"][0], periods["train"][1])
+    if bt_map is not None:
+        feature_df = _apply_category_map(feature_df, bt_map)
+    splits = split_3way(feature_df, periods=periods)
+    train_df, calib_df, test_df = splits["train"], splits["calib"], splits["test"]
+
+    # make_X_y で完全 FEATURE_COLUMNS の X,y (生産と一致・FEATURE_COLUMNS assert 通過・make_X_y 不改変)
+    X_train, y_train = make_X_y(train_df, snapshot_id=snapshot_id)
+    X_calib, y_calib = make_X_y(calib_df, snapshot_id=snapshot_id)
+    X_test, y_test = make_X_y(test_df, snapshot_id=snapshot_id)
+
+    # column-drop (実験隔離・make_X_y 不改変・X.drop のみ・フル特徴量時は exclude=[] で無操作)
+    drop_cols = [c for c in exclude_features if c in X_train.columns]
+    if drop_cols:
+        logger.info("column-drop: 除外 %d 列 (先頭5): %s", len(drop_cols), drop_cols[:5])
+        X_train = X_train.drop(columns=drop_cols)
+        X_calib = X_calib.drop(columns=drop_cols)
+        X_test = X_test.drop(columns=drop_cols)
+
+    # --- train_and_predict の LightGBM binary chain を内部関数 import で再構築 ---
+    train_meta_cols = [
+        c for c in ("race_start_datetime", "race_key", "race_date") if c in train_df.columns
+    ]
+    train_split_frame = X_train.copy()
+    for c in train_meta_cols:
+        train_split_frame[c] = train_df.loc[X_train.index, c].values
+    train_core_df, train_tail_df = _split_train_eval_tail(train_split_frame, eval_fraction=0.2)
+    X_train_core = train_core_df.drop(columns=train_meta_cols, errors="ignore")
+    X_train_tail = train_tail_df.drop(columns=train_meta_cols, errors="ignore")
+    y_train_core = y_train.loc[X_train_core.index]
+    y_train_tail = y_train.loc[X_train_tail.index]
+
+    eval_race_keys = (
+        set(train_tail_df["race_key"]) if "race_key" in train_tail_df.columns else set()
+    )
+    calib_race_keys = set(calib_df["race_key"]) if "race_key" in calib_df.columns else set()
+    test_race_keys = set(test_df["race_key"]) if "race_key" in test_df.columns else set()
+    train_core_max_date = train_df["race_date"].max()
+    eval_max_date = (
+        train_tail_df["race_date"].max() if "race_date" in train_tail_df.columns else None
+    )
+
+    merged_params = _merge_params(LGB_INIT_PARAMS, None, 42)
+    estimator = train_lightgbm(
+        X_train_core,
+        y_train_core,
+        X_eval=X_train_tail,
+        y_eval=y_train_tail,
+        eval_race_keys=eval_race_keys,
+        calib_race_keys=calib_race_keys,
+        test_race_keys=test_race_keys,
+        train_core_max_date=train_core_max_date,
+        eval_max_date=eval_max_date,
+        params=merged_params,
+    )
+
+    # calibrate_model (prefit・isotonic/sigmoid 切替)
+    _, X_calib_lgb = _prepare_lightgbm_train_eval(X_train_core, X_calib)
+    calib_result = calibrate_model(
+        estimator,
+        X_calib_lgb,
+        y_calib,
+        race_dates_calib=calib_df.loc[X_calib.index, "race_date"],
+        train_max_date=train_df["race_date"].max(),
+    )
+
+    # predict (test) → pred_df
+    race_df_test = test_df.loc[X_test.index, :]
+    _, X_test_lgb = _prepare_lightgbm_train_eval(X_train_core, X_test)
+    model_version = make_model_version(snapshot_id, "lightgbm", 1)
+    pred_df = predict_p_fukusho(
+        calib_result.calibrated,
+        X_test_lgb,
+        model_type="lightgbm",
+        model_version=model_version,
+        feature_snapshot_id=snapshot_id,
+        calib_method=calib_result.calib_method,
+        race_df=race_df_test,
+        split_label="test",
+        as_of_datetime=FIXED_REPRODUCE_TS,
+        label_version="v1.1.0",
+        odds_snapshot_policy=POLICY,
+        backtest_strategy_version="fukusho_ev_v1",
+    )
+    # pred_df に backtest 用 meta 列 (race_start_datetime / race_key) を付与
+    # (train_and_predict L867-898 と同一・PREDICTION_COLUMNS はこれらを含まないため別途付与。
+    #  _build_race_times_per_horse HIGH-1 と select_odds_snapshot cutoff が要求)
+    pred_df = pred_df.copy()
+    if "race_start_datetime" in race_df_test.columns:
+        pred_df["race_start_datetime"] = race_df_test["race_start_datetime"].values
+    if "race_key" not in pred_df.columns:
+        pred_df["race_key"] = make_race_key(race_df_test).to_numpy()
+    logger.info(
+        "column-drop: 学習+予測完了 model_version=%s pred_rows=%d (drop=%d)",
+        model_version,
+        len(pred_df),
+        len(drop_cols),
+    )
+
+    jodds_df, label_df, harai_race_df = _fetch_live_db(readonly_pool, periods)
+    row = _metrics_from_pred_df(
+        bt,
+        pred_df,
+        jodds_df,
+        label_df,
+        harai_race_df,
+        snapshot_id=snapshot_id,
+        model_version=model_version,
+        periods=periods,
+        model_type="lightgbm",
+    )
+    return row
 
 
 def _row_to_result(
