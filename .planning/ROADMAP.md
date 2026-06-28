@@ -38,7 +38,7 @@
 - [x] **Phase 9.1: Speed Ability Profile Expansion** (INSERTED) - Phase 9 の speed_figure 6→17 feature 拡張（median/best2/trend + same_surface/same_distance_bucket）・Phase 10 入力強化 (completed 2026-06-26)
 - [x] **Phase 10: Opponent Strength & Race-Relative Features** - 相手強度（as-of）とレース内相対特徴量（rank/gap_to_top/gap_to_3rd）を追加し、複勝の相対競争を特徴量層で表現する (completed 2026-06-27)
 - [x] **Phase 11: Race-Relative Probability Model** - 独立二値分類から `sum(p)=払戻対象数(2/3)` 制約・race-level top-k calibration のレース内相対確率モデルへ移行する (completed 2026-06-27)
-- [ ] **Phase 12: p_lower EV & Falsification Evaluation** - `p_lower` 下側信頼限界によるEV判定へ移行し、評価指標拡張（selected-only calibration / EV-decile ROI / disagreement ROI / snapshot slippage）と falsification test で market residual を統計検証する
+- [x] **Phase 12: p_lower EV & Falsification Evaluation** - `p_lower` 下側信頼限界によるEV判定へ移行し、評価指標拡張（selected-only calibration / EV-decile ROI / disagreement ROI / snapshot slippage）と falsification test で market residual を統計検証する (completed 2026-06-28)
 
 ## Phase Details
 
@@ -190,7 +190,7 @@ Plans:
   4. オッズ帯別条件付き calibration が受入基準に追加され・投票層（高オッズ域・EV 上位）で `p` が統計的に過大でないことが構造的に検証される（v1.0 の投票馬 p=0.16→実0.04 の4倍過大を catch する gate・SAFE-01）。§15.2 の既存 BLOCK/WARN gate と整合（D-01/D-02/D-03）
   5. v1.0 対抗的監査パターン（tests/audit/・`KEIBA_SKIP_DB_TESTS` unset の live-DB フルスイート GREEN・SC#1/#2/#3 踏襲）が本マイルストーンの全変更（特徴量追加・モデル変更・EV/eval 拡張）に対して GREEN を維持する。byte-reproducible snapshot + 再現性スモークが実データで PASS。現実回収率シナリオ（0.78-0.92 見込・正直な結論）が backtest で定量測定される
 
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans complete
 
 Plans:
 **Wave 1**
@@ -211,7 +211,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 12-05-PLAN.md — 対抗的監査 test_audit_p_lower_falsification.py（5段階鋳型・SAFE-01 proxy 排除 AST + falsification leakage + set_primary_model Call 0件）+ SC#5 byte-reproducible スモーク + checkpoint:human-verify（live-DB・SAFE-01）
+- [x] 12-05-PLAN.md — 対抗的監査 test_audit_p_lower_falsification.py（5段階鋳型・SAFE-01 proxy 排除 AST + falsification leakage + set_primary_model Call 0件）+ SC#5 byte-reproducible スモーク + checkpoint:human-verify（live-DB・SAFE-01）
 
 ## Progress
 
@@ -230,4 +230,4 @@ Plans:
 | 9.1. Speed Ability Profile Expansion (INSERTED) | v1.1 | 1/1 | Complete | 2026-06-26 |
 | 10. Opponent Strength & Race-Relative Features | v1.1 | 9/9 | Complete    | 2026-06-26 |
 | 11. Race-Relative Probability Model | v1.1 | 5/5 | Complete    | 2026-06-27 |
-| 12. p_lower EV & Falsification Evaluation | v1.1 | 4/5 | In Progress|  |
+| 12. p_lower EV & Falsification Evaluation | v1.1 | 5/5 | Complete   | 2026-06-28 |
