@@ -3196,19 +3196,19 @@
   "q_level": 0.9,
   "q_shrink": 0.3328315161410432,
   "recovery_rates": {
-    "baseline_v1_0_binary": 0.0,
+    "baseline_v1_0_binary": 0.7313844714686623,
     "p_lower": 0.0
   },
   "rr_model_version": "20260626-1a-opponentstrength-v1-lgbrr-v1",
   "switch_recommendation": {
     "d10_note": "switch_recommendation は判断材料を report に出すのみ (D-09)・is_primary DB 変更は人間承認の別アクション (D-10・set_primary_model を呼ばない・AST check 0件)",
     "inputs": {
-      "baseline_recovery_rate": 0.0,
+      "baseline_recovery_rate": 0.7313844714686623,
       "ev_improved": false,
       "falsification_verdict": "feature_gap",
       "p_lower_recovery_rate": 0.0,
       "phase12_warn_triggered": true,
-      "recovery_rate_delta": 0.0
+      "recovery_rate_delta": -0.7313844714686623
     },
     "recommendation": "reject",
     "rules": {

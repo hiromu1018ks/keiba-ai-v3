@@ -10,7 +10,7 @@
 
 ## 回収率 (purchase_simulator + refund_accounting)
 
-- baseline (v1.0 binary): 0.0
+- baseline (v1.0 binary): 0.7313844714686623
 - p_lower: 0.0
 
 ## q_shrink (calib slice のみ・§11.2 聖域)

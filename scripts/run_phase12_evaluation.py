@@ -459,6 +459,111 @@ def _ensure_entry_count(pred_df: pd.DataFrame, *, caller_label: str) -> pd.DataF
     )
 
 
+# ---------------------------------------------------------------------------
+# [gap-closure] HARAI 払戻列伝播 (recovery_rate 正常化・determine_stake_payout が payout を返すため)
+# ---------------------------------------------------------------------------
+# gap-closure bug (recovery_rate=0.0) の根治: _compute_recovery_rate → determine_stake_payout →
+# _lookup_payfukusyo_pay が payfukusyoumaban*/payfukusyopay* を探すが・eval コピー pred_df にこれらの
+# HARAI 払戻列が無い (label_keep に含まれない) → 全 slot continue → payout=0 → recovery=0.0。
+# Phase 5 run_backtest.py (HIGH-C cycle-2) / 09-05 stopgate の idiom を移植し・eval コピーのみに付与。
+def _fetch_harai_race_level(
+    readonly_cur: Any,
+    *,
+    years: list[str],
+) -> pd.DataFrame:
+    """``raw_everydb2.n_harai`` から race-level 払戻 slot を SELECT する (HIGH-C cycle-2).
+
+    Phase 5 ``scripts/run_backtest.py`` L1333-1359 / 09-05 ``scripts/run_speed_figure_stopgate.py`` L787-823
+    と同一ロジック・scripts 間 import 依存を避けるため inline 再実装。
+    ``year IN (...)`` filter 付きで test 窓のみ取得する (``statement_timeout='30s'`` 安全・全期間回避)。
+
+    HARAI は race-level slot レコード (``PayFukusyoUmaban1..5`` + ``PayFukusyoPay1..5``) で umaban 列を持たない。
+    ``refund_accounting.determine_stake_payout`` が消費する ``fuseirituflag2`` / ``tokubaraiflag2`` /
+    ``payfukusyoumaban1..5`` / ``payfukusyopay1..5`` を供給する。
+    """
+    from src.model.data import make_race_key
+
+    placeholders = ",".join(["%s"] * len(years))
+    query = f"""
+        SELECT
+            year, jyocd, kaiji, nichiji, racenum,
+            fuseirituflag2, henkanflag2, tokubaraiflag2,
+            payfukusyoumaban1, payfukusyoumaban2, payfukusyoumaban3,
+            payfukusyoumaban4, payfukusyoumaban5,
+            payfukusyopay1, payfukusyopay2, payfukusyopay3,
+            payfukusyopay4, payfukusyopay5
+        FROM raw_everydb2.n_harai
+        WHERE year IN ({placeholders})
+    """
+    readonly_cur.execute(query, years)
+    cols = [d.name for d in readonly_cur.description]
+    rows = readonly_cur.fetchall()
+    df = pd.DataFrame(rows, columns=cols)
+    # race_key 構築 (CR-01): make_race_key 正準形式 (fetch_jodds / label と同一 source of truth)
+    df["race_key"] = make_race_key(df).to_numpy()
+    return df
+
+
+def _attach_harai_to_pred(
+    pred_df: pd.DataFrame,
+    *,
+    harai_race_df: pd.DataFrame,
+    caller_label: str,
+) -> pd.DataFrame:
+    """eval コピー pred_df に HARAI race-level 払戻 slot を JOIN する (gap-closure・recovery_rate 正常化).
+
+    Phase 5 ``scripts/run_backtest.py`` L601-615 (HIGH-C cycle-2 HARAI race-level merge) /
+    09-05 ``scripts/run_speed_figure_stopgate.py`` L908-923 と同一ロジック。
+    ``refund_accounting.determine_stake_payout`` → ``_lookup_payfukusyo_pay`` が消費する
+    ``fuseirituflag2`` / ``tokubaraiflag2`` / ``payfukusyoumaban1..5`` / ``payfukusyopay1..5`` を付与する。
+    これらが無いと ``determine_stake_payout`` が常に payout=0 を返し recovery_rate が 0.0 になる
+    (P1 ``payout_amount→payout`` 修正に加えて本 JOIN が必須・``_compute_recovery_rate`` の正常化)。
+
+    SAFE-01 聖域: HARAI 払戻は eval コピー (baseline_pred / rr_pred) のみに付与し・
+    ``rr_test_result["pred_df"]`` (PREDICTION_COLUMNS 20-col・load_predictions 用) には触れない。
+    FEATURE_COLUMNS / feature 構築経路には一切触れない。
+
+    Parameters
+    ----------
+    pred_df : pd.DataFrame
+        eval コピー (_attach_label_to_pred + _attach_odds_to_pred + _ensure_entry_count 戻り値)。
+        label 系フラグ (is_fukusho_sale_available / is_scratch_cancel / is_race_excluded /
+        is_race_cancelled / is_dead_loss) は _attach_label_to_pred が既に伝播済み。
+    harai_race_df : pd.DataFrame
+        :func:`_fetch_harai_race_level` の戻り値 (race_key + HARAI 払戻 slot 列)。
+    caller_label : str
+        エラー文言用の呼出側ラベル ('baseline' / 'race_relative')。
+
+    Raises
+    ------
+    RuntimeError
+        merge 後行数が ``pred_df`` と不一致 (HIGH-C cycle-2 HARAI broadcast 膨張・race_key 重複)。
+    """
+    out = pred_df.copy()
+    # HARAI race_df の PK 系 (year/jyocd/kaiji/nichiji/racenum) は pred_df の PREDICTION_COLUMNS と
+    # 重複するため merge から除外する (race_key で JOIN するので同値)。衝突を放置すると
+    # jyocd_x/jyocd_y に分裂し segment_eval (D-15) の jyocd 軸が WARN skip になる。
+    # 払戻 slot 系 (fuseirituflag2/tokubaraiflag2/payfukusyoumaban*/payfukusyopay*/henkanflag2) のみ付与。
+    _harai_pk_cols = {"year", "jyocd", "kaiji", "nichiji", "racenum"}
+    harai_cols = [
+        c for c in harai_race_df.columns
+        if c != "race_key" and c not in _harai_pk_cols
+    ]
+    merged = out.merge(
+        harai_race_df[["race_key"] + harai_cols],
+        on=["race_key"],
+        how="left",
+        validate="many_to_one",
+    )
+    if len(merged) != len(out):
+        raise RuntimeError(
+            f"_attach_harai_to_pred: HIGH-C cycle-2 HARAI broadcast 膨張検出 ({caller_label})・"
+            f"len(before)={len(out)} != len(after)={len(merged)} "
+            "(HARAI race_key 単位の重複行が存在する・validate='many_to_one' 違反)"
+        )
+    return merged
+
+
 def _build_falsification_windows(
     *,
     frame: pd.DataFrame,
@@ -1178,12 +1283,14 @@ def _compute_recovery_rate(
     selected = select_bets(ranked, p_col=p_col, p_min_base=p_min_base)
     if len(selected) == 0:
         return 0.0
-    # refund_accounting.determine_stake_payout で effective_stake / payout_amount を計算
+    # refund_accounting.determine_stake_payout で effective_stake / payout を計算
+    # (P1 fix) determine_stake_payout の戻り値キーは 'payout' (refund_accounting.py L103/171-178)。
+    # 旧コードは 'payout_amount' を参照しキー不一致で常に 0.0 → recovery_rate が常に 0.0 になっていた。
     payout_total = 0.0
     stake_total = 0.0
     for _, row in selected.iterrows():
         result = determine_stake_payout(row)
-        payout_total += float(result.get("payout_amount", 0.0))
+        payout_total += float(result.get("payout", 0.0))
         stake_total += float(result.get("effective_stake", 0.0))
     if stake_total <= 0.0:
         return 0.0
@@ -1412,6 +1519,10 @@ def main(argv: list[str] | None = None) -> int:
             # _build_falsification_windows と同一・SELECT-only で副作用なし)。
             jodds_cur.execute("SET statement_timeout = '600s'")
             jodds_df = fetch_jodds(jodds_cur, years=test_years)
+            # [gap-closure] HARAI 払戻 slot (recovery_rate 正常化用): n_harai test 1年は軽量
+            # (数万行) なので・JODDS の 600s から 30s に戻して取得 (同一 cursor・SELECT-only)。
+            jodds_cur.execute("SET statement_timeout = '30s'")
+            harai_race_df = _fetch_harai_race_level(jodds_cur, years=test_years)
         logger.info(
             "[gap-closure] JODDS fetch 完了: rows=%d (test 期間のみ・全期間取得回避)",
             len(jodds_df),
@@ -1441,6 +1552,20 @@ def main(argv: list[str] | None = None) -> int:
             len(baseline_pred),
             n_odds_rr,
             len(rr_pred),
+        )
+
+        # [gap-closure] HARAI 払戻 slot JOIN (eval コピーのみ・recovery_rate 正常化)
+        # determine_stake_payout → _lookup_payfukusyo_pay が payfukusyoumaban*/payfukusyopay*
+        # /fuseirituflag2/tokubaraiflag2 を消費 (本 JOIN が無いと payout=0 → recovery=0.0)。
+        baseline_pred = _attach_harai_to_pred(
+            baseline_pred, harai_race_df=harai_race_df, caller_label="baseline"
+        )
+        rr_pred = _attach_harai_to_pred(
+            rr_pred, harai_race_df=harai_race_df, caller_label="race_relative"
+        )
+        logger.info(
+            "[gap-closure] HARAI 払戻 JOIN 完了: harai races=%d (recovery_rate 正常化用)",
+            len(harai_race_df),
         )
 
         # ---- (5) [C-12-03-1 HIGH] falsification pipeline (falsification-spec.json 事前書き出し含む) ----

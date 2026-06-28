@@ -5,9 +5,9 @@
 ## 統合材料
 
 - phase12_warn_triggered: True
-- baseline_recovery_rate: 0.0
+- baseline_recovery_rate: 0.7313844714686623
 - p_lower_recovery_rate: 0.0
-- recovery_rate_delta: 0.0
+- recovery_rate_delta: -0.7313844714686623
 - ev_improved: False
 - falsification_verdict: feature_gap
 
