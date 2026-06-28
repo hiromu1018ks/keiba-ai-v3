@@ -230,4 +230,4 @@ Plans:
 | 9.1. Speed Ability Profile Expansion (INSERTED) | v1.1 | 1/1 | Complete | 2026-06-26 |
 | 10. Opponent Strength & Race-Relative Features | v1.1 | 9/9 | Complete    | 2026-06-26 |
 | 11. Race-Relative Probability Model | v1.1 | 5/5 | Complete    | 2026-06-27 |
-| 12. p_lower EV & Falsification Evaluation | v1.1 | 5/5 | Complete   | 2026-06-28 |
+| 12. p_lower EV & Falsification Evaluation | v1.1 | 5/5 | Complete    | 2026-06-28 |
