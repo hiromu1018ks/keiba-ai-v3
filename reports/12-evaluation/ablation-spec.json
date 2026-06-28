@@ -1,0 +1,117 @@
+{
+  "spec_version": "1.0",
+  "spike": "001-ablation-recovery",
+  "preregistered_at": "2026-06-28",
+  "status": "preregistered_before_execution",
+  "goal": "Phase 9-12 recovery-rate ablation; data-driven keep/drop of features/model/EV; aim for black-letter (recovery_rate>=1.25 after 20-25% deduction)",
+  "sanctuary": {
+    "test_window": "BT-1 fixed (§11.2); no test-outcome in training/threshold selection",
+    "safe01": "features odds-free (no odds/market proxy in FEATURE_COLUMNS)",
+    "preregistration": "this file committed before execution; off-spec additions recorded with reason",
+    "byte_reproducible": "FIXED_REPRODUCE_TS, seed=42, num_threads=1, identical hyperparam; 2-run equality check",
+    "make_X_y_immutable": "column-drop isolated in thin script via X.drop(); production FEATURE_COLUMNS assert untouched"
+  },
+  "unified_conditions": {
+    "bt_split": "BT-1",
+    "periods": {
+      "train": ["2019-06-01", "2022-06-30"],
+      "calib": ["2022-07-01", "2022-12-31"],
+      "test": ["2023-01-01", "2023-12-31"]
+    },
+    "odds_snapshot_policy": "30min_before",
+    "model": "lightgbm only",
+    "hyperparam_source": "src/model/trainer.py LGB_INIT_PARAMS (Phase 12 identical)",
+    "hyperparam": {
+      "objective": "binary",
+      "learning_rate": 0.05,
+      "num_leaves": 63,
+      "min_data_in_leaf": 100,
+      "feature_fraction": 0.9,
+      "seed": 42,
+      "deterministic": true,
+      "num_threads": 1
+    }
+  },
+  "unified_metric": {
+    "selector": "select_bets(FUKUSHO_EV_V1_THRESHOLDS)",
+    "selector_thresholds": {
+      "ev_lower_min": 1.05,
+      "p_min": 0.15,
+      "odds_lower_min": 1.5,
+      "max_bets_per_race": 2
+    },
+    "recovery_rate": "sum(payout_amount)/sum(effective_stake)",
+    "accounting": "determine_stake_payout + compute_backtest_metrics",
+    "report_columns": ["recovery_rate", "n_selected", "hit_count", "hit_rate", "profit_loss"]
+  },
+  "metric_two_systems": {
+    "note": "09-system and 12-system share the recovery_rate formula but differ in SELECTOR -> different selected sets -> NOT directly comparable",
+    "system_09": {
+      "script": "run_speed_figure_stopgate.py::_compute_selected_roi",
+      "selector": "EV_lower >= 1.0 only",
+      "reported_numbers": {"A0": 0.7018, "A1": 0.8956, "A2": 0.7359}
+    },
+    "system_12": {
+      "script": "run_phase12_evaluation.py::_compute_recovery_rate -> select_bets",
+      "selector": "EV_lower>=1.05 AND p>=0.15 AND odds>=1.5 AND top-2/race",
+      "reported_numbers": {"A3_binary": 0.7314, "p_lower": 0.0}
+    },
+    "decision": "all variants measured with 12-system unified selector; 09-system numbers are selector-specific reference only"
+  },
+  "U0_gate": {
+    "purpose": "confirm selector divergence and migrate to 12-system unified metric",
+    "definition_check": "done in spec (selectors differ)",
+    "execution": "run_phase12_evaluation.py --baseline-snapshot-id 20260626-1a-speedprofile-v1 -> A2 binary recovery_rate",
+    "comparison": "12-system recovery_rate vs 09-system roi=0.7359; mismatch expected (confirms selector-specificity)",
+    "gate": "09-system numbers not directly comparable; remeasure A0-A3 with 12-system unified selector"
+  },
+  "matrix": {
+    "A_snapshot_swap": [
+      {"id": "A0", "snapshot": "20260620-1a-postreview-v2", "added": "baseline"},
+      {"id": "A1", "snapshot": "20260625-1a-speedfigure-v1", "added": "+speed_figure_basic_6"},
+      {"id": "A2", "snapshot": "20260626-1a-speedprofile-v1", "added": "+9.1_extension_11"},
+      {"id": "A3", "snapshot": "20260626-1a-opponentstrength-v1", "added": "+phase10_27"}
+    ],
+    "B_model_ev": [
+      {"id": "B0", "config": "binary theta=None point estimate (=A3)"},
+      {"id": "B1", "config": "race-relative theta=1.0 point estimate (Phase 11 true effect, unknown)"}
+    ],
+    "C_drop_groups_on_A3": [
+      {"id": "C1", "drop": "speed_profile_group_11"},
+      {"id": "C2", "drop": "opponent_field_strength_21"},
+      {"id": "C3", "drop": "race_relative_6"}
+    ],
+    "D_9_1_drilldown_on_A2base": [
+      {"id": "D1", "keep": "basic_6 + distribution_shape_5"},
+      {"id": "D2", "keep": "basic_6 + condition_fitness_6"},
+      {"id": "D3", "keep": "basic_6 + both (=A2 reconfirm)"}
+    ],
+    "E_optimal_subset": "explore feature subsets from A-D results; rank by recovery_rate"
+  },
+  "9_1_extension_features": {
+    "distribution_shape_5": [
+      "rolling_speed_figure_median_3", "rolling_speed_figure_median_5",
+      "rolling_speed_figure_best2_mean_5", "rolling_speed_figure_trend_last_minus_mean5",
+      "rolling_speed_figure_trend_mean3_minus_mean5"
+    ],
+    "condition_fitness_6": [
+      "rolling_speed_figure_same_surface_mean_5", "rolling_speed_figure_same_surface_max_5",
+      "rolling_speed_figure_same_surface_count_5", "rolling_speed_figure_same_distance_bucket_mean_5",
+      "rolling_speed_figure_same_distance_bucket_max_5", "rolling_speed_figure_same_distance_bucket_count_5"
+    ]
+  },
+  "implementation": {
+    "snapshot_swap": "existing run_phase12_evaluation.py --baseline-snapshot-id; B1 via --selected-theta 1.0",
+    "column_drop": "new scripts/run_ablation.py (thin script); make_X_y unchanged; X.drop(columns=group) inside script; reuse orchestrator split/calib/category_map/race_relative",
+    "live_db": "readonly (odds/label/HARAI); statement_timeout; no DB writes"
+  },
+  "execution_order": [
+    "preregister commit (this file)",
+    "U0 metric unification gate",
+    "A0-A3 remeasure with 12-system unified selector",
+    "column-drop harness (run_ablation.py)",
+    "D1-D3 (if 9.1 degradation confirmed in unified metric) -> C1-C3 -> E -> B1",
+    "byte-reproducible 2-run equality",
+    "ablation-results authoring"
+  ]
+}
