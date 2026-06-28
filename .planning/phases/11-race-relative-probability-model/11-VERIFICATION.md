@@ -11,6 +11,11 @@ re_verification:
   gaps_closed: []
   gaps_remaining: []
   regressions: []
+provisional:
+  flag: true
+  reason: "results computed on buggy label v1.0.0 universe (is_model_eligible 新馬過剰除外バグ・1勝/未勝利層も除外・2023 eligible 22793/47672=48%)"
+  superseded_by: "label v1.1.0 (commit 2cdbac1・eligible 42214)・Spike 001 ablation reports/12-evaluation/ablation-results.md"
+  note: "Phase 11 SC#1-5 機構完成（race-relative model・θ 選択・sum(p) 制約）は有効・成果物完成。数値結果（Brier/LogLoss/AUC・D-04/D-05 gate・θ=1.0 selection・label_version=v1.0 prediction 行）は暫定・v1.1.0 で再検証。reopen せず（機構完成）"
 ---
 
 # Phase 11: Race-Relative Probability Model — 検証レポート
@@ -19,6 +24,8 @@ re_verification:
 **Verified:** 2026-06-27T17:30:00+09:00
 **Status:** passed
 **Re-verification:** No — initial verification
+
+> ⚠️ **PROVISIONAL RESULTS (2026-06-28):** 本レポートの数値結果（確率品質 Brier/LogLoss/AUC・D-04 非劣化 PASS / D-05 改善 gate・θ=1.0 selection・`label_version=v1.0` prediction 行）は **label v1.0.0 universe（`is_model_eligible` 新馬過剰除外バグ・1勝/未勝利層も除外・2023 eligible 22793/47672=48%）** で計算された。バグは commit 2cdbac1 で修正され label v1.1.0（eligible 42214・1勝/未勝利層復帰）に移行済み。**Phase 11 機構完成（race-relative model・SC#1-5 達成・成果物完成）は有効**だが、数値結果は暫定・v1.1.0 での再検証で置換される（Spike 001 ablation・`reports/12-evaluation/ablation-results.md`）。とくに Spike 001 は v1.1.0 で **race-relative 補正の前提となる Phase 10 特徴量（opponent/race_relative）が回収率を下げる**（binary A1 = speed figure 基本6 単体が黒字化の正解）を示しており、Phase 11 の「確率品質改善（Brier/LogLoss/AUC）」は確率指標としては成立する可能性があるが**回収率寄与は v1.1.0 で非証明（B1 未測定）**。Phase 11 を reopen しない（機構完成・guard C-12-02-1 維持）。
 
 ## Goal Achievement
 
