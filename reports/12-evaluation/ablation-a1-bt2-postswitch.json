@@ -1,0 +1,18 @@
+{
+  "mode": "snap-swap",
+  "snapshot_id": "20260625-1a-speedfigure-v1",
+  "theta": null,
+  "exclude_features": null,
+  "recovery_rate": 1.17811786203746,
+  "n_selected": 4378,
+  "effective_bet": 4378,
+  "hit_count": 563,
+  "hit_rate": 0.12859753312014618,
+  "profit_loss": 77980,
+  "max_drawdown": 17030,
+  "_full_candidate_rows": 41745,
+  "bt_name": "BT-2",
+  "odds_policy": "30min_before",
+  "model_type": "lightgbm",
+  "model_version": ""
+}

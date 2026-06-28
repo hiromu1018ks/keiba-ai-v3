@@ -1,0 +1,45 @@
+{
+  "window": "phase4-2024H2",
+  "periods": {
+    "train": [
+      "2016-07-01",
+      "2023-12-31"
+    ],
+    "calib": [
+      "2024-01-01",
+      "2024-06-30"
+    ],
+    "test": [
+      "2024-07-01",
+      "2024-12-31"
+    ]
+  },
+  "label_version": "v1.1.0",
+  "comparisons": {
+    "A1 (speedfig 6)": {
+      "label": "A1 (speedfig 6)",
+      "snapshot_id": "20260625-1a-speedfigure-v1",
+      "feature": "speed figure 基本6",
+      "model_version": "20260625-1a-speedfigure-v1-lgb-v1",
+      "recovery_rate": 1.1761954261954262,
+      "n_selected": 1924,
+      "hit_rate": 0.145010395010395,
+      "profit_loss": 33900,
+      "_full_candidate_rows": 18737,
+      "pred_rows": 18737
+    },
+    "postreview-v2 (v1.0)": {
+      "label": "postreview-v2 (v1.0)",
+      "snapshot_id": "20260620-1a-postreview-v2",
+      "feature": "v1.0 デフォルト (speed fig 無し)",
+      "model_version": "20260620-1a-postreview-v2-lgb-v1",
+      "recovery_rate": 0.7662837449741527,
+      "n_selected": 1741,
+      "hit_rate": 0.10970706490522689,
+      "profit_loss": -40690,
+      "_full_candidate_rows": 18737,
+      "pred_rows": 18737
+    }
+  },
+  "diff_a1_minus_postreview": 0.4099116812212734
+}
