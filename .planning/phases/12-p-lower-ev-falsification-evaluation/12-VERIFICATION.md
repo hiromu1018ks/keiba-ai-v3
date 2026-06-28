@@ -11,9 +11,18 @@ re_verification:
   gaps_closed: []
   gaps_remaining: []
   regressions: []
+provisional:
+  status: true
+  reason: "results computed on buggy label v1.0.0 universe (syubetucd newcomer '12' over-exclusion・2023 eligible 22793/47672=48%)"
+  superseded_by: "label v1.1.0 (commit 2cdbac1・eligible 42214)・Spike 001 ablation reports/12-evaluation/ablation-results.md"
+  mechanism_still_valid: true
+  note: "Phase 12 SC#1-5 機構完成は有効・成果物完成。数値結果(baseline 0.7314/p_lower 0.0/feature_gap/switch=reject)は暫定・v1.1.0 で再検証。reopen せず(guard C-12-02-1 維持)"
+  date_flagged: "2026-06-28"
 ---
 
 # Phase 12: p_lower EV & Falsification Evaluation — 検証レポート
+
+> ⚠️ **PROVISIONAL RESULTS (2026-06-28):** 本レポートの数値結果（baseline recovery_rate=0.7314・p_lower=0.0・falsification `feature_gap`・`switch=reject`）は **label v1.0.0 universe（`is_model_eligible` 新馬過剰除外バグ・2023 eligible 22793/47672=48%）** で計算された。バグは commit 2cdbac1 で修正され label v1.1.0（eligible 42214・1勝/未勝利層復帰）に移行済み。**Phase 12 機構完成（SC#1-5 達成・成果物完成）は有効**だが、数値結果は暫定・v1.1.0 での再検証で置換される（Spike 001 ablation・`reports/12-evaluation/ablation-results.md`）。`switch=reject` 等は最終結論でない。Phase 12 を reopen しない（guard C-12-02-1 維持）。
 
 **Phase Goal:** EV 判定を点推定 `p` から `p_lower`（下側信頼限位・train/calib 設計・test 窓は最終評価のみ）へ移行し、評価指標拡張（selected-only calibration / EV-decile ROI / disagreement ROI / snapshot slippage）と falsification test で odds-free market residual を統計検証する。オッズ帯別条件付き calibration を受入基準に追加し、投票層の過大予測を構造的に検出する。
 **Verified:** 2026-06-28T04:56:26Z
