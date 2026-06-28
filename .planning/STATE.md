@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Ability Feature v2 & Conditional Calibration
-current_phase: 12
-status: verifying
+current_phase: 1
+status: Awaiting next milestone
 stopped_at: Completed 12-01-PLAN.md (statsmodels + p_lower + migration)
-last_updated: "2026-06-28T04:59:57.455Z"
+last_updated: "2026-06-28T13:31:41.652Z"
 last_activity: 2026-06-28
-last_activity_desc: Phase 12 complete
+last_activity_desc: Milestone v1.1 completed and archived
 progress:
   total_phases: 5
   completed_phases: 5
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 
 ## Current Position
 
-Phase: 12
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-06-28 - Completed quick task 260628-t2s: is_primary 切替 → A1（speedfigure-v1・binary・v1.1.0）+ 切替後 BT-1..5
+Phase: Milestone v1.1 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-28 — Milestone v1.1 completed and archived
 
 ## v1.1 Milestone Context
 
@@ -350,6 +350,16 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-06-25:
 | debug | fukusho-recovery-070 | diagnosed — 回収率0.65-0.70天井の構造的限界（ROOT CAUSE 確定・3層構造: 市場情報不足→中高オッズ域過大予測→EV演算増幅→複勝控除率天井）。戦略判断（A受容/B 1-A改善/C Phase 1-B）は別計画フェーズ・ユーザー承認済(2026-06-24)・要件未達でなく正直な結論 → **v1.1 は戦略 B（1-A改善: 能力特徴量精密化 + レース内相対確率モデル）として実行中** | 2026-06-25 |
 | verification | phase-07-human-needed | human_needed — 36/36 truths verified・残り2件はライブブラウザ描画振る舞い（grep/AST 不可視）・07-03 checkpoint:human-verify で RESOLVED 済・回帰監視として残存 | 2026-06-25 |
 
+Items acknowledged and deferred at v1.1 milestone close on 2026-06-28 (override closeout — 監査 gaps_found・BLOCKER 0・機構完成・Core Value 保持):
+
+| Category | Item | Status | Deferred At |
+|----------|------|--------|-------------|
+| debug | fukusho-recovery-070 | **RESOLVED in v1.1** — 戦略 B（能力特徴量精密化 + レース内相対確率モデル）を実行した結果、Spike 001 ablation で「黒字化したのは Phase 9 基本6（speed figure・binary）のみ・cross-window 5窓平均回収率1.14」と判明。A1 を is_primary にデプロイ（ユーザー承認・backtest 反映済み）。 | 2026-06-28 |
+| verification | phase-09-09.1-verification-gap | FEAT-01 VERIFICATION.md 欠落（Phase 9 は 09-VALIDATION.md draft のみ・Phase 9.1 は SUMMARY/REVIEW のみ）・機構・テスト・snapshot は実在し cross-phase 9/9 WIRED・Spike 001 で基本6黒字を過剰実証済み・形式証跡の補完が残課題 | 2026-06-28 |
+| verification | phase-11-12-provisional-results | Phase 11/12 数値結果（baseline 0.7314/p_lower 0.0/falsification feature_gap/switch reject）は buggy label v1.0.0 universe で暫定・label v1.1.0 修正済み（commit 2cdbac1）だが reopen 不可（guard C-12-02-1・silent p_lower corruption 防止）・Spike 001 が v1.1.0 正準ベースライン（A1 黒字） | 2026-06-28 |
+| tech-debt | phase-09-05-stopgate-incomplete | Phase 9 SC#6 stop gate 指標算出パイプライン未完成（09-05 partial・pred_df label JOIN bug・Phase 5 idiom 移植未実施）・Spike 001 が新 universe で代替検証完了 | 2026-06-28 |
+| tech-debt | prediction-columns-doc-mismatch | PREDICTION_COLUMNS doc コメント 19列/20列 不整合（実体は20列で一貫・doc 陳腐化） | 2026-06-28 |
+
 ## Session Continuity
 
 **Last session:** 2026-06-27T15:15:50.921Z
@@ -362,8 +372,7 @@ Resume: `/gsd-execute-phase 9`（P04: SC#4 SAFE-01 AST audit + SC#5 ドメイン
 
 ## Operator Next Steps
 
-- `/gsd-execute-phase 9` で Phase 9 Speed Figure Foundation を実行（5 plans・wave 1-5 直列依存・P01=speed_figure.py 新規→P05=stop gate）
-- Phase 9 完了後、Phase 10 → 11 → 12 の順で厳格に実行（依存関係 DAG・各 Phase の完了が次の前提）
+- Start the next milestone with /gsd-new-milestone
 
 ## Accumulated Context
 

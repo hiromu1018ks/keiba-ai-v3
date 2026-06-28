@@ -1,5 +1,35 @@
 # Milestones
 
+## v1.1 Ability Feature v2 & Conditional Calibration (Shipped: 2026-06-28)
+
+**Phases completed:** 5 phases (9/9.1/10/11/12), 25 plans, 21 tasks
+**Shipped:** 2026-06-28
+**Audit:** gaps_found → override closeout (gsd-audit-milestone・BLOCKER 0・integration 9/9 WIRED・E2E complete・7/8 requirements satisfied [FEAT-01 partial]・Core Value 完全保持)
+
+**Delivered:** 機構（FEAT-01/02/03・MODEL-01・EV-01・EVAL-01/02・SAFE-01）全て完成。スピード指数（Phase 9・par/variant/PIT・float canonical）→ 相手強度 field_strength + レース内相対特徴量（Phase 10・source-as-of full-pipeline 再計算）→ レース内相対確率モデル（Phase 11・θ + α_r brentq・sum(p)=k 厳密）→ p_lower EV + falsification test（Phase 12・conformal shrinkage・race_id clustered SE・Holm・§11.2 聖域）。cross-phase 9/9 WIRED・E2E live-DB byte-reproducible・SAFE-01 AST audit 全フェーズ GREEN。**Spike 001 ablation で成功仮説（追加特徴量で黒字化）がデータで否定**: 黒字化したのは Phase 9 基本6（speed figure・binary）のみ（cross-window 5窓平均回収率1.14）・Phase 9.1 拡張/Phase 10/Phase 11 race-relative は回収率を下げる。A1（Phase 9 基本6・label v1.1.0・binary）は is_primary=True でデプロイ済み（ユーザー承認・backtest 反映済み）。
+
+**Stats:** 期間 2026-06-25→2026-06-28（4日）・5 phases/25 plans・主モデル A1 cross-window 平均回収率1.14
+**Known verification overrides:** 5（Phase 9/9.1 VERIFICATION gap・Phase 11/12 provisional results [label v1.0.0 universe]・Phase 09-05 stopgate incomplete・PREDICTION_COLUMNS doc mismatch・debug fukusho-recovery-070 RESOLVED・詳細は STATE.md Deferred Items）
+
+**Key accomplishments:**
+
+- 1. [Rule 3 - Blocking fix] source_available_at_by_race を唯一の cutoff 真の源に修正
+- 1. [Rule 1 - Bug] テストデータの fs_mean 割当順序が「最新=最大」でない問題
+- 1. `_gap_to_top_within_race` の実装
+- 1. [Rule 1 - Bug] race_relative.py 入力の numeric 強制 cast
+- 1. [Rule 1 - Bug] builder Step6d drop 条件が `field_strength_adjusted_rank` を誤 drop
+- gate_pass: True (exit 0・3条件全て D-16 許容幅内・delta 基準は baseline snapshot 実測値・B-3・§11.2 聖域)
+- 1. [Rule 1 - Bug] test_lookahead_injection_detected の layer 2 単独無効化では検出力が無かった
+- 状態
+- 1. `src/model/race_relative.py`（235 行・stub・pure 関数）
+- `src/model/race_relative.py`
+- 1. [Rule 1 - Bug] docstring 直接トークン名が audit AST scan で false-positive 検出
+- 1. [Rule 1 - Bug] isotonic 単調性テストの確率軸が逆順だった
+- 1. [Rule 3 - Blocking] check_acceptance_gate の正しい signature への対応
+- Phase 12 全実装に対する 5段階鋳型 adversarial audit + 値レベル §11.2 leak 検出 (C-12-05-1 HIGH) で・SAFE-01 odds proxy 排除・§11.2 test 窓聖域・D-10 is_primary 自動変更禁止を機械保証 (Task 1 完了・Task 2/3 は orchestrator checkpoint 管轄)
+
+---
+
 ## v1.0 Leak-Free Fukusho Pipeline (Shipped: 2026-06-25)
 
 **Phases completed:** 9 phases (1-8 + 3.1), 40 plans, 82 tasks

@@ -28,12 +28,10 @@ JRA競馬データを用いて、各出走馬の**複勝払戻対象確率 `p_fu
 
 **v1.0 shipped 2026-06-25**（Leak-Free Fukusho Pipeline・監査 passed・GAP-INT-01 解消）。出馬表確定後モデル（Phase 1-A）による `p_fukusho_hit` 算出・固定ルール仮想購入 backtest ともに Validated（Phase 4-6 で主モデル LightGBM 確定・Phase 5 で25 backtest 行レベル DB 永続化・返還/中止 honest 会計）。
 
-**v1.1 Ability Feature v2 & Conditional Calibration（2026-06-25 開始・現マイルストーン）。** core value（odds-free）維持のもと、回収率0.65天井（debug `fukusho-recovery-070` ROOT CAUSE・3層構造）へ正統に対応する。能力特徴量を「着順中心」から「スピード指数・相手強度・レース内相対」へ拡張し、投票層の過大予測を是正・回収率向上余地を測る。同時に falsification test で「odds-free で market residual が残るか」を検証（特徴量不足 vs 構造的限界の鑑別）。
+**v1.1 Ability Feature v2 & Conditional Calibration — SHIPPED 2026-06-28。** 機構（FEAT/MODEL/EV/EVAL/SAFE）は全て完成（cross-phase 9/9 WIRED・BLOCKER 0・E2E live-DB byte-reproducible・Core Value 完全保持・監査 gaps_found は検証証跡補完と暫定数値の引き継ぎのみ）。Spike 001 ablation で成功仮説（追加特徴量で黒字化）がデータで否定: 黒字化したのは **Phase 9 基本6（speed figure・binary）のみ**（cross-window 5窓平均回収率1.14）・Phase 9.1 拡張/Phase 10 相手強度・レース内相対/Phase 11 race-relative は回収率を下げる。A1（Phase 9 基本6・label v1.1.0・binary）は is_primary=True でデプロイ済み（ユーザー承認・backtest 反映済み）。
 
-- 外部2AI（ChatGPT/Codex）リサーチ統合・学術文献付き・debug ROOT CAUSE と整合（.planning/research/ 参照）
-- 過去人気/オッズ proxy は除外（市場回帰で edge 消滅・2AI一致・core value 再定式化に整合）
-- core value 再定式化：「`p` とオッズの独立性」→「オッズ帯別条件付き calibration（過大でないこと）」
-- 正直な結論：現実回収率 0.78-0.92 見込・成功基準は黒字化でなく「市場残差能力の定量測定」
+- （v1.1 計画時）外部2AI リサーチ統合・過去人気/オッズ proxy 除外（市場回帰）・core value 再定式化（オッズ帯別条件付き calibration）は全て実行済み
+- 正直な結論: 成功基準「市場残差能力の定量測定」は達成（falsification + ablation で測定）・「投票層過大予測是正」は race-relative でなく A1 binary で黒字化（マイルストーン成功仮説のデータによる否定・次マイルストーンで A1 精査）
 
 ### Out of Scope
 
@@ -48,9 +46,9 @@ JRA競馬データを用いて、各出走馬の**複勝払戻対象確率 `p_fu
 - 海外競馬 — 開催体系・馬券種・オッズ形成・データ構造が異なるため（2.1）
 - MLflow / Optuna導入 — Phase 1安定後に検討（21）
 
-## Current Milestone: v1.1 Ability Feature v2 & Conditional Calibration
+## v1.1 Shipped: Ability Feature v2 & Conditional Calibration（2026-06-28）
 
-**Goal:** core value（odds-free）を維持したまま、能力特徴量を「着順中心」から「スピード指数・相手強度・レース内相対」へ拡張し、投票層の過大予測（中高オッズ域 miscalibration）を是正して回収率向上の余地を測る。同時に falsification test で「odds-free で market residual が残るか」を統計的に検証する（回収率0.65が特徴量不足か構造的限界かの鑑別）。
+**Outcome:** 機構（FEAT-01/02/03・MODEL-01・EV-01・EVAL-01/02・SAFE-01）は全て完成（cross-phase 9/9 WIRED・BLOCKER 0・E2E live-DB byte-reproducible・Core Value 完全保持）。監査 gaps_found は BLOCKER 0・検証証跡補完（Phase 9/9.1 VERIFICATION 欠落）と暫定数値（Phase 11/12 は v1.0.0 universe・reopen 不可 guard）の引き継ぎのみ。Spike 001 ablation で成功仮説がデータで否定: 黒字化したのは Phase 9 基本6（speed figure・binary）のみ（cross-window 5窓平均1.14）・Phase 9.1 拡張/Phase 10/Phase 11 race-relative は回収率を下げる。A1（Phase 9 基本6・label v1.1.0・binary）は is_primary=True でデプロイ済み。
 
 **Target features（P0）:**
 - スピード指数（走破タイムの馬場/距離/トラック/クラス正規化・Beyer 的）
@@ -97,7 +95,9 @@ JRA競馬データを用いて、各出走馬の**複勝払戻対象確率 `p_fu
 | 推奨ランクは未定義の予測信頼度を使わず、EV・確率・オッズ下限のみで初期定義 | Phase 1では信頼度が未成熟なため（要件11.5） | — Pending |
 | core value を「`p` とオッズの独立性」でなく「オッズ帯別条件付き calibration（過大でないこと）」に再定式化 | 独立性は数学的に厳しすぎる（優秀なモデルほど `p` とオッズは負相関）・真正の要件は「投票層/EV帯で `p` が過大でないこと」（外部 ChatGPT/Codex 2AI リサーチ一致・要件§2.2/§9.3 整合） | — Pending |
 | 過去人気/過去オッズ proxy 特徴量は導入しない | 過去市場評価の proxy は `p` を市場暗示確率に引きずらせ market edge を殺す（市場回帰）・debug + 外部2AI リサーチの一致結論 | — Pending |
-| 回収率0.65天井の解決は Phase 1-B（オッズ特徴量）でなく、能力特徴量の精密化（スピード指数等）+ レース内相対確率モデルで図る | core value 維持での正統な改善道・Benter/Bolton&Chapman の fundamental model 実証例支持・市場回帰を避ける | — Pending |
+| 回収率0.65天井の解決は Phase 1-B（オッズ特徴量）でなく、能力特徴量の精密化（スピード指数等）+ レース内相対確率モデルで図る | core value 維持での正統な改善道・Benter/Bolton&Chapman の fundamental model 実証例支持・市場回帰を避ける | ⚠️ Revisit: v1.1 で実行したが Spike 001 で成功仮説否定（Phase 9 基本6 のみ黒字・拡張特徴量/race-relative は回収率悪化） |
+| 主モデル（is_primary）は Phase 9 基本6（speed figure・binary・label v1.1.0）= A1 | Spike 001 ablation で cross-window 5窓全て黒字（平均1.14・leak 再監査 GREEN）・「全部入り≠最善」「特徴量を引く方向」が新 universe で証明されたため | ✓ Good（A1 デプロイ済み・backtest 反映済み） |
+| Phase 11/12 は reopen せず（guard C-12-02-1）・数値結果は label v1.0.0 universe 暫定 | 同一 model_version の rr 予測行を load_predictions で上書きすると Phase 12 が正しく計算した p_lower が静かに消える silent data corruption リスク・「落ちる」状態は安全装置 | ✓ Good（凍結維持・Spike 001 が v1.1.0 正準ベースライン） |
 
 ## Evolution
 
@@ -135,4 +135,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 - **Phase 8: Adversarial Audit Suite — Complete (2026-06-25).** v1 マイルストーン最終フェーズ・TEST-01（リーク防止の対抗的監査テストを含む）の出荷ゲート確立。3 plans（08-01 tests/audit/ adversarial 4ファイル[SC#2 3ケース+D-06 UI/CSV]・08-02 scripts/run_reproducibility_smoke.py + src/audit/report.py + reports/08-audit.{md,json}・08-03 checkpoint:human-verify で live-DB フルスイート GREEN 証明）。**SC#1** フルスイート 499 passed / 1 skipped（test_evaluator.py:490・Phase 6 C6 stale・非 KEIBA_SKIP_DB_TESTS 由来）/ failed 0・KEIBA_SKIP_DB_TESTS unset で requires_db 全実行（conftest fail-by-default policy 確証）。**SC#2** tests/audit/ 9テスト GREEN（lookahead/payout正欠損/fold race_id共有 の注入型メタ検証 + D-06 AST read-only 保証/再現性スタンプ欠落検出・5段階鋳型・docstring cross-reference）。**SC#3** 合成層（run_reproducibility_smoke.py・calibrator bit-identical + tests/audit/）+ live-DB CLI 層（run_train_predict/run_backtest --check-reproduce・bit-identical PASS）両 GREEN。reports/08-audit.{md,json}：サーフェス別カバレッジマップ（SC#1 8サーフェス+evaluation_metrics）+ SC#1/#2/#3 対応表 + Known Limitations 3項目（回収率天井 ~0.65・Calibration BL 劣位・odds JODDS 再検証 subject）の honest 開示・byte-reproducible。verification passed 11/11 must-haves。**留意点（ギャップではない）**: 1 skipped は Phase 6 C6 stale（Plan 06-05 委譲）・label.fukusho_label.race_date の3度目の再発を run_label_race_date_backfill.py で都度復元（idempotent・raw 不変・554267 non-NULL）して SC#3 backtest を GREEN 化・根本調査は別 /gsd-debug 推奨。memory fukusho-recovery-070-structural-ceiling 整合。
 
-*Last updated: 2026-06-27 after **Phase 11 complete** (race-relative probability model・リーク防止聖域 SC#1-5 / D-01〜D-10 機械保証・SC#2 gate honest FAIL 記録 [D-04 非劣化 PASS / D-05 改善 FAIL: odds-free 1-A で overprediction penalty 計算不能] → Phase 12 is_primary 切替判断材料)。v1.1 milestone 進行中（Ability Feature v2 & Conditional Calibration）。v1.0 詳細は .planning/milestones/v1.0-ROADMAP.md 参照*
+*Last updated: 2026-06-28 after **v1.1 milestone shipped**（Ability Feature v2 & Conditional Calibration・機構完成・成功仮説はデータで否定 → A1=Phase 9 基本6 を is_primary にデプロイ・backtest 反映済み）。v1.0/v1.1 詳細は .planning/milestones/ 参照*
