@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 Phase: 12
 Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-06-28 — Phase 12 complete
+Last activity: 2026-06-28 - Completed quick task 260628-t2s: is_primary 切替 → A1（speedfigure-v1・binary・v1.1.0）+ 切替後 BT-1..5
 
 ## v1.1 Milestone Context
 
@@ -335,6 +335,7 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260625-h1g | label race_date NULL 再発の原因特定可能化 fail-loud guard | 2026-06-25 | 0695787 | [260625-h1g-label-race-date-null-fail-loud-diagnosti](./quick/260625-h1g-label-race-date-null-fail-loud-diagnosti/) |
+| 260628-t2s | is_primary 切替 → A1（speedfigure-v1・binary・v1.1.0）+ 切替後 BT-1..5 + segment dump | 2026-06-28 | fe111b4 | [260628-t2s-switch-is-primary-to-a1-speedfigure-v1-l](./quick/260628-t2s-switch-is-primary-to-a1-speedfigure-v1-l/) |
 
 ### Roadmap Evolution
 
