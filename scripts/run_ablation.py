@@ -121,12 +121,12 @@ def _configure_statement_timeout(conn) -> None:  # noqa: ANN001
     conn.commit()
 
 
-def _bt1():
-    """BT-1 window (group_split.BT_WINDOWS から取得・§15.5)。"""
+def _select_bt(bt_window: str = "BT-1"):
+    """指定 BT window を group_split.BT_WINDOWS から取得 (§15.5・cross-window 検証用)。"""
     for bt in BT_WINDOWS:
-        if bt.name == "BT-1":
+        if bt.name == bt_window:
             return bt
-    raise RuntimeError("BT-1 が BT_WINDOWS に見つからない (§15.5)")
+    raise RuntimeError(f"{bt_window} が BT_WINDOWS に見つからない (§15.5)")
 
 
 def _prepare_feature_df(snapshot_id: str, readonly_pool) -> pd.DataFrame:  # type: ignore[name-defined]
@@ -202,6 +202,7 @@ def run_snap_swap(
     *,
     theta: float | None,
     readonly_pool,
+    bt_window: str = "BT-1",
 ) -> dict[str, Any]:
     """snap-swap モード: train_and_predict 使用 (A0-A3/B1)。
 
@@ -209,7 +210,7 @@ def run_snap_swap(
     train_lightgbm + calibrate_model + (theta 補正) + predict_p_fukusho を統合実行。
     本関数は train_and_predict を呼ぶのみ (column-drop なし・FEATURE_COLUMNS 全使用)。
     """
-    bt = _bt1()
+    bt = _select_bt(bt_window)
     periods = rb._carve_calib_from_train_tail(bt)
     logger.info(
         "snap-swap: snapshot=%s theta=%s periods train=%s..%s calib=%s..%s test=%s..%s",
@@ -270,6 +271,7 @@ def run_column_drop(
     exclude_features: list[str],
     theta: float | None,
     readonly_pool,
+    bt_window: str = "BT-1",
 ) -> dict[str, Any]:
     """column-drop モード: make_X_y→X.drop→自前 chain (C/D/E)。
 
@@ -287,7 +289,7 @@ def run_column_drop(
             "column-drop + theta(race_relative) は B1 で別途実装 (q_shrink 計算が必要・guard C-12-02-1)"
         )
 
-    bt = _bt1()
+    bt = _select_bt(bt_window)
     periods = rb._carve_calib_from_train_tail(bt)
     logger.info(
         "column-drop: snapshot=%s exclude=%d theta=%s",
@@ -442,6 +444,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--mode", choices=["snap-swap", "column-drop"], default="snap-swap")
     parser.add_argument("--snapshot-id", required=True)
     parser.add_argument(
+        "--bt-window",
+        default="BT-1",
+        help="BT window (BT-1..5・§15.5・cross-window 検証用・デフォルト BT-1)",
+    )
+    parser.add_argument(
         "--theta",
         type=float,
         default=None,
@@ -466,17 +473,23 @@ def main(argv: list[str] | None = None) -> int:
     settings = Settings()
     logger.info("readonly DSN: %s", settings.dsn_masked)
     logger.info(
-        "config: mode=%s snapshot_id=%s theta=%s a0_gate=%s",
+        "config: mode=%s snapshot_id=%s theta=%s a0_gate=%s bt_window=%s",
         args.mode,
         args.snapshot_id,
         args.theta,
         args.a0_gate,
+        args.bt_window,
     )
 
     readonly_pool = make_pool(settings, role="readonly", configure=_configure_statement_timeout)
     try:
         if args.mode == "snap-swap":
-            row = run_snap_swap(args.snapshot_id, theta=args.theta, readonly_pool=readonly_pool)
+            row = run_snap_swap(
+                args.snapshot_id,
+                theta=args.theta,
+                readonly_pool=readonly_pool,
+                bt_window=args.bt_window,
+            )
             exclude = None
         else:
             exclude = (
@@ -489,6 +502,7 @@ def main(argv: list[str] | None = None) -> int:
                 exclude_features=exclude,
                 theta=args.theta,
                 readonly_pool=readonly_pool,
+                bt_window=args.bt_window,
             )
         result = _row_to_result(row, args.snapshot_id, args.theta, args.mode, exclude)
         logger.info("RESULT: %s", json.dumps(result, ensure_ascii=False))
