@@ -1,0 +1,66 @@
+{
+  "spike": "001-ablation-recovery",
+  "completed_at": "2026-06-28",
+  "universe": "label v1.1.0 (commit 2cdbac1・newcomer '12' 誤除外修正後・2023 eligible 42214)",
+  "unified_conditions": {
+    "bt_split_default": "BT-1",
+    "odds_snapshot_policy": "30min_before",
+    "model": "lightgbm binary",
+    "seed_thread": "seed=42, num_threads=1",
+    "selector": "select_bets (EV>=1.05 ∩ p>=0.15 ∩ odds>=1.5 ∩ top-2)",
+    "recovery_rate": "sum(payout_amount)/sum(effective_stake)"
+  },
+  "verdict": "A1 (speed_figure basic 6 + binary) is the black-letter winner: profitable across all 5 BT windows (avg 1.14), leak re-audit clean. less-features wins.",
+  "main_results_bt1_test2023": {
+    "A0_postreview_v2": {"recovery_rate": 0.7308, "n_selected": 3689, "hit_count": 401, "hit_rate": 0.109, "profit_loss": -99290},
+    "A1_speedfigure_v1": {"recovery_rate": 1.0459, "n_selected": 4359, "hit_count": 572, "hit_rate": 0.131, "profit_loss": 19990, "black_letter": true},
+    "A2_speedprofile_v1": {"recovery_rate": 0.7001, "n_selected": 3578, "hit_count": 402, "hit_rate": 0.112, "profit_loss": -107310},
+    "A3_opponentstrength_v1": {"recovery_rate": 0.7131, "n_selected": 3455, "hit_count": 403, "hit_rate": 0.117, "profit_loss": -99130}
+  },
+  "d_drilldown_9_1_degradation_on_A2": {
+    "D1_A2_minus_condition6_basic6_plus_dist5": {"recovery_rate": 0.7169, "n_selected": 3598, "delta_vs_A2": 0.017},
+    "D2_A2_minus_dist5_basic6_plus_condition6": {"recovery_rate": 0.7393, "n_selected": 3546, "delta_vs_A2": 0.039},
+    "verdict": "distribution_shape_5 (median/best2/trend) is the main culprit (drop +0.039 when removed); condition_fitness_6 weaker (+0.017). both are noise/multicollinear on small sub-populations."
+  },
+  "c_drop_groups_on_A3": {
+    "C1_A3_minus_9_1_ext_11_A1_plus_phase10": {"recovery_rate": 0.7419, "n_selected": 3600, "verdict": "Phase10 also degrades A1 (1.046->0.742). all-in != best."}
+  },
+  "a1_cross_window_robustness": {
+    "purpose": "rule out 2023 single-year fluke (recovery 1.14 is suspiciously good)",
+    "BT_1_test2023": {"recovery_rate": 1.0459, "n_selected": 4359, "profit_loss": 19990},
+    "BT_2_test2024": {"recovery_rate": 1.1781, "n_selected": 4378, "profit_loss": 77980},
+    "BT_3_test2025": {"recovery_rate": 1.0916, "n_selected": 4031, "profit_loss": 36920},
+    "BT_4_test2024_rolling": {"recovery_rate": 1.1735, "n_selected": 4308, "profit_loss": 74740},
+    "BT_5_test2024_rolling": {"recovery_rate": 1.1921, "n_selected": 4498, "profit_loss": 86400},
+    "all_windows_profitable": true,
+    "mean_recovery": 1.1358,
+    "median_recovery": 1.1735,
+    "verdict": "robust - not a 2023 fluke"
+  },
+  "a1_leak_re_audit": {
+    "PIT": "PASS - speed_figure computed from past races only (available_at < feature_cutoff_datetime=race_date-1day, _pit_cutoff_prefilter)",
+    "target_leakage": "PASS - target race same-day outcome / full-period par-variant blocked (speed_figure.py L19)",
+    "odds_proxy_SAFE_01": "PASS - speed_figure is time-based, no odds",
+    "adversarial_tests": {"test_speed_figure_pit": "3 passed", "test_audit_field_strength": "8 passed"},
+    "verdict": "clean - PIT-correct, odds-free, no target leakage"
+  },
+  "metric_two_systems_note": {
+    "09_system": "run_speed_figure_stopgate._compute_selected_roi (selector EV>=1.0 only) - A0=0.7018 A1=0.8956 (stale v1.0.0 label)",
+    "12_system": "select_bets 3-cond+top-2 - A0=0.6471 (05-backtest, stale v1.0.0) / A0=0.7308 A1=1.0459 (harness, v1.1.0)",
+    "verdict": "same recovery formula, different selector+label -> not directly comparable. 12-system v1.1.0 is canonical."
+  },
+  "b1_race_relative": {"status": "skipped", "reason": "A1 binary already profitable+robust; race_relative marginal value low; q_shrink route mid-size fix not worth it"},
+  "column_drop_crosscheck": {"A3_full_features_column_drop_vs_snap_swap": "0.71308 == 0.71308 PASS (lifeline - column-drop self-chain == train_and_predict)"},
+  "byte_reproducible": {"A0_run2_vs_run1": "0.7308484684 == 0.7308484684 PASS"},
+  "label_bug_impact": {
+    "bug": "newcomer_syubetucd=['11','12'] mis-excluded '12' (1-win/maiden) as newcomer (code_tables.yaml '12'=3yo-newcomer is wrong)",
+    "fix": "commit 2cdbac1 (label v1.1.0, class_name_normalized='新馬' basis, eligible 42214)",
+    "phase_11_12": "PROVISIONAL - computed on buggy v1.0.0 universe (0.7314 etc). noted in 12-VERIFICATION.md (de410db). mechanism valid, values superseded by v1.1.0 ablation."
+  },
+  "recommendation": {
+    "winner": "A1 (speed_figure basic 6 + binary, snapshot 20260625-1a-speedfigure-v1)",
+    "action": "black-letter baseline for new universe v1.1.0; is_primary switch is separate user-approved action (D-10)",
+    "drop": ["9.1 extension 11 (distribution_shape_5 main culprit + condition_fitness_6)", "Phase10 opponent/race_relative"],
+    "keep_strengthen": "speed_figure basic 6"
+  }
+}

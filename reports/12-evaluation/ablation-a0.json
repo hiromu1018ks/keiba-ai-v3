@@ -1,0 +1,18 @@
+{
+  "mode": "snap-swap",
+  "snapshot_id": "20260620-1a-postreview-v2",
+  "theta": null,
+  "exclude_features": null,
+  "recovery_rate": 0.7308484684196259,
+  "n_selected": 3689,
+  "effective_bet": 3689,
+  "hit_count": 401,
+  "hit_rate": 0.1087015451341827,
+  "profit_loss": -99290,
+  "max_drawdown": 99840,
+  "_full_candidate_rows": 42214,
+  "bt_name": "BT-1",
+  "odds_policy": "30min_before",
+  "model_type": "lightgbm",
+  "model_version": ""
+}

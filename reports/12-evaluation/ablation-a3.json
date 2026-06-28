@@ -1,0 +1,18 @@
+{
+  "mode": "snap-swap",
+  "snapshot_id": "20260626-1a-opponentstrength-v1",
+  "theta": null,
+  "exclude_features": null,
+  "recovery_rate": 0.713082489146165,
+  "n_selected": 3455,
+  "effective_bet": 3455,
+  "hit_count": 403,
+  "hit_rate": 0.1166425470332851,
+  "profit_loss": -99130,
+  "max_drawdown": 99890,
+  "_full_candidate_rows": 42214,
+  "bt_name": "BT-1",
+  "odds_policy": "30min_before",
+  "model_type": "lightgbm",
+  "model_version": ""
+}

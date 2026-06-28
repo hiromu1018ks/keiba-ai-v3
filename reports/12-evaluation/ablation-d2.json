@@ -1,0 +1,24 @@
+{
+  "mode": "column-drop",
+  "snapshot_id": "20260626-1a-speedprofile-v1",
+  "theta": null,
+  "exclude_features": [
+    "rolling_speed_figure_median_3",
+    "rolling_speed_figure_median_5",
+    "rolling_speed_figure_best2_mean_5",
+    "rolling_speed_figure_trend_last_minus_mean5",
+    "rolling_speed_figure_trend_mean3_minus_mean5"
+  ],
+  "recovery_rate": 0.7393401015228427,
+  "n_selected": 3546,
+  "effective_bet": 3546,
+  "hit_count": 428,
+  "hit_rate": 0.12069937958262832,
+  "profit_loss": -92430,
+  "max_drawdown": 93300,
+  "_full_candidate_rows": 42214,
+  "bt_name": "BT-1",
+  "odds_policy": "30min_before",
+  "model_type": "lightgbm",
+  "model_version": ""
+}

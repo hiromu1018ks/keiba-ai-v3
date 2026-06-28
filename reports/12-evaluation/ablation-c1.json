@@ -1,0 +1,30 @@
+{
+  "mode": "column-drop",
+  "snapshot_id": "20260626-1a-opponentstrength-v1",
+  "theta": null,
+  "exclude_features": [
+    "rolling_speed_figure_median_3",
+    "rolling_speed_figure_median_5",
+    "rolling_speed_figure_best2_mean_5",
+    "rolling_speed_figure_trend_last_minus_mean5",
+    "rolling_speed_figure_trend_mean3_minus_mean5",
+    "rolling_speed_figure_same_surface_mean_5",
+    "rolling_speed_figure_same_surface_max_5",
+    "rolling_speed_figure_same_surface_count_5",
+    "rolling_speed_figure_same_distance_bucket_mean_5",
+    "rolling_speed_figure_same_distance_bucket_max_5",
+    "rolling_speed_figure_same_distance_bucket_count_5"
+  ],
+  "recovery_rate": 0.7419166666666667,
+  "n_selected": 3600,
+  "effective_bet": 3600,
+  "hit_count": 418,
+  "hit_rate": 0.11611111111111111,
+  "profit_loss": -92910,
+  "max_drawdown": 93520,
+  "_full_candidate_rows": 42214,
+  "bt_name": "BT-1",
+  "odds_policy": "30min_before",
+  "model_type": "lightgbm",
+  "model_version": ""
+}
