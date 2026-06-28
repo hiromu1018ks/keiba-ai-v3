@@ -17,8 +17,17 @@
 # ラベル定義バージョン（§10.3 / §19.1 再現性）
 # セマンティック採番。ラベルロジック（境界・status 分類・marker 識別）を変更する際は bump し、
 # Phase 3 snapshot metadata に埋め込んで再現性を保証する。
+#
+# v1.1.0 (2026-06-28): newcomer/maiden 判定基準を syubetucd（馬齢カテゴリ混在コード）から
+#   class_name_normalized（クラス名・jyokencd5 由来）に変更。syubetucd='11'/'12'/'13'/'14' は
+#   馬齢カテゴリ（2歳/3歳/古馬）とクラス（新馬/未勝利/1勝...）が直交する混在コードで・
+#   newcomer/maiden 判定の代理キーとして不適格だった（実測: syubetucd='12' は未勝利9611/
+#   1勝1559/OP629/新馬599 races・新馬は最少）。class_name_normalized='新馬' が newcomer の
+#   唯一の正しい指標。これにより JRA 最多の 1勝/未勝利層が誤除外から復帰（2023 eligible
+#   22793→42281 予測）。既存 Phase 5-12 評価は v1.0.0 universe のまま凍結維持・新 universe
+#   は後続 Phase で別途評価。feature snapshot は不変（is_model_eligible は label 側 row filter）。
 # ===========================================================================
-label_generation_version: "v1.0.0"
+label_generation_version: "v1.1.0"
 
 # ===========================================================================
 # D-04 固定4値 status（label_validation_status の値域・観測事実ベース・推測なし）
@@ -78,39 +87,49 @@ sales_start_entry_count:
 
 # ===========================================================================
 # §7.3 モデル除外 syubetucd（code_tables.yaml 実測値）
+# 障害競走は syubetucd で確実に識別可能（'18'/'19' は障害専用コード・平地との混在なし）。
 # ===========================================================================
 model_ineligibility_syubetucd: ["18", "19"]  # 障害競走（飛越 / 障害OP・J・G1/2/3）
 
 # ===========================================================================
-# §7.3 新馬戦 syubetucd（code_tables.yaml 実測値）
+# §7.3 新馬戦（v1.1.0: class_name_normalized 基準・syubetucd 廃止）
+# 実測（全期間・live-DB readonly）: syubetucd='11' は未勝利3623/新馬2710/1勝363/OP328 races・
+#   syubetucd='12' は未勝利9611/1勝1559/OP629/新馬599 races。syubetucd は馬齢カテゴリ
+#   （2歳/3歳/古馬）とクラス（新馬/未勝利/1勝...）が直交する混在コードで・newcomer 判定の
+#   代理キーとして不適格。class_name_normalized='新馬'（jyokencd5='701'）が newcomer の
+#   唯一の正しい指標。class_name_normalized は race 静的属性（出馬表確定時に既知・PIT 安全）。
 # ===========================================================================
-newcomer_syubetucd: ["11", "12"]  # 2歳新馬 / 3歳新馬
+newcomer_class_name: ["新馬"]  # class_name_normalized='新馬'（jyokencd5='701'）
 
 # ===========================================================================
-# §7.2 適格性クラス条件精密化（REVIEWS MEDIUM 解決）
+# §7.2 適格性クラス条件精密化（v1.1.0: class_name_normalized 基準・REVIEWS MEDIUM 解決）
 # §7.2「2歳未勝利以上 / 3歳未勝利以上 / 1勝クラス以上」を機械判定するための設定。
 #
-# 未勝利（class_level_numeric=0・syubetucd='13'/'14'/'15'）は §7.2 対象として残る。
-# 新馬（class_level_numeric=0・syubetucd='11'/'12'）は §7.3 除外・ステップ(a)で除外される。
-# 従って class_level_numeric=0 単独では不適格としない（syubetucd で識別）。
+# v1.1.0 改訂: maiden 救済基準を syubetucd から class_name_normalized に変更。
+#   実測（全期間）: syubetucd='13' は 1勝5657/2勝2819/3勝1198/OP1069 races（未勝利0件）・
+#   syubetucd='14' は 1勝3630/2勝2372/3勝1076/OP906 races（未勝利0件）。
+#   従来 maiden_syubetucd=['13','14','15'] は未勝利を1件も救済せず構造的に到達不能だった。
+#   class_name_normalized='未勝利'（jyokencd5='703'）が maiden 救済の唯一の正しい指標。
 #
-# compute_is_model_eligible 適用順序:
-#   (a) syubetucd が obstacle/newcomer なら不適格
+# 未勝利（class_level_numeric=0・class_name_normalized='未勝利'）は §7.2 対象として残る。
+# 新馬（class_level_numeric=0・class_name_normalized='新馬'）は §7.3 除外・ステップ(a)で除外される。
+# 従って class_level_numeric=0 単独では不適格としない（class_name_normalized で識別）。
+#
+# compute_is_model_eligible 適用順序（v1.1.0）:
+#   (a) syubetucd が obstacle なら不適格（'18'/'19'・障害は syubetucd で確実識別）
+#   (a') class_name_normalized in newcomer_class_name（['新馬']）なら不適格
 #   (b) 複勝発売なし → no_fukusho_sale
 #   (c) unresolved → unresolved
 #   (d) cancel系マーカー → race_or_horse_cancelled
-#   (e) class_level_numeric < 1 AND syubetucd NOT IN maiden_syubetucd → class_below_minimum
-# これにより未勝利（class_level_numeric=0・syubetucd='13'/'14'）は §7.2 対象として残り、
-# 新馬（class_level_numeric=0・syubetucd='11'/'12'）はステップ(a)で除外される。
+#   (e) class_level_numeric < 1 AND class_name_normalized NOT IN maiden_class_name → class_below_minimum
+# これにより未勝利（class_level_numeric=0・class_name_normalized='未勝利'）は §7.2 対象として残り、
+# 新馬（class_level_numeric=0・class_name_normalized='新馬'）はステップ(a')で除外される。
 # ===========================================================================
 class_eligibility:
   minimum_class_level_numeric: 1  # 1勝クラス以上（jyokencd5='005'）
   # 未勝利戦: class_level_numeric=0 だが §7.2「未勝利以上」に含まれるため適格対象
-  # （2歳未勝利=13 / 3歳未勝利=14 / 条件戦=15）
-  maiden_syubetucd: ["13", "14", "15"]
-  # 新馬戦: class_level_numeric=0 かつ §7.3 除外・上記 newcomer_syubetucd と重複するが
-  # 理由コード分離のため明示
-  maiden_ineligible_syubetucd: ["11", "12"]
+  # （v1.1.0: class_name_normalized='未勝利' 基準・jyokencd5='703'）
+  maiden_class_name: ["未勝利"]
 
 # ===========================================================================
 # REVIEWS HIGH #5: SE marker canonicalization（brittle marker 回避）

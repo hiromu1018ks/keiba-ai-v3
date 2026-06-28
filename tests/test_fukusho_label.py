@@ -8,7 +8,9 @@ REVIEWS 対応:
   - HIGH #4 (race_cancelled rows dropped): test_race_cancelled_all_unresolved / test_select_se_state_includes_datakubun_9
   - HIGH #5 (brittle markers): test_canonicalize_markers_raw_string_form / _numeric_cast_form
   - HIGH #6 (dead_loss reason precision): test_dead_loss_in_obstacle_race_excluded_for_obstacle_reason
-  - MEDIUM (§7.2 未勝利 precision): test_is_model_eligible_maiden_syubetucd_included
+  - MEDIUM (§7.2 未勝利 precision): test_is_model_eligible_maiden_class_name_included
+    (v1.1.0: syubetucd 基準から class_name_normalized 基準に変更・実測で syubetucd='13'/'14'
+    は未勝利0件のため従来 maiden_syubetucd は到達不能だった)
   - NEW HIGH #2 (timediff merge row multiplication): test_select_se_state_no_row_multiplication_on_timediff_merge
   - NEW HIGH #3 (missing time misclassified): test_canonicalize_markers_missing_time
 
@@ -103,12 +105,17 @@ def _build_label_input_df(
     se_overrides: dict | None = None,
     syubetucd: str = "00",
     class_level_numeric: int = 2,
+    class_name_normalized: str = "1勝クラス",
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """(hr_df, se_df, race_df) を返す合成ビルダー。
 
     - hr_df : n_harai 1レース分（hr_overrides で上書き）
     - se_df : n_horses 行の SE（各馬 umaban=1..N・se_overrides は全馬に適用）
-    - race_df: normalized.n_race 相当 1行（syubetucd / class_level_numeric 含む）
+    - race_df: normalized.n_race 相当 1行（syubetucd / class_name_normalized /
+      class_level_numeric 含む）
+
+    v1.1.0: ``class_name_normalized`` 引数を追加（newcomer/maiden 判定基準）。
+    デフォルト '1勝クラス' は適格ケース（新馬でも未勝利でもない）を表す。
     """
     hr_row = _build_hr_row(**(hr_overrides or {}))
     # 出走頭数・払戻対象数は hr_overrides で明示的に変えない限り n_horses に合わせる
@@ -133,6 +140,7 @@ def _build_label_input_df(
                 "nichiji": "01",
                 "racenum": "01",
                 "syubetucd": syubetucd,
+                "class_name_normalized": class_name_normalized,
                 "class_level_numeric": class_level_numeric,
                 # race_date は normalized.n_race から label ETL 本体が流す列。
                 # デフォルトで non-NULL の date を付与しておく（fail-loud 回帰テスト群は
@@ -992,9 +1000,16 @@ def test_is_model_eligible_obstacle_syubetucd() -> None:
     assert (out["ineligibility_reason"] == "obstacle").all()
 
 
-def test_is_model_eligible_newcomer_syubetucd() -> None:
-    """§7.3: syubetucd='11'（2歳新馬）は全馬不適格（ineligibility_reason='newcomer'）。"""
-    hr_df, se_df, race_df = _build_label_input_df(8, syubetucd="11")
+def test_is_model_eligible_newcomer_class_name() -> None:
+    """§7.3 (v1.1.0): class_name_normalized='新馬' は全馬不適格（ineligibility_reason='newcomer'）。
+
+    v1.1.0 改訂: newcomer 判定基準を syubetucd から class_name_normalized に変更。
+    syubetucd='11'（2歳カテゴリ）でも class_name_normalized='新馬' なら newcomer 不適格。
+    逆に syubetucd='11' で class_name_normalized='1勝クラス' なら eligible（後続テストで検証）。
+    """
+    hr_df, se_df, race_df = _build_label_input_df(
+        8, syubetucd="11", class_name_normalized="新馬", class_level_numeric=0
+    )
     spec = _load_label_spec()
     mod = _get_fukusho_label_module()
     out = mod.compute_fukusho_labels(hr_df, se_df, race_df, spec=spec)
@@ -1003,15 +1018,16 @@ def test_is_model_eligible_newcomer_syubetucd() -> None:
     assert (out["ineligibility_reason"] == "newcomer").all()
 
 
-def test_is_model_eligible_maiden_syubetucd_included() -> None:
-    """REVIEWS MEDIUM 解決: syubetucd='13'（2歳未勝利・class_level_numeric=0）は §7.2 対象で適格。
+def test_is_model_eligible_maiden_class_name_included() -> None:
+    """§7.2 (v1.1.0): class_name_normalized='未勝利'（class_level_numeric=0）は §7.2 対象で適格。
 
-    class_level_numeric_minimum=1 と未勝利 class_level_numeric=0 の整合は syubetucd
-    maiden list（13/14/15）で解決する。新馬(11,12)は newcomer で除外・未勝利(13,14)/
-    条件戦(15)は maiden_syubetucd で適格。
+    v1.1.0 改訂: maiden 救済基準を syubetucd から class_name_normalized に変更。
+    実測で syubetucd='13'/'14' は未勝利0件（1勝/2勝/3勝/OP 混在）のため・従来の
+    maiden_syubetucd=['13','14','15'] は未勝利を1件も救済しなかった（構造的到達不能）。
+    class_name_normalized='未勝利'（jyokencd5='703'）が正しい maiden 救済の指標。
     """
     hr_df, se_df, race_df = _build_label_input_df(
-        8, syubetucd="13", class_level_numeric=0
+        8, syubetucd="12", class_name_normalized="未勝利", class_level_numeric=0
     )
     spec = _load_label_spec()
     mod = _get_fukusho_label_module()
@@ -1021,19 +1037,61 @@ def test_is_model_eligible_maiden_syubetucd_included() -> None:
     # ineligibility_reason は None / NaN / null（適格なので理由無し）
     reasons = out["ineligibility_reason"].dropna()
     assert len(reasons) == 0, (
-        "syubetucd='13' 未勝利は §7.2 適格・ineligibility_reason は空であるべき"
+        "class_name_normalized='未勝利' は §7.2 適格・ineligibility_reason は空であるべき"
     )
 
 
-def test_is_model_eligible_class_below_minimum() -> None:
-    """class_level_numeric=0 かつ syubetucd NOT IN maiden_syubetucd は class_below_minimum。
+def test_is_model_eligible_newcomer_misclassification_regression() -> None:
+    """v1.1.0 回帰テスト: syubetucd='12' + class_name_normalized='1勝クラス' は eligible。
 
-    syubetucd='99'（異常・未勝利でも新馬でもない）+ class_level_numeric=0 → 不適格。
-    class_level_numeric=1 + syubetucd='00' の通常ケースは True。
+    このテストは v1.0.0 の根本バグ（syubetucd='12' を newcomer と誤判定し・JRA 最多の
+    1勝/未勝利層を誤除外）が v1.1.0 で解消されたことを検証する。
+    実測: syubetucd='12' は未勝利9611/1勝1559/OP629/新馬599 races・新馬は最少。
+    syubetucd='12' + class_name_normalized='1勝クラス' は eligible でなければならない。
     """
-    # 不適格ケース: syubetucd='99' 異常 + class_level_numeric=0
     hr_df, se_df, race_df = _build_label_input_df(
-        8, syubetucd="99", class_level_numeric=0
+        8, syubetucd="12", class_name_normalized="1勝クラス", class_level_numeric=1
+    )
+    spec = _load_label_spec()
+    mod = _get_fukusho_label_module()
+    out = mod.compute_fukusho_labels(hr_df, se_df, race_df, spec=spec)
+
+    assert (out["is_model_eligible"] == True).all()  # noqa: E712
+    reasons = out["ineligibility_reason"].dropna()
+    assert len(reasons) == 0, (
+        "syubetucd='12' + class_name_normalized='1勝クラス' は v1.0.0 で誤除外されていたが・"
+        "v1.1.0 では eligible でなければならない（回帰防止）"
+    )
+
+
+def test_is_model_eligible_syubetucd11_non_newcomer_eligible() -> None:
+    """v1.1.0 回帰テスト: syubetucd='11' + class_name_normalized='未勝利' は eligible。
+
+    syubetucd='11'（2歳カテゴリ）でも class_name_normalized='未勝利' なら newcomer ではなく
+    maiden 救済で eligible。実測: syubetucd='11' は未勝利3623/新馬2710/1勝363/OP328 races。
+    """
+    hr_df, se_df, race_df = _build_label_input_df(
+        8, syubetucd="11", class_name_normalized="未勝利", class_level_numeric=0
+    )
+    spec = _load_label_spec()
+    mod = _get_fukusho_label_module()
+    out = mod.compute_fukusho_labels(hr_df, se_df, race_df, spec=spec)
+
+    assert (out["is_model_eligible"] == True).all()  # noqa: E712
+    reasons = out["ineligibility_reason"].dropna()
+    assert len(reasons) == 0
+
+
+def test_is_model_eligible_class_below_minimum() -> None:
+    """class_level_numeric=0 かつ class_name_normalized NOT IN maiden_class_name は class_below_minimum。
+
+    v1.1.0: class_name_normalized='（異常）' + class_level_numeric=0 → 不適格。
+    class_name_normalized='1勝クラス' + class_level_numeric=1 の通常ケースは True。
+    """
+    # 不適格ケース: class_name_normalized='（異常クラス）' + class_level_numeric=0
+    # （新馬でも未勝利でもない異常クラス・実データでは発生しないが境界テスト用）
+    hr_df, se_df, race_df = _build_label_input_df(
+        8, syubetucd="99", class_name_normalized="（異常クラス）", class_level_numeric=0
     )
     spec = _load_label_spec()
     mod = _get_fukusho_label_module()
@@ -1042,9 +1100,9 @@ def test_is_model_eligible_class_below_minimum() -> None:
     assert (out["is_model_eligible"] == False).all()  # noqa: E712
     assert (out["ineligibility_reason"] == "class_below_minimum").all()
 
-    # 適格ケース: syubetucd='00' + class_level_numeric=1
+    # 適格ケース: class_name_normalized='1勝クラス' + class_level_numeric=1
     hr_df2, se_df2, race_df2 = _build_label_input_df(
-        8, syubetucd="00", class_level_numeric=1
+        8, syubetucd="00", class_name_normalized="1勝クラス", class_level_numeric=1
     )
     # NOTE: Plan 02-03 (Rule 1 - test typo): 従来 ``compute_fukusho_labels(...)`` と
     # モジュール修飾なしで呼んで NameError になっていたテストバグを ``mod.`` 付きに修正。

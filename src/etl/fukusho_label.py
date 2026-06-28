@@ -88,7 +88,7 @@ _REQUIRED_SPEC_KEYS = (
     "se_datakubun_inclusion",
     "sales_start_entry_count",
     "model_ineligibility_syubetucd",
-    "newcomer_syubetucd",
+    "newcomer_class_name",
     "class_eligibility",
     "unresolved_strategy",
 )
@@ -272,7 +272,8 @@ _RACE_META_SELECT_COLUMNS = [
     "kaiji",
     "nichiji",
     "racenum",
-    "syubetucd",  # 障害/新馬判定（§7.3）
+    "syubetucd",  # 障害判定（§7.3・'18'/'19' は障害専用コード）
+    "class_name_normalized",  # v1.1.0: newcomer/maiden 判定（§7.3/§7.2・jyokencd5 由来）
     "class_code_normalized",
     "class_level_numeric",  # §7.2 クラス適格性判定
     "class_normalization_status",
@@ -462,58 +463,67 @@ def classify_status(row: pd.Series, *, spec: dict) -> str:
 def compute_is_model_eligible(row: pd.Series, *, spec: dict) -> tuple[bool, str | None]:
     """§7.2 + status で ``(is_eligible, reason)`` を返す（HIGH #6: 順序依存）。
 
-    適用順序（HIGH #6 契約: syubetucd 障害/新馬が先に評価され、is_dead_loss は単独では
-    不適格理由にならない）:
+    適用順序（HIGH #6 契約: syubetucd 障害/class_name_normalized 新馬が先に評価され、
+    is_dead_loss は単独では不適格理由にならない）:
       (a) ``syubetucd in model_ineligibility_syubetucd``（['18','19']）→ (False, 'obstacle')
-      (b) ``syubetucd in newcomer_syubetucd``（['11','12']）→ (False, 'newcomer')
-      (c) ``not is_fukusho_sale_available`` → (False, 'no_fukusho_sale')
-      (d) ``label_validation_status == 'unresolved'`` → (False, 'unresolved')
-      (e) ``is_race_cancelled or is_scratch_cancel or is_race_excluded``
+          ※障害は syubetucd で確実識別可能（'18'/'19' は障害専用・平地との混在なし）
+      (a') ``class_name_normalized in newcomer_class_name``（['新馬']）→ (False, 'newcomer')
+          ※v1.1.0: syubetucd 基準から class_name_normalized 基準に変更。
+          syubetucd='11'/'12' は馬齢カテゴリとクラスが直交する混在コード（実測: syubetucd='12'
+          は未勝利9611/1勝1559/OP629/新馬599 races・新馬は最少）で newcomer 判定の代理キーとして
+          不適格。class_name_normalized='新馬'（jyokencd5='701'）が正しい指標。
+      (b) ``not is_fukusho_sale_available`` → (False, 'no_fukusho_sale')
+      (c) ``label_validation_status == 'unresolved'`` → (False, 'unresolved')
+      (d) ``is_race_cancelled or is_scratch_cancel or is_race_excluded``
           → (False, 'race_or_horse_cancelled')
-      (f) ``class_level_numeric < minimum_class_level_numeric`` AND
-          ``syubetucd NOT IN maiden_syubetucd`` → (False, 'class_below_minimum')
-          （未勝利=class_level_numeric=0・syubetucd='13'/'14'/'15' は §7.2 対象で適格）
-      (g) ``label_validation_status in (validated, inferred, dead_heat)`` → (True, None)
-      (h) それ以外 → (False, 'status_not_eligible')
+      (e) ``class_level_numeric < minimum_class_level_numeric`` AND
+          ``class_name_normalized NOT IN maiden_class_name`` → (False, 'class_below_minimum')
+          （未勝利=class_level_numeric=0・class_name_normalized='未勝利' は §7.2 対象で適格）
+      (f) ``label_validation_status in (validated, inferred, dead_heat)`` → (True, None)
+      (g) それ以外 → (False, 'status_not_eligible')
 
     **HIGH #6 コメント:** ``is_dead_loss`` は適用順序の判定対象に入らない。競走中止馬が
     他の理由で不適格になる場合（例: 障害レースで競走中止）、``ineligibility_reason``
     には ``'obstacle'`` が格納され ``'dead_loss'`` 由来にはならない。
+
+    **v1.1.0 改訂:** newcomer/maiden 判定基準を ``syubetucd`` から
+    ``class_name_normalized`` に変更（class_name_normalized は race 静的属性・PIT 安全）。
     """
     syubetucd = _safe_str(row.get("syubetucd"))
+    class_name = _safe_str(row.get("class_name_normalized"))
     obstacle_set = set(spec.get("model_ineligibility_syubetucd", []))
-    newcomer_set = set(spec.get("newcomer_syubetucd", []))
-    maiden_set = set(spec.get("class_eligibility", {}).get("maiden_syubetucd", []))
+    newcomer_class_set = set(spec.get("newcomer_class_name", []))
+    maiden_class_set = set(spec.get("class_eligibility", {}).get("maiden_class_name", []))
     min_class = spec.get("class_eligibility", {}).get("minimum_class_level_numeric", 1)
 
-    # (a) 障害競走（§7.3）
+    # (a) 障害競走（§7.3・syubetucd で確実識別）
     if syubetucd in obstacle_set:
         return False, "obstacle"
-    # (b) 新馬戦（§7.3）
-    if syubetucd in newcomer_set:
+    # (a') 新馬戦（§7.3・v1.1.0: class_name_normalized 基準）
+    if class_name in newcomer_class_set:
         return False, "newcomer"
-    # (c) 複勝発売なし
+    # (b) 複勝発売なし
     if not bool(row.get("is_fukusho_sale_available", False)):
         return False, "no_fukusho_sale"
-    # (d) ラベル生成/突合失敗（D-03）
+    # (c) ラベル生成/突合失敗（D-03）
     if row.get("label_validation_status") == "unresolved":
         return False, "unresolved"
-    # (e) レース全体中止・取消・除外馬
+    # (d) レース全体中止・取消・除外馬
     if (
         bool(row.get("is_race_cancelled", False))
         or bool(row.get("is_scratch_cancel", False))
         or bool(row.get("is_race_excluded", False))
     ):
         return False, "race_or_horse_cancelled"
-    # (f) §7.2 クラス条件（未勝利=class_level_numeric=0・syubetucd maiden は適格）
+    # (e) §7.2 クラス条件（未勝利=class_level_numeric=0・class_name_normalized='未勝利' は適格）
     class_level = row.get("class_level_numeric")
     if class_level is not None and not _is_na(class_level) and int(class_level) < int(min_class):
-        if syubetucd not in maiden_set:
+        if class_name not in maiden_class_set:
             return False, "class_below_minimum"
-    # (g) status が validated/inferred/dead_heat のいずれか
+    # (f) status が validated/inferred/dead_heat のいずれか
     if row.get("label_validation_status") in ("validated", "inferred", "dead_heat"):
         return True, None
-    # (h) それ以外（D-13 隔離）
+    # (g) それ以外（D-13 隔離）
     return False, "status_not_eligible"
 
 
@@ -644,7 +654,9 @@ def compute_fukusho_labels(
     # race_date 全行 NULL silent corruption の根本原因）。両者を zfill(2) で2桁ゼロ埋めに
     # 正規化して一致させる。year(4桁)/jyocd/nichiji は astype(str) のみで一致する。
     race_extra_cols = [
-        c for c in ("syubetucd", "class_level_numeric", "race_date") if c in race_df.columns
+        c
+        for c in ("syubetucd", "class_name_normalized", "class_level_numeric", "race_date")
+        if c in race_df.columns
     ]
     race_merge = race_df[_RACE_KEY + race_extra_cols].copy()
     for k in _RACE_KEY:
