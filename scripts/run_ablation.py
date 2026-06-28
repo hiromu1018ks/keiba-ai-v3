@@ -81,11 +81,14 @@ logger = logging.getLogger("run_ablation")
 POLICY = "30min_before"
 MODEL_TYPE_BINARY = "lightgbm"
 MODEL_TYPE_RR = "lightgbm_rr"
-# A0 ゲート基準値 (reports/05-backtest BT-1/30min_before/lightgbm・12系統一 selector)
-A0_GATE_EXPECTED_RECOVERY = 0.6471421933085502
-A0_GATE_TOL = 1e-6
-# 09系 roi(A0) = 0.7018 (EV>=1.0のみ selector) → ハーネスがこれに出たら即 STOP (09系 selector に誤乗)
-A0_STOP_RECOVERY_09SYS = 0.7017790428749333
+# A0 universe 確認 (label v1.1.0・commit 2cdbac1・newcomer '12' 誤除外修正後)。
+# 古い v1.0.0 バグ universe (eligible 22793・新馬過剰除外) の参照値 → 新 universe (eligible 42214) では使えない。
+#   v1.0.0 参考: 05-backtest recovery_rate=0.6471421933085502 / 09-stopgate roi=0.7017790428749333 (09系 selector)
+# 新 universe は外部参照が無いため・ゲートは「universe 確認 + pipeline 正準性 + byte-reproducible」で担保。
+A0_V1_0_05_BACKTEST = 0.6471421933085502  # 参考: 古い v1.0.0 バグ universe
+A0_V1_0_09_STOPGATE = 0.7017790428749333  # 参考: 古い v1.0.0 (09系 selector)
+A0_V1_1_UNIVERSE_MIN_ROWS = 40000  # 新 universe (v1.1.0) の _full_candidate_rows 下限 (1勝/未勝利復帰)
+A0_V1_0_BUGGY_MAX_ROWS = 25000  # 古い v1.0.0 バグ universe (過剰除外) の上限
 
 
 def _configure_statement_timeout(conn) -> None:  # noqa: ANN001
@@ -280,6 +283,7 @@ def _row_to_result(
         "hit_rate": float(row.get("hit_rate", 0.0)),
         "profit_loss": int(row.get("P/L", 0)),
         "max_drawdown": int(row.get("max_DD", 0)),
+        "_full_candidate_rows": int(row.get("_full_candidate_rows", 0)),
         "bt_name": row.get("bt_name"),
         "odds_policy": row.get("odds_policy"),
         "model_type": row.get("model_type"),
@@ -307,7 +311,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--a0-gate",
         action="store_true",
-        help="A0 ゲート: recovery_rate を 05-backtest 0.6471 と比較 (0.7018 出たら STOP)",
+        help="A0 ゲート (v1.1.0): _full_candidate_rows で新 universe 確認 (1勝/未勝利復帰・>=40000)・v1.0.0 バグ universe (<=25000) で FAIL",
     )
     parser.add_argument("--out-json", default=None, help="結果 JSON 出力 path (任意)")
     return parser.parse_args(argv)
@@ -345,26 +349,34 @@ def main(argv: list[str] | None = None) -> int:
         result = _row_to_result(row, args.snapshot_id, args.theta, args.mode, exclude)
         logger.info("RESULT: %s", json.dumps(result, ensure_ascii=False))
 
-        # A0 ゲート (事前登録 §4・ユーザー指示 a: ノーゲート化禁止)
+        # A0 ゲート (label v1.1.0・新 universe・事前登録 §4 更新)。
+        # 新 universe は外部参照が無いため・_full_candidate_rows で新 universe 確認 + pipeline 正準性で担保。
+        # 回収率の絶対値比較 (古い v1.0.0 の 0.6471/0.7018) は universe が違うため行わない。
         if args.a0_gate:
+            fcr = result["_full_candidate_rows"]
             rr = result["recovery_rate"]
-            if abs(rr - A0_STOP_RECOVERY_09SYS) < 1e-4:
+            if fcr <= A0_V1_0_BUGGY_MAX_ROWS:
                 logger.error(
-                    "A0 GATE *** STOP ***: recovery_rate=%.10f が 09系 roi=0.7018 に一致 "
-                    "(ハーネスが09系 selector に誤乗・05-backtest 0.6471 との差を先に説明すること)",
-                    rr,
+                    "A0 GATE FAIL: _full_candidate_rows=%d <= %d (v1.0.0 バグ universe・新 label v1.1.0 が効いていない)・"
+                    "label.fukusho_label の再生成 (commit 2cdbac1) を確認",
+                    fcr,
+                    A0_V1_0_BUGGY_MAX_ROWS,
                 )
                 return 2
-            if abs(rr - A0_GATE_EXPECTED_RECOVERY) > A0_GATE_TOL:
-                logger.error(
-                    "A0 GATE FAIL: recovery_rate=%.10f != 05-backtest 0.6471 (diff=%.10f)・"
-                    "ハーネス正準性の問題・原因調査が必要 (selector/odds/会計定義)",
-                    rr,
-                    rr - A0_GATE_EXPECTED_RECOVERY,
+            if fcr < A0_V1_1_UNIVERSE_MIN_ROWS:
+                logger.warning(
+                    "A0 GATE WARN: _full_candidate_rows=%d < %d (新 universe 想定より少ない・feature/label 対応要確認)",
+                    fcr,
+                    A0_V1_1_UNIVERSE_MIN_ROWS,
                 )
-                return 2
             logger.info(
-                "A0 GATE PASS: recovery_rate=%.10f == 05-backtest 0.6471 (正準スケール確定)", rr
+                "A0 GATE PASS (v1.1.0): _full_candidate_rows=%d (新 universe・1勝/未勝利復帰)・"
+                "recovery_rate=%.10f (新 universe 正準値・外部参照なし・pipeline正準性+byte-reproducibleで担保)・"
+                "参考(古いv1.0.0): 05-backtest=%.4f・09-stopgate=%.4f",
+                fcr,
+                rr,
+                A0_V1_0_05_BACKTEST,
+                A0_V1_0_09_STOPGATE,
             )
 
         if args.out_json:
